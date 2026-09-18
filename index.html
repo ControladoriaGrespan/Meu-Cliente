@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fichas Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=8ucYBq6ZHVqzbQWFNq3jTp9cUhTD2Xg2Imfi_-tqWSpGip8rfhoTp3ICufTJxEMQtE8BpayhUPTREM5kXzGLX9n55HD11vu3iuBWADBYfgmf-nyK_6Z8JfwFL21PJZMg7xBRTuABMEwmPaF7g4tixJBgaX8t7vvzi48fUMyVK7rTSVxbRRAWBSo2sojGsEMsDRNVabkwsUGqQuhC-Rw0P8vIZgRx3prtrGsrSgSUjO9cB88Hw56EjzCrdEgRCArCqQVCJ5tYZpM0-dWl7xQIQ-dUnV7nhRQSFRXjXS9zWvSVtHyR98TO6hV-ofHFkewv7pxmfyAF6lNXCHi2sox_GA" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,6 +524,7 @@ const ETAPAS = [
 
 const MENUS = {
   vendedor: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'emissao', label: 'Emissão de Fichas', icon: '\u002B' },
     { id: 'fichas', label: 'Fichas', icon: '\u2261' },
@@ -531,6 +532,7 @@ const MENUS = {
     { id: 'solicitacoes', label: 'Solicitações', icon: '\u2691' },
   ],
   aprovador: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'pendencias', label: 'Pendências', icon: '\u2691' },
     { id: 'fichas', label: 'Fichas', icon: '\u2261' },
@@ -538,23 +540,27 @@ const MENUS = {
     { id: 'solicitacoes', label: 'Solicitações', icon: '\u2692' },
   ],
   manutencao: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'pendencias', label: 'Pendências', icon: '\u2691' },
     { id: 'clientes', label: 'Clientes', icon: '\u263A' },
     { id: 'solicitacoes', label: 'Solicitações', icon: '\u2692' },
   ],
   analise_credito: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'pendencias', label: 'Pendências', icon: '\u2691' },
     { id: 'clientes', label: 'Clientes', icon: '\u263A' },
   ],
   adm_vendas: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'pedidos', label: 'Pedidos', icon: '\u2692' },
     { id: 'clientes', label: 'Clientes', icon: '\u263A' },
     { id: 'rotas', label: 'Rotas', icon: '\u2699' },
   ],
   gestao_adm_vendas: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'pendencias', label: 'Pendências', icon: '\u2691' },
     { id: 'solicitacoes', label: 'Solicitações', icon: '\u2692' },
@@ -563,11 +569,13 @@ const MENUS = {
     { id: 'rotas', label: 'Rotas', icon: '\u2699' },
   ],
   tecnico: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'clientes', label: 'Clientes', icon: '\u263A' },
     { id: 'solicitacoes', label: 'Solicitações', icon: '\u2692' },
   ],
   admin: [
+    { id: 'perfil', label: 'Meu Perfil', icon: '◉' },
     { id: 'dashboard', label: 'Dashboard', icon: '\u25F3' },
     { id: 'fichas', label: 'Fichas', icon: '\u2261' },
     { id: 'clientes', label: 'Clientes', icon: '\u263A' },
@@ -1754,6 +1762,79 @@ function PaginaSolicitacoes({ profile, visao }) {
 }
 
 
+
+// =====================================================================
+// PAGINA: MEU PERFIL
+// =====================================================================
+function PaginaMeuPerfil({ profile, onProfileUpdated }) {
+  const toast = useToast();
+  const [nome, setNome] = useState(profile.nome || '');
+  const [telefone, setTelefone] = useState(profile.telefone || '');
+  const [senha, setSenha] = useState('');
+  const [senha2, setSenha2] = useState('');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvarDados() {
+    if (!nome.trim()) return toast('Informe o nome.', 'error');
+    setSalvando(true);
+    const { error } = await sb.from('usuarios')
+      .update({ nome: nome.trim(), telefone: telefone.trim() || null })
+      .eq('id', profile.id);
+    setSalvando(false);
+    if (error) return toast(error.message, 'error');
+    toast('Perfil atualizado.', 'success');
+    if (onProfileUpdated) onProfileUpdated({ ...profile, nome:nome.trim(), telefone:telefone.trim() || null });
+  }
+
+  async function alterarSenha() {
+    if (senha.length < 8) return toast('A nova senha deve ter pelo menos 8 caracteres.', 'error');
+    if (senha !== senha2) return toast('As senhas não conferem.', 'error');
+    setSalvando(true);
+    const { error: authErr } = await sb.auth.updateUser({ password: senha });
+    if (authErr) { setSalvando(false); return toast(authErr.message, 'error'); }
+
+    // Regra solicitada: ao salvar uma nova senha, remove automaticamente a exigência.
+    const { error: flagErr } = await sb.from('usuarios')
+      .update({
+        exigir_troca_senha: false,
+        senha_alterada_em: new Date().toISOString()
+      })
+      .eq('id', profile.id);
+
+    setSalvando(false);
+    if (flagErr) return toast('Senha alterada, mas houve erro ao atualizar o controle: ' + flagErr.message, 'error');
+    setSenha(''); setSenha2('');
+    toast('Senha alterada com sucesso.', 'success');
+    if (onProfileUpdated) onProfileUpdated({ ...profile, exigir_troca_senha:false });
+  }
+
+  return h('div', null,
+    h('div', { className:'page-head' },
+      h('div', null,
+        h('div', { className:'page-title' }, 'Meu Perfil'),
+        h('div', { className:'page-sub' }, 'Gerencie seus dados e sua senha'))),
+    profile.exigir_troca_senha && h('div', { className:'card', style:{borderLeft:'4px solid #e6321f', marginBottom:16} },
+      h('div', { className:'strong' }, 'Troca de senha obrigatória'),
+      h('div', { className:'page-sub', style:{marginTop:4} }, 'Defina uma nova senha. Após salvar, esta exigência será removida automaticamente.')),
+    h('div', { className:'card', style:{maxWidth:720} },
+      h('div', { className:'section-title' }, 'Dados do perfil'),
+      h('div', { className:'form-grid' },
+        h(Campo, { label:'Nome', obrigatorio:true }, h(Input,{value:nome,onChange:e=>setNome(e.target.value)})),
+        h(Campo, { label:'E-mail' }, h(Input,{value:profile.email || '',disabled:true})),
+        h(Campo, { label:'Telefone' }, h(Input,{value:telefone,onChange:e=>setTelefone(e.target.value)})),
+        h(Campo, { label:'Perfil' }, h(Input,{value:ROLE_LABELS[profile.papel] || profile.papel,disabled:true}))
+      ),
+      h('button',{className:'btn btn-primary',onClick:salvarDados,disabled:salvando},'Salvar dados')),
+    h('div',{className:'card',style:{maxWidth:720,marginTop:16}},
+      h('div',{className:'section-title'},'Alterar senha'),
+      h('div',{className:'form-grid'},
+        h(Campo,{label:'Nova senha',obrigatorio:true},h(Input,{type:'password',value:senha,onChange:e=>setSenha(e.target.value),placeholder:'Mínimo 8 caracteres'})),
+        h(Campo,{label:'Confirmar nova senha',obrigatorio:true},h(Input,{type:'password',value:senha2,onChange:e=>setSenha2(e.target.value)}))
+      ),
+      h('button',{className:'btn btn-primary',onClick:alterarSenha,disabled:salvando},'Salvar nova senha'))
+  );
+}
+
 // =====================================================================
 // PAGINA: CLIENTES
 // =====================================================================
@@ -2371,7 +2452,7 @@ function PaginaAdmin() {
       h('div', { className: 'table-wrap' },
         h('table', null,
           h('thead', null, h('tr', null,
-            ['Nome','Papel','Cód. Vendedor','Telefone','Supervisor','Coordenador','Ativo',''].map(c => h('th', { key: c }, c)))),
+            ['Nome','Papel','Cód. Vendedor','Telefone','Supervisor','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
           h('tbody', null,
             usuarios.map(u => {
               const alterado = !!edicoes[u.id];
@@ -3513,7 +3594,7 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [semPerfil, setSemPerfil] = useState(null);
   const [visao, setVisao] = useState(null);
-  const [pagina, setPagina] = useState('dashboard');
+  const [pagina, setPagina] = useState(profile && profile.exigir_troca_senha ? 'perfil' : 'dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [tema, setTema] = useState(() => localStorage.getItem('tema') || 'dark');
