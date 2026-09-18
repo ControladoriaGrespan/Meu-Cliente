@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=xCQ75qd5eGhddsx2YD2pkSH4Q6ntVeHAcpKk-Fl0xhlTMv6W-9--vwRajC0igXXZ8WTpZRfIpQcfX93T-ZKh4LcvtcCKfvJVvMzHTOA_nUgDrY4SsIqf-vaUJ0aPTU9fDKkKVWBNBcR7EZ3-bLwYsFVfYNBvXAEgv-cPOeaBnVF6WI8TZ5aJ6tIgVvF6IlOk8kyoU4jv9OFHgtkym6w1FNoKmCZLMI6iWUfc075XkvWdRE9p9Sp6shf8b_sp5ZuJq80BqP8bfry1VpUxMutcINus33v978KxSwJlEZXf244JCnT-yU_A7MAFxQHGE8Qc2rdNXFAKWDrVa8b4_HBFqojYc5VLOWIaulQnHDpTtYE" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=k3oD8m4pORYkMIW-tsA8lp2AwN-ag3Pk5YgTmxc1JLLiU2GbHsu7V8WYcFCQGKNcJXKTaGOe-3qlJGzMpVdFrYIeN_J67LCO4xdnN6BPTm9M2CbYYwlInV37qqxeuAslcO0v0PH1eM2tPUe6yes6DuJqejVJiS5tsoAIhmgHMMo9Z7mxMGNOpvm7jvdvl7SEEalVuvU_1UtPypRbkWx_V1B6tV5ociXjRDppMW49b0y-StazYkR8z07QRxfSmDeRDupOowiXpQihMG0FYnzay_5FBdrdlrF3x3_tnfCNm59wrO0HjnpXfkCHVog4y1LvTrdQ242KgI9ZNwYq98H5RqQHcqrZmIQCXdMytUijZgY" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -976,7 +976,7 @@ function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, 
 // PAGINA: EMISSAO DE FICHAS
 // =====================================================================
 const FORM_VAZIO = {
-  razao_social: '', cnpj_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
+  razao_social: '', cnpj_cpf: '', representante_nome: '', representante_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
   entrega_rua: '', entrega_numero: '', entrega_bairro: '', entrega_cidade: '', entrega_estado: '', entrega_cep: '',
   telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '', contrato: '',
   verba_introducao: '', verba_manutencao_cliente: '', verba_negociacao_cliente: '', duracao_verba: '', tecnico_panificacao: '', senioridade_tecnico: '',
@@ -1052,7 +1052,7 @@ function PaginaEmissao({ profile, onSaved }) {
 
     const { data: nova, error } = await sb.from('fichas_clientes').insert({
       vendedor_id: profile.id,
-      razao_social: f.razao_social.trim(), cnpj_cpf: f.cnpj_cpf,
+      razao_social: f.razao_social.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
       entrega_rua:f.entrega_rua.trim(), entrega_numero:f.entrega_numero.trim(), entrega_bairro:f.entrega_bairro.trim(), entrega_cidade:f.entrega_cidade.trim(), entrega_estado:f.entrega_estado.toUpperCase(), entrega_cep:f.entrega_cep, contrato:f.contrato==='Sim',
@@ -1110,6 +1110,8 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Razão Social', obrigatorio: true }, h(Input, { value: f.razao_social, onChange: e => set('razao_social', e.target.value) })),
         h(Campo, { label: 'CNPJ', obrigatorio: true }, h(Input, { value: f.cnpj_cpf, inputMode: 'numeric', placeholder: '00.000.000/0000-00', onChange: e => set('cnpj_cpf', mascaraCnpj(e.target.value)) })),
+        h(Campo,{label:'Representante Legal',obrigatorio:true},h(Input,{value:f.representante_nome,onChange:e=>set('representante_nome',e.target.value)})),
+        h(Campo,{label:'CPF do Representante',obrigatorio:true},h(Input,{value:f.representante_cpf,inputMode:'numeric',placeholder:'000.000.000-00',onChange:e=>set('representante_cpf',mascaraCpfCnpj(e.target.value))})),
         h(Campo, { label: 'Rua', obrigatorio: true }, h(Input, { value: f.rua, onChange: e => set('rua', e.target.value) })),
         h(Campo, { label: 'Número', obrigatorio: true }, h(Input, { value: f.numero, onChange: e => set('numero', e.target.value) })),
         h(Campo, { label: 'Bairro', obrigatorio: true }, h(Input, { value: f.bairro, onChange: e => set('bairro', e.target.value) })),
@@ -1353,6 +1355,7 @@ function baixarFichaPDF(f) {
   pdfLinha2(ctx,'Cliente',identificacaoFichaCliente(f),'CNPJ / CPF',f.cnpj_cpf);
   pdfLinha2(ctx,'Endereço',endereco,'Telefone',f.telefone);
   pdfLinha2(ctx,'E-mail',f.email,'Vendedor',f.usuarios&&f.usuarios.nome);
+  pdfLinha2(ctx,'Representante Legal',f.representante_nome,'CPF Representante',f.representante_cpf);
   pdfLinha2(ctx,'Número de Checkouts',f.numero_checkouts,'Número de Lojas',f.numero_lojas);
   pdfLinha2(ctx,'Contrato',f.contrato?'Sim':'Não','Endereço de Entrega',[f.entrega_rua,f.entrega_numero,f.entrega_bairro,f.entrega_cidade,f.entrega_estado,f.entrega_cep].filter(Boolean).join(', '));
 
@@ -1380,6 +1383,70 @@ function baixarFichaPDF(f) {
   pdfTabela(ctx,[{key:'etapa',label:'Etapa',w:48},{key:'status',label:'Status',w:32},{key:'data',label:'Data',w:32},{key:'obs',label:'Observação',w:68}],aprov);
   pdfTxt(ctx,'Criada em',fmtData(f.created_at),{muted:true});
   pdfRodape(ctx);ctx.doc.save(cod+'_ficha_'+nomePdf(f.razao_social)+'.pdf');
+}
+
+function fichaAprovadaDiretoria(f){
+  return (f.ficha_aprovacoes||[]).some(a=>a.etapa==='diretoria'&&a.status==='aprovado');
+}
+function gerarContratoPDF(f,salvar=true){
+  if(!window.jspdf){alert('Biblioteca de PDF não carregada.');return null;}
+  const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'});
+  const margem=18,larg=174;let y=18,pag=1;
+  const endereco=[f.rua,f.numero,f.bairro,f.cidade,f.estado,f.cep].filter(Boolean).join(', ');
+  const consumo=Number(f.consumo_previsto||0),kgMes=Math.round(consumo*PESO_PAO_KG*DIAS_MES*10)/10;
+  const prazo=f.condicao_pagamento_credito||f.prazo_pagamento||'conforme análise de crédito';
+  const temBonif=Number(f.verbas_acordo||0)>0;
+  function cab(){d.setFont('helvetica','bold');d.setTextColor(176,28,32);d.setFontSize(20);d.text('GRESPAN',margem,18);d.setFontSize(7);d.setTextColor(90);d.text('Pães Congelados',margem,22);d.setDrawColor(176,28,32);d.line(margem,26,192,26);y=34;}
+  function rod(){d.setDrawColor(210);d.line(margem,282,192,282);d.setFont('helvetica','normal');d.setFontSize(6.4);d.setTextColor(95);d.text('GRESPAN PAES CONGELADOS LTDA | Av. República, 7000 | Marília/SP | CNPJ 10.809.214/0001-67',margem,287);d.text('Página '+pag,192,287,{align:'right'});}
+  function nova(){rod();d.addPage();pag++;cab();}
+  function par(txt,bold=false){d.setFont('helvetica',bold?'bold':'normal');d.setFontSize(9.3);d.setTextColor(25);const ls=d.splitTextToSize(String(txt||''),larg),alt=ls.length*4.5+2;if(y+alt>277)nova();d.text(ls,margem,y);y+=alt;}
+  cab();d.setFont('helvetica','bold');d.setFontSize(14);d.setTextColor(25);d.text('ACORDO COMERCIAL',105,y,{align:'center'});y+=8;
+  d.setFontSize(7.5);d.setTextColor(95);d.text(f.contrato?'MODELO ACORDO COMERCIAL GRESPAN 2025':'MODELO 1 ACORDO COMERCIAL GRESPAN 2025 - Sem Multa',105,y,{align:'center'});y+=10;
+  par('Prezados(as) '+(f.representante_nome||f.razao_social||'')+',');
+  par('É com grande satisfação que apresentamos nosso Acordo Comercial, elaborado de forma personalizada para atender às necessidades específicas de sua empresa.');
+  y+=2;par('Cliente:',true);par(`${f.razao_social||''}, inscrita no CNPJ sob o nº ${f.cnpj_cpf||''}, situada em ${endereco}, devidamente representada por ${f.representante_nome||''}, CPF ${f.representante_cpf||''}.`);
+  par('Fornecedor:',true);par('GRESPAN PAES CONGELADOS LTDA, inscrita no CNPJ sob o nº 10.809.214/0001-67, situada na Av. República, 7000, Distrito Industrial Santo Barion, Marília/SP, CEP 17.512-035.');
+  y+=2;par('1. Cláusula Primeira - Do Objeto',true);par('O presente contrato tem como objeto a formalização de acordo comercial, negociada entre cliente e fornecedor conforme especificações a seguir.');
+  par('2. Cláusula Segunda - Regras Gerais do Acordo Comercial para o Parceiro CLIENTE',true);
+  par('2.1 - Exclusividade: O cliente se compromete a utilizar exclusivamente os produtos Grespan em equipamentos cedidos pela empresa.');
+  par(`2.2 - Consumo: Para a manutenção do acordo, será exigido consumo médio diário de ${fmtNum(consumo)} pães franceses, ou aproximadamente ${fmtNum(kgMes)} quilos mensais, conforme negociado entre as partes.`);
+  par('2.3 - Atualizações no Cadastro: Quaisquer alterações cadastrais deverão ser comunicadas à Grespan para atualização e continuidade do fornecimento.');
+  par('2.4 - Análise de Crédito e Inadimplência: O acordo será submetido à análise de crédito. Em caso de inadimplência, a continuidade do acordo estará sujeita à revisão, podendo incluir suspensão de fornecimento, benefícios e retirada dos equipamentos.');
+  par('2.5 - Comodato e Conservação dos Equipamentos: Os equipamentos cedidos deverão ser utilizados exclusivamente para produtos Grespan, sendo responsabilidade do cliente sua conservação, limpeza e bom uso.');
+  par('2.6 - Trocas de Equipamentos: A substituição estará sujeita à análise técnica da Manutenção e às aprovações aplicáveis.');
+  par('2.7 - Retirada de Equipamentos: O descumprimento das condições poderá implicar retirada dos equipamentos, especialmente por consumo abaixo do mínimo ou inadimplência.');
+  par('2.8 - Modificações posteriores: Mudanças nos termos comerciais somente vigorarão mediante aprovação da Diretoria e formalização pelas partes.');
+  if(temBonif)par('2.9 - Manutenção da Bonificação: A bonificação fica condicionada ao cumprimento do consumo mínimo acordado.');
+  par('3. Cláusula Terceira - Regras Gerais do Acordo Comercial para o Parceiro FORNECEDOR',true);
+  par('3.1 - Acompanhamento de Equipamentos: A Grespan acompanhará a entrega e retirada dos equipamentos e poderá realizar vistorias.');
+  par('3.2 - Entregas: As entregas ocorrerão conforme a programação comercial e logística estabelecida.');
+  par('3.3 - Manutenção dos equipamentos: Será responsabilidade do Fornecedor quando não decorrente de mau uso ou negligência do Cliente.');
+  par('3.4 - Treinamentos: Será oferecido treinamento para o correto manuseio dos produtos.');
+  if(temBonif){par('4. Cláusula Quarta - Bonificações/Benefícios do Acordo',true);par(`Benefícios/verbas comerciais aprovados: ${fmtMoeda(f.verbas_acordo||0)}.`);}
+  if(f.contrato){
+    par('5. Cláusula Quinta - Condições Comerciais Gerais',true);
+    par(`5.1 - Preço do quilo do Pão Francês: ${fmtMoeda(f.preco_kg||0)}.`);
+    par('5.2 - Atualização/Ajustes de Preços: os preços poderão ser atualizados conforme as condições previstas no acordo.');
+    par(`5.3 - Prazo de Pagamento: ${prazo}. Em caso de inadimplência, a condição poderá ser suspensa e reavaliada.`);
+    par('5.4 - Horário de Pedidos: entre 7:30h e 13h.');
+  }else{
+    par('Observações',true);par('Horário de Pedidos: entre 7:30h e 13h.');
+    par('Validade do acordo: prazo indeterminado, iniciando sua vigência após as assinaturas.');
+    par(`Prazo de Pagamento: ${prazo}.`);
+  }
+  if(y>235)nova();y+=7;par((f.cidade||'Marília')+', '+new Date().toLocaleDateString('pt-BR')+'.');
+  y+=13;d.setDrawColor(50);d.line(25,y,90,y);d.line(120,y,185,y);y+=5;d.setFontSize(8);d.setTextColor(30);
+  d.text('GRESPAN PÃES CONGELADOS LTDA',57.5,y,{align:'center'});d.text(f.representante_nome||'Representante do Cliente',152.5,y,{align:'center'});y+=4;
+  d.text('10.809.214/0001-67',57.5,y,{align:'center'});d.text('CPF: '+(f.representante_cpf||''),152.5,y,{align:'center'});rod();
+  const nome='Acordo Comercial GRESPAN PÃES x '+String(f.razao_social||'CLIENTE').replace(/[\\/:*?"<>|]/g,'-')+'.pdf';
+  if(salvar)d.save(nome);return {doc:d,nome};
+}
+function solicitarAssinaturaContrato(f){
+  if(!fichaAprovadaDiretoria(f))return alert('O contrato só pode ser enviado para assinatura após a aprovação da Diretoria.');
+  const enviar=window.confirm('Enviar para o DocuSign?\\n\\nOK = Sim\\nCancelar = Não (baixar PDF)');
+  if(!enviar){gerarContratoPDF(f,true);return;}
+  const gerado=gerarContratoPDF(f,false);if(!gerado)return;
+  alert('Integração com DocuSign ainda não configurada.\\n\\nNenhum documento foi enviado. Quando a API for integrada, esta opção enviará o contrato diretamente para assinatura.');
 }
 function baixarSolicitacaoPDF(s) {
   const cli=s.clientes||{},cod=codigoAuditoria(s,prefixoSolicitacao(s));
@@ -1445,9 +1512,10 @@ function DetalheFicha({ ficha, onClose }) {
   return h(Modal, {
     titulo: identificacaoFichaCliente(f), sub: codigoAuditoria(f, 'FIC') + (f.cnpj_cpf ? ' · ' + f.cnpj_cpf : ''), largo: true, onClose,
     acoes: [
-      h('button', { key:'pdf', className:'btn btn-primary', onClick: () => baixarFichaPDF(f) }, '↓ Baixar PDF'),
+      h('button', { key:'pdf', className:'btn btn-secondary', onClick: () => baixarFichaPDF(f) }, '↓ Baixar Ficha'),
+      fichaAprovadaDiretoria(f) && h('button', { key:'contrato', className:'btn btn-primary', onClick: () => solicitarAssinaturaContrato(f) }, 'Enviar para assinatura'),
       h('button', { key:'fechar', className: 'btn btn-secondary', onClick: onClose }, 'Fechar')
-    ]
+    ].filter(Boolean)
   },
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 } },
       h('div', null,
@@ -1456,6 +1524,8 @@ function DetalheFicha({ ficha, onClose }) {
         linhaInfo('CEP', f.cep),
         linhaInfo('Telefone', f.telefone),
         linhaInfo('E-mail', f.email),
+        linhaInfo('Representante Legal',f.representante_nome),
+        linhaInfo('CPF Representante',f.representante_cpf),
         linhaInfo('Checkouts', f.numero_checkouts),
         linhaInfo('Lojas', f.numero_lojas),
         linhaInfo('Vendedor', f.usuarios && f.usuarios.nome),
