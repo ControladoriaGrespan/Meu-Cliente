@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=XoJrqfJMJ4v3HiCPmsRhLUMxeO2Wuc3L76c-Dd2YwEBTc1e5hYPd6YAJ3cjHU8OthtLIdPAARAnEO3XzW1lxIocnyfHQHyX1akxs3OAKV0F2YvFKkWQG_Tre-Vq2z5u-fZGFvTs-Q9ZZNt1UsNFxWn5qOCTQCJiCVXFj3s7wWGQkqAFwIwqWWGMEuUYBjtQAPagb5f-5YLPPpP3SqYQ4qupmka4JNbJcwBgUrB4IhL-gaXoKWGzcuT2C2v1FtvWumG4VvpzfZW2FbUN42wfnEa_s7wjwMSva-sy0c361OuXzS1NL6C14l5sIAM5Cb-id4gS-HnB5RcOVq2_Ytez_xg" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=6ft2wLl2OqTO75Vw6rSu6j2m998XFkPPv7Poj0irJYZmJNcLq9PZEqrvXxPHbVjv1yfGvveVNu9-5FaNEwk0pfwVkuy95gqOG_Q2If_CHlz2fwN0KZbj_QR0Gdqdl8qY66VLulGIbZWTURFayzl3M5qYYSkcYa4gOHUJv3zWJB9wMIRtHJwqokz1Y6JbtGsv_Ad8uTAMYUgmo2Oece3dliuqtJuynFwuNrZT5LJDIKzJKEdejTBrEUmF9qjAFRIqNq9s9rdneNO2WLjYTFsA2pMehmkW1GApyVLx_Ap80FHRZRA2UDPlZ-C6cD-IflhrhtfkU7lEYbBLrTTRx61q4A" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -2344,6 +2344,73 @@ function PaginaDashboard({ profile, visao, ehPreview }) {
     h('div', { className: 'kpi-grid' }, kpis.map((k, i) => h(Kpi, { key: i, ...k }))));
 }
 
+
+// Confirmação administrativa com campo de senha mascarado.
+// A senha existe somente em memória durante a confirmação.
+function solicitarSenhaAdministrador(nomeUsuario) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'width:min(430px,100%);background:#fff;border-radius:14px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.28);color:#172033';
+
+    const titulo = document.createElement('div');
+    titulo.textContent = 'Confirmar exclusão de usuário';
+    titulo.style.cssText = 'font-size:18px;font-weight:800;margin-bottom:7px';
+
+    const texto = document.createElement('div');
+    texto.textContent = 'Digite sua senha de Administrador para excluir ' + nomeUsuario + '.';
+    texto.style.cssText = 'font-size:13px;color:#667085;margin-bottom:16px;line-height:1.45';
+
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.autocomplete = 'current-password';
+    input.placeholder = 'Senha do Administrador';
+    input.style.cssText = 'width:100%;box-sizing:border-box;border:1px solid #cfd6e4;border-radius:8px;padding:11px 12px;font-size:14px;outline:none';
+
+    const erro = document.createElement('div');
+    erro.style.cssText = 'min-height:18px;color:#b42318;font-size:12px;margin-top:6px';
+
+    const acoes = document.createElement('div');
+    acoes.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:15px';
+
+    const cancelar = document.createElement('button');
+    cancelar.textContent = 'Cancelar';
+    cancelar.style.cssText = 'border:1px solid #d0d5dd;background:#fff;border-radius:8px;padding:9px 14px;cursor:pointer';
+
+    const confirmar = document.createElement('button');
+    confirmar.textContent = 'Confirmar exclusão';
+    confirmar.style.cssText = 'border:0;background:#e6321f;color:#fff;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer';
+
+    function fechar(valor) {
+      document.removeEventListener('keydown', tecla);
+      overlay.remove();
+      resolve(valor);
+    }
+    function tecla(e) {
+      if (e.key === 'Escape') fechar(null);
+      if (e.key === 'Enter' && document.activeElement === input) {
+        if (!input.value) { erro.textContent = 'Informe sua senha.'; return; }
+        fechar(input.value);
+      }
+    }
+    cancelar.onclick = () => fechar(null);
+    confirmar.onclick = () => {
+      if (!input.value) { erro.textContent = 'Informe sua senha.'; input.focus(); return; }
+      fechar(input.value);
+    };
+    overlay.onclick = e => { if (e.target === overlay) fechar(null); };
+    document.addEventListener('keydown', tecla);
+
+    acoes.append(cancelar, confirmar);
+    box.append(titulo, texto, input, erro, acoes);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    setTimeout(() => input.focus(), 30);
+  });
+}
+
 // =====================================================================
 // PAGINA: ADMINISTRACAO
 // =====================================================================
@@ -2402,8 +2469,18 @@ function PaginaAdmin({ profile }) {
       '\n\nO usuário perderá o acesso ao sistema. Esta ação não poderá ser desfeita.\n\nDeseja continuar?'
     )) return;
 
-    const digitado = window.prompt('Para confirmar, digite EXCLUIR:');
-    if ((digitado || '').trim().toUpperCase() !== 'EXCLUIR') return toast('Exclusão cancelada.', 'info');
+    const senhaAdmin = await solicitarSenhaAdministrador(nome);
+    if (!senhaAdmin) return toast('Exclusão cancelada.', 'info');
+
+    // Reautentica o Administrador atual. A senha não é salva nem enviada
+    // para a função de exclusão; é usada somente pelo Supabase Auth.
+    const emailAdmin = profile.email || '';
+    const { error: authError } = await sb.auth.signInWithPassword({
+      email: emailAdmin,
+      password: senhaAdmin
+    });
+
+    if (authError) return toast('Senha de Administrador incorreta. Usuário não excluído.', 'error');
 
     const { error } = await sb.rpc('excluir_usuario_definitivamente', { p_usuario_id: u.id });
     if (error) return toast('Não foi possível excluir o usuário: ' + error.message, 'error');
@@ -3641,7 +3718,7 @@ function App() {
     const { data: perfil } = await sb.from('usuarios').select('*').eq('id', session.user.id).single();
     if (!perfil) { setSemPerfil(session.user.id); setSessionReady(true); return; }
     setProfile(perfil); setVisao(perfil.papel);
-    setPagina('dashboard'); setSessionReady(true);
+    setPagina(perfil.exigir_troca_senha ? 'perfil' : 'dashboard'); setSessionReady(true);
   }
 
   useEffect(() => { if (profile && visao) atualizarContador(); }, [profile, visao, pagina]);
@@ -3686,10 +3763,18 @@ function App() {
 
   const ehPreview = profile.papel === 'admin' && visao !== 'admin';
   const menuIds = menuFor(visao).map(m => m.id);
-  const paginaAtual = menuIds.includes(pagina) ? pagina : menuIds[0];
+  // Meu Perfil é uma rota pessoal e não precisa aparecer no menu do papel.
+  // Também força a tela de perfil quando há troca obrigatória de senha.
+  const paginaAtual = profile.exigir_troca_senha
+    ? 'perfil'
+    : (pagina === 'perfil' ? 'perfil' : (menuIds.includes(pagina) ? pagina : menuIds[0]));
 
   let conteudo;
-  if (paginaAtual === 'dashboard') conteudo = h(PaginaDashboard, { profile, visao, ehPreview });
+  if (paginaAtual === 'perfil') conteudo = h(PaginaMeuPerfil, {
+    profile,
+    onProfileUpdated: p => setProfile(p)
+  });
+  else if (paginaAtual === 'dashboard') conteudo = h(PaginaDashboard, { profile, visao, ehPreview });
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
   else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile });
