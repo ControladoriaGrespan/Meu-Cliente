@@ -595,6 +595,7 @@ function menuForModulo(modulo, papel) {
     return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin');
   }
   if(modulo==='administracao_vendas') return [
+    {id:'dashboard',label:'Dashboard',icon:'◳'},
     {id:'pedidos',label:'Pedidos',icon:'▤'},{id:'rotas',label:'Rotas',icon:'⚙'},
     {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
     {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
@@ -2397,7 +2398,7 @@ function PaginaModulos({profile,modulos,onAbrir,onPerfil,onConfig,onLogout}){
         h('div',{style:{width:42,height:42,borderRadius:10,background:'var(--accent)',color:'#fff',display:'grid',placeItems:'center',fontWeight:900,fontSize:22}},'G'),
         h('div',null,h('div',{style:{fontWeight:900,fontSize:18}},'Meu Cliente'),h('div',{style:{fontSize:11,color:'var(--text-muted)'}},'Grespan Pães Congelados'))),
       h('div',{style:{display:'flex',gap:8}},
-        profile.papel==='admin'&&h('button',{className:'btn btn-secondary btn-sm',onClick:onConfig},'Configurar módulos'),
+        profile.papel==='admin'&&h('button',{className:'btn btn-primary btn-sm',onClick:onConfig},'Administração'),
         h('button',{className:'btn btn-secondary btn-sm',onClick:onPerfil},'Meu Perfil'),
         h('button',{className:'btn btn-secondary btn-sm',onClick:onLogout},'Sair'))),
     h('div',{style:{marginBottom:30}},
@@ -2412,7 +2413,7 @@ function PaginaModulos({profile,modulos,onAbrir,onPerfil,onConfig,onLogout}){
         h('div',{style:{textAlign:'right',fontSize:22,color:'var(--text-muted)'}},'→'));})));
 }
 
-function PaginaConfiguracaoModulos({onVoltar}){
+function PaginaConfiguracaoModulos({onVoltar,onUsuarios}){
   const toast=useToast();
   const [usuarios,setUsuarios]=useState(null);
   const [mods,setMods]=useState({});
@@ -2466,8 +2467,10 @@ function PaginaConfiguracaoModulos({onVoltar}){
 
   return h('div',null,
     h('div',{className:'page-head'},
-      h('div',null,h('div',{className:'page-title'},'Módulos e Carteiras'),h('div',{className:'page-sub'},'Permissões por usuário e carteira da Administração de Vendas')),
-      h('button',{className:'btn btn-secondary',onClick:onVoltar},'← Central de Módulos')),
+      h('div',null,h('div',{className:'page-title'},'Administração'),h('div',{className:'page-sub'},'Usuários, hierarquia comercial, módulos e carteiras')),
+      h('div',{style:{display:'flex',gap:8}},
+        h('button',{className:'btn btn-primary',onClick:onUsuarios},'Gestão de Usuários e Hierarquia'),
+        h('button',{className:'btn btn-secondary',onClick:onVoltar},'← Central de Módulos'))),
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Acesso aos módulos'),
       h('div',{style:{overflowX:'auto'}},
@@ -2484,9 +2487,10 @@ function PaginaConfiguracaoModulos({onVoltar}){
 // =====================================================================
 // PAGINA: DASHBOARD
 // =====================================================================
-function PaginaDashboard({ profile, visao, ehPreview }) {
+function PaginaDashboard({ profile, visao, ehPreview, modulo }) {
   const [dados,setDados]=useState(null);
   const [equipe,setEquipe]=useState([]);
+  const [supervisoresDash,setSupervisoresDash]=useState([]);
 
   useEffect(()=>{carregar();},[visao,profile.id]);
 
@@ -2507,8 +2511,8 @@ function PaginaDashboard({ profile, visao, ehPreview }) {
   }
 
   async function carregar(){
-    setDados(null);setEquipe([]);
-    if(['vendedor','supervisor','coordenador','diretoria','admin'].includes(visao)){
+    setDados(null);setEquipe([]);setSupervisoresDash([]);
+    if(['vendedor','supervisor','coordenador','diretoria','admin','adm_vendas','gestao_adm_vendas'].includes(visao)){
       let ids=null;
       if(!ehPreview) ids=await vendedoresVisiveis(profile);
       let q=sb.from('fichas_clientes')
@@ -2529,6 +2533,25 @@ function PaginaDashboard({ profile, visao, ehPreview }) {
           map[id].fichas.push(f);
         });
         setEquipe(Object.values(map).map(x=>({...x,...resumo(x.fichas)})).sort((a,b)=>b.total-a.total));
+      }
+
+      if(modulo==='administracao_vendas'){
+        let qs=sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true);
+        if(visao==='adm_vendas'){
+          const {data:cart}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
+          const sid=(cart||[]).map(x=>x.supervisor_id);
+          if(!sid.length){setSupervisoresDash([]);return;}
+          qs=qs.in('id',sid);
+        }
+        const {data:sups}=await qs;
+        const supRows=[];
+        for(const sp of (sups||[])){
+          const {data:vends}=await sb.from('usuarios').select('id').eq('papel','vendedor').eq('supervisor_id',sp.id).eq('ativo',true);
+          const vids=(vends||[]).map(v=>v.id);
+          const fichas=vids.length?lista.filter(f=>vids.includes(f.vendedor_id)):[];
+          supRows.push({id:sp.id,nome:sp.nome,vendedores:vids.length,...resumo(fichas)});
+        }
+        setSupervisoresDash(supRows.sort((a,b)=>b.total-a.total));
       }
       return;
     }
@@ -2560,9 +2583,22 @@ function PaginaDashboard({ profile, visao, ehPreview }) {
 
   return h('div',null,
     h('div',{className:'page-head'},h('div',null,
-      h('div',{className:'page-title'},'Dashboard de Vendas'),
-      h('div',{className:'page-sub'},visao==='vendedor'?'Seu desempenho comercial':'Desempenho da estrutura comercial'))),
+      h('div',{className:'page-title'},modulo==='administracao_vendas'?'Dashboard — Administração de Vendas':'Dashboard de Vendas'),
+      h('div',{className:'page-sub'},
+        visao==='vendedor'?'Seu desempenho comercial':
+        visao==='adm_vendas'?'Indicadores da sua carteira de Supervisores':
+        visao==='gestao_adm_vendas'?'Indicadores consolidados de todas as carteiras':'Desempenho da estrutura comercial'))),
     h('div',{className:'kpi-grid'},...kpis.map((k,i)=>h(Kpi,{key:i,...k}))),
+    modulo==='administracao_vendas' && supervisoresDash.length>0 && h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Desempenho por Carteira / Supervisor'),
+      h('div',{style:{overflowX:'auto'}},
+        h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,
+            h('th',null,'Supervisor'),h('th',null,'Vendedores'),h('th',null,'Fichas enviadas'),h('th',null,'Aprovadas'),
+            h('th',null,'Em andamento'),h('th',null,'Taxa aprovação'),h('th',null,'Fat. médio esperado'))),
+          h('tbody',null,...supervisoresDash.map(sp=>h('tr',{key:sp.id},
+            h('td',null,h('b',null,sp.nome)),h('td',null,sp.vendedores),h('td',null,sp.total),h('td',null,sp.aprovadas),
+            h('td',null,sp.andamento),h('td',null,sp.taxa.toFixed(1)+'%'),h('td',null,fmtMoeda(sp.media)))))))),
     equipe.length>0 && h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Desempenho por Vendedor'),
       h('div',{style:{overflowX:'auto'}},
@@ -2771,9 +2807,11 @@ function PaginaAdmin({ profile }) {
 
     h('div', { className: 'page-head' },
       h('div', null,
-        h('div', { className: 'page-title' }, 'Administração'),
-        h('div', { className: 'page-sub' }, usuarios.length + ' usuário(s) cadastrado(s)')),
-      h('button', { className: 'btn btn-primary', onClick: () => setModalNovo(true) }, '+ Novo usuário')),
+        h('div', { className: 'page-title' }, 'Gestão de Usuários'),
+        h('div', { className: 'page-sub' }, usuarios.length + ' usuário(s) cadastrado(s) · papéis e hierarquia comercial')),
+      h('div',{style:{display:'flex',gap:8}},
+        h('button', { className:'btn btn-secondary', onClick:()=>window.dispatchEvent(new CustomEvent('abrir-config-modulos')) }, 'Módulos e Carteiras'),
+        h('button', { className: 'btn btn-primary', onClick: () => setModalNovo(true) }, '+ Novo usuário'))),
 
     h('div', { className: 'card', style: { padding: 0 } },
       h('div', { className: 'table-wrap' },
@@ -3940,6 +3978,12 @@ function App() {
   const [modulosUsuario,setModulosUsuario]=useState([]);
 
   useEffect(() => {
+    const fn=()=>{setModulo(null);setPagina('config_modulos');};
+    window.addEventListener('abrir-config-modulos',fn);
+    return ()=>window.removeEventListener('abrir-config-modulos',fn);
+  },[]);
+
+  useEffect(() => {
     document.documentElement.className = tema === 'light' ? 'light' : '';
     localStorage.setItem('tema', tema);
   }, [tema]);
@@ -4000,7 +4044,10 @@ function App() {
 
   const ehPreview = profile.papel === 'admin' && visao !== 'admin';
   if(!profile.exigir_troca_senha && pagina==='config_modulos' && profile.papel==='admin')
-    return h('div',{style:{padding:24}},h(PaginaConfiguracaoModulos,{onVoltar:()=>{setModulo(null);setPagina('modulos')}}));
+    return h('div',{style:{padding:24}},h(PaginaConfiguracaoModulos,{
+      onVoltar:()=>{setModulo(null);setPagina('modulos')},
+      onUsuarios:()=>{setModulo('vendas');setVisao('admin');setPagina('administracao')}
+    }));
   if(!profile.exigir_troca_senha && (!modulo || pagina==='modulos')){
     return h(PaginaModulos,{profile,modulos:modulosUsuario,
       onAbrir:m=>{setModulo(m);setVisao(profile.papel);const x=menuForModulo(m,profile.papel)[0];setPagina(x?x.id:'dashboard')},
@@ -4013,7 +4060,7 @@ function App() {
     profile,
     onProfileUpdated: p => setProfile(p)
   });
-  else if (paginaAtual === 'dashboard') conteudo = h(PaginaDashboard, { profile, visao, ehPreview });
+  else if (paginaAtual === 'dashboard') conteudo = h(PaginaDashboard, { profile, visao, ehPreview, modulo });
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
   else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile });
