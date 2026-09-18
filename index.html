@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=2hBWy4USet_O_UKYGGw2d9g5E1kHfl1nDz9RLX0zXOhIzEYYDrxkXF4QO9xqiHD7MRfXpMQs_5GQh3eUxHeLSJ-286H2q8gSOeng_ZsxSYZ6t4OmINxqo-4hrGSFn62yGWonEyXSU77Ag-djXAU6G6zmOOGg1vnpnxYh0xAuOQMg_A1gm--d_kerW6XruGIVZYpbV0CHNVNESN1O4qho9xld4CJ4DiNvgBK3rFqwW7lkfhlgKx6rz66U13rIzMVv3VPkgQo7zDBZ2PbR5BiFvY6VFjabObtdGVDsaF2zMaRCzD5EWs301qYsO4QS4FVU9M4_vw0VWgMQs_OlJdXQZUvb0fcaBrYY2uF8nrYofGs" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3265,214 +3265,187 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
 
 function PaginaEntregasEquipamentos({profile}) {
   const toast=useToast();
-  const [entregas,setEntregas]=useState(null);
-  const [rotas,setRotas]=useState([]);
-  const [itensRota,setItensRota]=useState([]);
-  const [sel,setSel]=useState([]);
-  const [data,setData]=useState('');
-  const [aberta,setAberta]=useState(null);
-  const [erro,setErro]=useState('');
-  const mapRef=useRef(null);
+  const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
+  const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
+  const [fCidade,setFCidade]=useState(''),[fCliente,setFCliente]=useState(''),[fStatus,setFStatus]=useState('');
+  const [aberta,setAberta]=useState(null),[erro,setErro]=useState('');
+  const mapMontagemRef=useRef(null),mapRotaRef=useRef(null);
 
   useEffect(()=>{carregar();},[]);
-  useEffect(()=>{
-    if(!aberta)return;
-    const t=setTimeout(()=>desenha(aberta),150);
-    return()=>clearTimeout(t);
-  },[aberta,itensRota]);
+  useEffect(()=>{const t=setTimeout(()=>desenhaMontagem(),120);return()=>clearTimeout(t);},[selecionadas,entregas]);
+  useEffect(()=>{if(!aberta)return;const t=setTimeout(()=>desenhaRota(aberta),150);return()=>clearTimeout(t);},[aberta,itensRota,entregas]);
 
   async function carregar(){
     setErro('');
     try{
       const [re,rr,ri]=await Promise.all([
-        sb.from('entregas_equipamentos')
-          .select('id,ficha_id,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,created_at,fichas_clientes(razao_social)')
-          .order('created_at',{ascending:false}),
-        sb.from('rotas_equipamentos')
-          .select('id,nome,data_rota,status,created_at')
-          .order('data_rota',{ascending:false}),
-        sb.from('rota_equipamento_itens')
-          .select('id,rota_id,entrega_id,ordem')
-          .order('ordem')
+        sb.from('entregas_equipamentos').select('id,ficha_id,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,created_at,fichas_clientes(razao_social,codigo_totvs)').order('created_at',{ascending:false}),
+        sb.from('rotas_equipamentos').select('id,nome,data_rota,status,created_at').order('data_rota',{ascending:false}),
+        sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem')
       ]);
-      if(re.error)throw re.error;
-      if(rr.error)throw rr.error;
-      if(ri.error)throw ri.error;
-      setEntregas(re.data||[]);
-      setRotas(rr.data||[]);
-      setItensRota(ri.data||[]);
-    }catch(e){
-      console.error('Entregas e Rotas:',e);
-      setEntregas([]);
-      setRotas([]);
-      setItensRota([]);
-      setErro(e && e.message ? e.message : 'Não foi possível carregar Entregas e Rotas.');
-    }
+      if(re.error)throw re.error;if(rr.error)throw rr.error;if(ri.error)throw ri.error;
+      setEntregas(re.data||[]);setRotas(rr.data||[]);setItensRota(ri.data||[]);
+    }catch(e){console.error(e);setEntregas([]);setRotas([]);setItensRota([]);setErro(e&&e.message?e.message:'Erro ao carregar entregas.');}
   }
 
-  function entregaPorId(id){return (entregas||[]).find(x=>x.id===id);}
-  function itensDaRota(id){
-    return itensRota.filter(x=>x.rota_id===id).slice().sort((a,b)=>a.ordem-b.ordem)
-      .map(i=>({...i,entrega:entregaPorId(i.entrega_id)}));
+  function nomeCliente(e){return (e&&e.fichas_clientes&&e.fichas_clientes.razao_social)||'—';}
+  function codCliente(e){return (e&&e.fichas_clientes&&e.fichas_clientes.codigo_totvs)||'';}
+  function endereco(e){return [e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep].filter(Boolean).join(', ');}
+  function entregaPorId(id){return (entregas||[]).find(e=>e.id===id);}
+  function itensDaRota(id){return itensRota.filter(i=>i.rota_id===id).slice().sort((a,b)=>a.ordem-b.ordem).map(i=>({...i,entrega:entregaPorId(i.entrega_id)}));}
+  function jaEmRota(id){return itensRota.some(i=>i.entrega_id===id);}
+  function toggle(e){
+    if(selecionadas.includes(e.id)){setSelecionadas(x=>x.filter(id=>id!==e.id));return;}
+    setSelecionadas(x=>[...x,e.id]);
+    if(e.latitude==null||e.longitude==null)geo(e).then(n=>{if(n&&n.latitude!=null)setEntregas(xs=>xs.map(z=>z.id===n.id?n:z));});
   }
+
+  const cidades=[...new Set((entregas||[]).map(e=>e.endereco_cidade).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const filtradas=(entregas||[]).filter(e=>{
+    if(!['pendente_agendamento','agendada'].includes(e.status))return false;
+    if(jaEmRota(e.id))return false;
+    if(fCidade&&e.endereco_cidade!==fCidade)return false;
+    const q=fCliente.trim().toLowerCase();
+    if(q&&!(`${codCliente(e)} ${nomeCliente(e)}`.toLowerCase().includes(q)))return false;
+    if(fStatus&&e.status!==fStatus)return false;
+    return true;
+  });
+  const escolhidas=selecionadas.map(entregaPorId).filter(Boolean);
+
   async function geo(e){
-    if(!e)return e;
-    if(e.latitude!=null&&e.longitude!=null)return e;
+    if(!e)return e;if(e.latitude!=null&&e.longitude!=null)return e;
     try{
       const q=[e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep,'Brasil'].filter(Boolean).join(', ');
-      const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(q),{
-        headers:{'Accept-Language':'pt-BR'}
-      });
-      if(!r.ok)throw new Error('Falha ao localizar endereço');
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(q),{headers:{'Accept-Language':'pt-BR'}});
       const j=await r.json();
       if(j&&j[0]){
         const latitude=Number(j[0].lat),longitude=Number(j[0].lon);
-        const up=await sb.from('entregas_equipamentos').update({latitude,longitude}).eq('id',e.id);
-        if(up.error)console.warn(up.error);
+        await sb.from('entregas_equipamentos').update({latitude,longitude}).eq('id',e.id);
         return {...e,latitude,longitude};
       }
-    }catch(ex){console.warn('Geocodificação:',ex);}
+    }catch(ex){console.warn('Geocodificação',ex);}
     return e;
   }
-  function km(a,b){
-    const R=6371,r=x=>x*Math.PI/180,d1=r(b.latitude-a.latitude),d2=r(b.longitude-a.longitude);
-    const z=Math.sin(d1/2)**2+Math.cos(r(a.latitude))*Math.cos(r(b.latitude))*Math.sin(d2/2)**2;
-    return 2*R*Math.asin(Math.sqrt(z));
-  }
+  function dist(a,b){const R=6371,r=x=>x*Math.PI/180,d1=r(b.latitude-a.latitude),d2=r(b.longitude-a.longitude),z=Math.sin(d1/2)**2+Math.cos(r(a.latitude))*Math.cos(r(b.latitude))*Math.sin(d2/2)**2;return 2*R*Math.asin(Math.sqrt(z));}
   function otimiza(xs){
-    const pontos=xs.filter(x=>x&&x.latitude!=null&&x.longitude!=null);
-    const sem=xs.filter(x=>!x||x.latitude==null||x.longitude==null);
-    if(pontos.length<2)return pontos.concat(sem);
-    const restantes=pontos.slice(1),ord=[pontos[0]];
-    while(restantes.length){
-      let bi=0,bd=Infinity;
-      restantes.forEach((x,i)=>{const d=km(ord[ord.length-1],x);if(d<bd){bd=d;bi=i;}});
-      ord.push(restantes.splice(bi,1)[0]);
-    }
+    const p=xs.filter(x=>x&&x.latitude!=null&&x.longitude!=null),sem=xs.filter(x=>!x||x.latitude==null||x.longitude==null);
+    if(p.length<2)return p.concat(sem);
+    const rest=p.slice(1),ord=[p[0]];
+    while(rest.length){let bi=0,bd=Infinity;rest.forEach((x,i)=>{const d=dist(ord[ord.length-1],x);if(d<bd){bd=d;bi=i;}});ord.push(rest.splice(bi,1)[0]);}
     return ord.concat(sem);
   }
 
-  async function criar(){
-    if(!data)return toast('Informe a data prevista.','error');
-    if(!sel.length)return toast('Selecione pelo menos uma entrega.','error');
-    const escolhidas=(entregas||[]).filter(x=>sel.includes(x.id));
-    let xs=await Promise.all(escolhidas.map(geo));
-    xs=otimiza(xs);
-    const {data:r,error}=await sb.from('rotas_equipamentos').insert({
-      nome:'Entrega Equipamentos '+new Date(data+'T12:00:00').toLocaleDateString('pt-BR'),
-      data_rota:data,status:'planejada',criado_por:profile.id
-    }).select().single();
-    if(error)return toast(error.message,'error');
-    const {error:ei}=await sb.from('rota_equipamento_itens')
-      .insert(xs.map((x,i)=>({rota_id:r.id,entrega_id:x.id,ordem:i+1})));
-    if(ei)return toast(ei.message,'error');
-    const {error:eu}=await sb.from('entregas_equipamentos')
-      .update({status:'agendada',data_prevista:data}).in('id',sel);
-    if(eu)return toast(eu.message,'error');
-    setSel([]);setData('');
-    toast('Rota criada com sucesso.','success');
-    await carregar();
+  function baseMapa(el,ref){
+    if(!window.L){el.innerHTML='<div style="padding:18px">Mapa indisponível. Verifique a conexão.</div>';return null;}
+    if(ref.current){try{ref.current.remove();}catch(_){}ref.current=null;}
+    const m=L.map(el).setView([-22.2,-49.9],6);ref.current=m;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);
+    return m;
   }
-
-  async function melhorar(r){
-    let its=itensDaRota(r.id);
-    let xs=await Promise.all(its.map(async i=>({...await geo(i.entrega),_item:i.id})));
-    xs=otimiza(xs);
-    for(let i=0;i<xs.length;i++){
-      const {error}=await sb.from('rota_equipamento_itens').update({ordem:i+1}).eq('id',xs[i]._item);
-      if(error)return toast(error.message,'error');
-    }
-    await carregar();
-    setAberta(r);
-    toast('Sequência da rota otimizada.','success');
-  }
-
-  function desenha(r){
-    const el=document.getElementById('mapa-equip');
-    if(!el)return;
-    if(!window.L){
-      el.innerHTML='<div style="padding:20px">Não foi possível carregar o mapa. Verifique a conexão com o serviço de mapas.</div>';
-      return;
-    }
-    if(mapRef.current){try{mapRef.current.remove();}catch(_){} mapRef.current=null;}
-    const m=L.map(el).setView([-22.2,-49.9],6);mapRef.current=m;
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom:19,attribution:'© OpenStreetMap'
-    }).addTo(m);
+  function desenhaMontagem(){
+    const el=document.getElementById('mapa-montagem-equip');if(!el)return;
+    const m=baseMapa(el,mapMontagemRef);if(!m)return;
     const pts=[];
-    itensDaRota(r.id).forEach((it,n)=>{
-      const e=it.entrega;
-      if(e&&e.latitude!=null&&e.longitude!=null){
+    escolhidas.forEach((e,i)=>{
+      if(e.latitude!=null&&e.longitude!=null){
         const p=[Number(e.latitude),Number(e.longitude)];pts.push(p);
-        const nome=(e.fichas_clientes&&e.fichas_clientes.razao_social)||'Cliente';
-        L.marker(p).addTo(m).bindPopup('<b>'+(n+1)+'. '+nome+'</b><br>'+(e.equipamento_resumo||''));
+        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}<br>${e.equipamento_resumo||''}`);
       }
     });
-    if(pts.length){
-      L.polyline(pts,{weight:4,opacity:.75}).addTo(m);
-      m.fitBounds(pts,{padding:[30,30]});
-    }
-    setTimeout(()=>m.invalidateSize(),100);
+    if(pts.length){if(pts.length>1)L.polyline(pts,{weight:4,opacity:.65}).addTo(m);m.fitBounds(pts,{padding:[35,35]});}
+    setTimeout(()=>m.invalidateSize(),80);
+  }
+  function desenhaRota(r){
+    const el=document.getElementById('mapa-rota-equip');if(!el)return;
+    const m=baseMapa(el,mapRotaRef);if(!m)return;const pts=[];
+    itensDaRota(r.id).forEach((it,i)=>{const e=it.entrega;if(e&&e.latitude!=null&&e.longitude!=null){const p=[+e.latitude,+e.longitude];pts.push(p);L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}`);}});
+    if(pts.length){if(pts.length>1)L.polyline(pts,{weight:4,opacity:.7}).addTo(m);m.fitBounds(pts,{padding:[35,35]});}
+    setTimeout(()=>m.invalidateSize(),80);
   }
 
-  if(entregas===null)return h('div',{className:'empty-state'},'Carregando Entregas e Rotas...');
-  const pend=entregas.filter(x=>['pendente_agendamento','agendada'].includes(x.status));
+  async function melhorarMontagem(){
+    if(selecionadas.length<2)return toast('Selecione pelo menos duas solicitações.','info');
+    let xs=await Promise.all(escolhidas.map(geo));xs=otimiza(xs);
+    setEntregas(es=>es.map(e=>xs.find(x=>x.id===e.id)||e));
+    setSelecionadas(xs.map(x=>x.id));
+    toast('Ordem dos pontos otimizada.','success');
+  }
+  async function criar(){
+    if(!dataRota)return toast('Informe a data da rota.','error');
+    if(!selecionadas.length)return toast('Selecione as solicitações que farão parte da rota.','error');
+    let xs=await Promise.all(escolhidas.map(geo));
+    const {data:r,error}=await sb.from('rotas_equipamentos').insert({nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),data_rota:dataRota,status:'planejada',criado_por:profile.id}).select().single();
+    if(error)return toast(error.message,'error');
+    const {error:ei}=await sb.from('rota_equipamento_itens').insert(xs.map((e,i)=>({rota_id:r.id,entrega_id:e.id,ordem:i+1})));
+    if(ei)return toast(ei.message,'error');
+    const {error:eu}=await sb.from('entregas_equipamentos').update({status:'agendada',data_prevista:dataRota}).in('id',selecionadas);
+    if(eu)return toast(eu.message,'error');
+    setSelecionadas([]);setDataRota('');setNomeRota('');toast('Rota criada com sucesso.','success');await carregar();
+  }
+  async function melhorarRota(r){
+    let its=itensDaRota(r.id),xs=await Promise.all(its.map(async i=>({...await geo(i.entrega),_item:i.id})));xs=otimiza(xs);
+    for(let i=0;i<xs.length;i++){const u=await sb.from('rota_equipamento_itens').update({ordem:i+1}).eq('id',xs[i]._item);if(u.error)return toast(u.error.message,'error');}
+    await carregar();setAberta(r);toast('Rota reorganizada.','success');
+  }
 
+  if(entregas===null)return h('div',{className:'empty-state'},'Carregando...');
   return h('div',null,
-    aberta&&h(Modal,{titulo:aberta.nome,sub:'Data: '+fmtData(aberta.data_rota),largo:true,onClose:()=>setAberta(null),
-      acoes:[
-        h('button',{key:'m',className:'btn btn-primary',onClick:()=>melhorar(aberta)},'Melhorar rota'),
-        h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')
-      ]},
-      h('div',{id:'mapa-equip',style:{height:430,border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:14}}),
-      h('div',{className:'table-wrap'},h('table',null,
-        h('thead',null,h('tr',null,h('th',null,'Ordem'),h('th',null,'Cliente'),h('th',null,'Equipamento'))),
-        h('tbody',null,...itensDaRota(aberta.id).map(it=>{
-          const e=it.entrega||{},f=e.fichas_clientes||{};
-          return h('tr',{key:it.id},h('td',null,it.ordem),h('td',null,f.razao_social||'—'),h('td',null,e.equipamento_resumo||'—'));
-        }))))),
+    aberta&&h(Modal,{titulo:aberta.nome,sub:'Data: '+fmtData(aberta.data_rota),largo:true,onClose:()=>setAberta(null),acoes:[
+      h('button',{key:'m',className:'btn btn-primary',onClick:()=>melhorarRota(aberta)},'Melhorar rota'),
+      h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')]},
+      h('div',{id:'mapa-rota-equip',style:{height:430,border:'1px solid var(--border)',borderRadius:10,marginBottom:14}}),
+      h('div',{className:'table-wrap'},h('table',null,h('thead',null,h('tr',null,h('th',null,'#'),h('th',null,'Cliente'),h('th',null,'Equipamento'))),
+        h('tbody',null,...itensDaRota(aberta.id).map(it=>h('tr',{key:it.id},h('td',null,it.ordem),h('td',null,nomeCliente(it.entrega)),h('td',null,(it.entrega&&it.entrega.equipamento_resumo)||'—'))))))),
 
-    h('div',{className:'page-head'},h('div',null,
-      h('div',{className:'page-title'},'Entregas e Rotas'),
-      h('div',{className:'page-sub'},'Planejamento das entregas de equipamentos liberadas pela Diretoria'))),
-
-    erro&&h('div',{className:'card',style:{borderColor:'#ef4444',background:'#fff7f7',marginBottom:16}},
-      h('b',{style:{color:'#b91c1c'}},'Não foi possível carregar a rotina.'),
-      h('div',{style:{marginTop:6,fontSize:13}},erro),
-      h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:10},onClick:carregar},'Tentar novamente')),
+    h('div',{className:'page-head'},h('div',null,h('div',{className:'page-title'},'Entregas e Rotas'),h('div',{className:'page-sub'},'Selecione as solicitações e monte visualmente cada rota no mapa'))),
+    erro&&h('div',{className:'card',style:{borderColor:'#ef4444',background:'#fff7f7'}},h('b',null,'Erro ao carregar: '),erro),
 
     h('div',{className:'card'},
-      h('div',{className:'section-title'},'Criar rota de entrega'),
+      h('div',{className:'section-title'},'Filtros das solicitações'),
       h('div',{className:'form-grid'},
-        h(Campo,{label:'Data prevista',obrigatorio:true},
-          h(Input,{type:'date',value:data,onChange:e=>setData(e.target.value)}))),
-      pend.length===0
-        ? h(Empty,{icon:'⌖',texto:'Nenhuma entrega aguardando agendamento.'})
-        : h('div',{className:'table-wrap'},h('table',null,
-            h('thead',null,h('tr',null,h('th',null,''),h('th',null,'Cliente'),h('th',null,'Endereço de Entrega'),h('th',null,'Equipamento'),h('th',null,'Status'))),
-            h('tbody',null,...pend.map(e=>{
-              const f=e.fichas_clientes||{};
-              return h('tr',{key:e.id},
-                h('td',null,h('input',{type:'checkbox',checked:sel.includes(e.id),onChange:()=>setSel(x=>x.includes(e.id)?x.filter(y=>y!==e.id):[...x,e.id])})),
-                h('td',null,h('b',null,f.razao_social||'—')),
-                h('td',null,[e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep].filter(Boolean).join(', ')),
-                h('td',null,e.equipamento_resumo||'—'),
-                h('td',null,e.status==='pendente_agendamento'?'Aguardando agendamento':'Agendada'));
-            })))),
-      h('button',{className:'btn btn-primary',style:{marginTop:14},disabled:!sel.length||!data,onClick:criar},
-        'Criar rota e otimizar sequência')),
+        h(Campo,{label:'Cidade'},h(Select,{opcoes:cidades,value:fCidade,onChange:e=>setFCidade(e.target.value)})),
+        h(Campo,{label:'Cliente / Código'},h(Input,{value:fCliente,placeholder:'Digite o nome ou código do cliente',onChange:e=>setFCliente(e.target.value)})),
+        h(Campo,{label:'Status'},h(Select,{opcoes:[{value:'pendente_agendamento',label:'Aguardando agendamento'},{value:'agendada',label:'Agendada'}],value:fStatus,onChange:e=>setFStatus(e.target.value)}))),
+      h('div',{style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}},
+        h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setFCidade('');setFCliente('');setFStatus('');}},'Limpar filtros'),
+        h('span',{style:{fontSize:12,color:'var(--text-muted)',alignSelf:'center'}},filtradas.length+' solicitação(ões) encontrada(s)'))),
+
+    h('div',{style:{display:'grid',gridTemplateColumns:'minmax(420px,1fr) minmax(420px,1fr)',gap:18,alignItems:'start'}},
+      h('div',{className:'card',style:{margin:0}},
+        h('div',{className:'section-title'},'Solicitações disponíveis'),
+        filtradas.length===0?h(Empty,{icon:'⌖',texto:'Nenhuma solicitação para os filtros informados.'}):
+        h('div',{className:'table-wrap',style:{maxHeight:520,overflow:'auto'}},h('table',null,
+          h('thead',null,h('tr',null,h('th',null,''),h('th',null,'Cliente'),h('th',null,'Cidade'),h('th',null,'Equipamento'))),
+          h('tbody',null,...filtradas.map(e=>h('tr',{key:e.id,style:{cursor:'pointer',background:selecionadas.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)},
+            h('td',null,h('input',{type:'checkbox',checked:selecionadas.includes(e.id),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
+            h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
+            h('td',null,e.endereco_cidade||'—'),
+            h('td',null,e.equipamento_resumo||'—'))))))),
+
+      h('div',{className:'card',style:{margin:0,position:'sticky',top:16}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:10}},
+          h('div',null,h('div',{className:'section-title',style:{marginBottom:2}},'Rota em montagem'),h('div',{className:'page-sub'},selecionadas.length+' ponto(s) selecionado(s)')),
+          h('div',{style:{display:'flex',gap:6}},
+            h('button',{className:'btn btn-secondary btn-sm',disabled:selecionadas.length<2,onClick:melhorarMontagem},'Melhorar rota'),
+            h('button',{className:'btn btn-secondary btn-sm',disabled:!selecionadas.length,onClick:()=>setSelecionadas([])},'Limpar'))),
+        h('div',{id:'mapa-montagem-equip',style:{height:400,border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:12}}),
+        escolhidas.length>0&&h('div',{style:{maxHeight:180,overflow:'auto'}},...escolhidas.map((e,i)=>h('div',{key:e.id,style:{display:'flex',justifyContent:'space-between',gap:8,padding:'7px 2px',borderBottom:'1px solid var(--border)'}},
+          h('span',null,h('b',null,(i+1)+'. '),nomeCliente(e),' — ',e.endereco_cidade||''),h('button',{className:'btn btn-ghost btn-sm',onClick:()=>toggle(e)},'×')))))),
+    ),
+
+    h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Salvar rota montada'),
+      h('div',{className:'form-grid'},
+        h(Campo,{label:'Nome da rota'},h(Input,{value:nomeRota,placeholder:'Ex.: Entregas Marília - Manhã',onChange:e=>setNomeRota(e.target.value)})),
+        h(Campo,{label:'Data prevista',obrigatorio:true},h(Input,{type:'date',value:dataRota,onChange:e=>setDataRota(e.target.value)}))),
+      h('button',{className:'btn btn-primary',disabled:!selecionadas.length||!dataRota,onClick:criar},'Criar rota com '+selecionadas.length+' entrega(s)')),
 
     h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Rotas criadas'),
-      rotas.length===0
-        ? h(Empty,{icon:'⌖',texto:'Nenhuma rota de equipamentos criada.'})
-        : h('div',{className:'table-wrap'},h('table',null,
-            h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Entregas'),h('th',null,''))),
-            h('tbody',null,...rotas.map(r=>h('tr',{key:r.id},
-              h('td',null,h('b',null,r.nome)),
-              h('td',null,fmtData(r.data_rota)),
-              h('td',null,itensDaRota(r.id).length),
-              h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'))))))))
+      rotas.length===0?h(Empty,{icon:'⌖',texto:'Nenhuma rota criada.'}):
+      h('div',{className:'table-wrap'},h('table',null,h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Entregas'),h('th',null,''))),
+        h('tbody',null,...rotas.map(r=>h('tr',{key:r.id},h('td',null,h('b',null,r.nome)),h('td',null,fmtData(r.data_rota)),h('td',null,itensDaRota(r.id).length),
+          h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota')))))))
   );
 }
 
