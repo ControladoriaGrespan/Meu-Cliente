@@ -1908,6 +1908,35 @@ function PaginaClientes({ profile }) {
     carregar();
   }
 
+  async function excluirCliente(c) {
+    if (profile.papel !== 'admin') return toast('Somente o Administrador pode excluir clientes.', 'error');
+
+    const nome = identificacaoCliente(c);
+    const confirmar = window.confirm(
+      'EXCLUSÃO DEFINITIVA\n\n' +
+      nome + '\n\n' +
+      'Esta ação excluirá o cliente e os registros vinculados e não poderá ser desfeita.\n\n' +
+      'Deseja continuar?'
+    );
+    if (!confirmar) return;
+
+    const digitado = window.prompt(
+      'Para confirmar a exclusão definitiva, digite EXCLUIR:'
+    );
+    if ((digitado || '').trim().toUpperCase() !== 'EXCLUIR') {
+      return toast('Exclusão cancelada.', 'info');
+    }
+
+    const { data, error } = await sb.rpc('excluir_cliente_definitivamente', {
+      p_cliente_id: c.id
+    });
+
+    if (error) return toast('Não foi possível excluir: ' + error.message, 'error');
+
+    toast('Cliente excluído definitivamente.', 'success');
+    carregar();
+  }
+
   function statusCliente(c) {
     if (c.origem === 'totvs' && !c.fichas_clientes) return { txt: 'importado', cls: 'badge-blue' };
     if (!c.fichas_clientes) return { txt: '—', cls: 'badge-gray' };
@@ -1982,11 +2011,17 @@ function PaginaClientes({ profile }) {
                     h('td', null, h('span', { className: `badge ${c.origem === 'totvs' ? 'badge-blue' : 'badge-gray'}` }, c.origem || '—')),
                     h('td', null, h('span', { className: `badge ${st.cls}` }, st.txt)),
                     podeEditar && h('td', null,
-                      h('button', {
-                        className: 'btn btn-primary btn-sm',
-                        disabled: !emEdicao,
-                        onClick: () => salvarTotvs(c)
-                      }, 'Salvar')));
+                      h('div', { style:{display:'flex',gap:6,flexWrap:'wrap'} },
+                        h('button', {
+                          className: 'btn btn-primary btn-sm',
+                          disabled: !emEdicao,
+                          onClick: () => salvarTotvs(c)
+                        }, 'Salvar'),
+                        profile.papel === 'admin' && h('button', {
+                          className: 'btn btn-sm',
+                          style:{background:'#fff',color:'#b42318',border:'1px solid #f0b4ae'},
+                          onClick: () => excluirCliente(c)
+                        }, 'Excluir'))));
                 }))))));
 }
 
