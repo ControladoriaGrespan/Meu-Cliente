@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=Lg_3EM2pfX2LYmAZFHr2dcf604a49cyqho_qPEBq6QlwaFZCBi-Si-mxe8OOkc3C2TOHhf5uHCMF69pnDE_4-eSVuHzMaRgPpz0JBj2uwgqMwxhrjMu8rZeUPzZqpwFn9pRsOWFgtkwU0mqcp_5AbFGHpZhjW5HxSsY5jla0vpiBMn-M_8UFsZsIITDX84KF025jGqlh9q-7P4oSBHOtDLPHPRs2Pp3kKZLf908woNaLpcwBf_xlxdhrtFOF6r2gNQ2-KnhQ38REFDCWd6eTjfODlz7KzcN12Dvvi3pO_slrRyzqES5fllkqP8u71EKt6c_WlMKyVM5egm-wJB-rcw" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=xCQ75qd5eGhddsx2YD2pkSH4Q6ntVeHAcpKk-Fl0xhlTMv6W-9--vwRajC0igXXZ8WTpZRfIpQcfX93T-ZKh4LcvtcCKfvJVvMzHTOA_nUgDrY4SsIqf-vaUJ0aPTU9fDKkKVWBNBcR7EZ3-bLwYsFVfYNBvXAEgv-cPOeaBnVF6WI8TZ5aJ6tIgVvF6IlOk8kyoU4jv9OFHgtkym6w1FNoKmCZLMI6iWUfc075XkvWdRE9p9Sp6shf8b_sp5ZuJq80BqP8bfry1VpUxMutcINus33v978KxSwJlEZXf244JCnT-yU_A7MAFxQHGE8Qc2rdNXFAKWDrVa8b4_HBFqojYc5VLOWIaulQnHDpTtYE" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -487,7 +487,7 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-const { useState, useEffect, useCallback, useMemo, createContext, useContext } = React;
+const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // =====================================================================
 // CONFIG
@@ -499,7 +499,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // cliente sem sessao persistida: cria login de outros usuarios sem
 // derrubar a sessao do admin logado
 const sbSignup = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false }
+  auth: { persistSession: false, autoRefreshToken: false, storageKey: 'grespan-signup-temp' }
 });
 
 // Conversao do consumo em faturamento. Estes valores devem bater com
