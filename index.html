@@ -584,7 +584,8 @@ const MODULOS = {
   vendas: { label:'Vendas', icon:'▣', descricao:'Fichas, carteira de clientes, solicitações e acompanhamento comercial.' },
   administracao_vendas: { label:'Administração de Vendas', icon:'◫', descricao:'Pedidos por rota, clientes, solicitações e pendências operacionais.' },
   financeiro: { label:'Financeiro', icon:'R$', descricao:'Análise de crédito, aprovações financeiras, pendências e fichas.' },
-  manutencao: { label:'Manutenção', icon:'⚒', descricao:'Fila de solicitações de manutenção e equipamentos.' }
+  manutencao: { label:'Manutenção', icon:'⚒', descricao:'Fila de solicitações de manutenção e equipamentos.' },
+  administracao: { label:'Administração', icon:'⚙', descricao:'Usuários, hierarquia comercial, módulos, carteiras e importações.' }
 };
 function menuForModulo(modulo, papel) {
   if (modulo === 'vendas') {
@@ -601,6 +602,12 @@ function menuForModulo(modulo, papel) {
     {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
   if(modulo==='financeiro') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
   if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'}];
+  if(modulo==='administracao') return [
+    {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
+    {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
+    {id:'config_modulos',label:'Módulos e Carteiras',icon:'▦'},
+    {id:'importacao',label:'Importações',icon:'⇧'}
+  ];
   return menuFor(papel);
 }
 function modulosPadrao(papel){
@@ -2398,7 +2405,6 @@ function PaginaModulos({profile,modulos,onAbrir,onPerfil,onConfig,onLogout}){
         h('div',{style:{width:42,height:42,borderRadius:10,background:'var(--accent)',color:'#fff',display:'grid',placeItems:'center',fontWeight:900,fontSize:22}},'G'),
         h('div',null,h('div',{style:{fontWeight:900,fontSize:18}},'Meu Cliente'),h('div',{style:{fontSize:11,color:'var(--text-muted)'}},'Grespan Pães Congelados'))),
       h('div',{style:{display:'flex',gap:8}},
-        profile.papel==='admin'&&h('button',{className:'btn btn-primary btn-sm',onClick:onConfig},'Administração'),
         h('button',{className:'btn btn-secondary btn-sm',onClick:onPerfil},'Meu Perfil'),
         h('button',{className:'btn btn-secondary btn-sm',onClick:onLogout},'Sair'))),
     h('div',{style:{marginBottom:30}},
@@ -2413,7 +2419,7 @@ function PaginaModulos({profile,modulos,onAbrir,onPerfil,onConfig,onLogout}){
         h('div',{style:{textAlign:'right',fontSize:22,color:'var(--text-muted)'}},'→'));})));
 }
 
-function PaginaConfiguracaoModulos({onVoltar,onUsuarios}){
+function PaginaConfiguracaoModulos({onUsuarios}){
   const toast=useToast();
   const [usuarios,setUsuarios]=useState(null);
   const [mods,setMods]=useState({});
@@ -2467,10 +2473,8 @@ function PaginaConfiguracaoModulos({onVoltar,onUsuarios}){
 
   return h('div',null,
     h('div',{className:'page-head'},
-      h('div',null,h('div',{className:'page-title'},'Administração'),h('div',{className:'page-sub'},'Usuários, hierarquia comercial, módulos e carteiras')),
-      h('div',{style:{display:'flex',gap:8}},
-        h('button',{className:'btn btn-primary',onClick:onUsuarios},'Gestão de Usuários e Hierarquia'),
-        h('button',{className:'btn btn-secondary',onClick:onVoltar},'← Central de Módulos'))),
+      h('div',null,h('div',{className:'page-title'},'Módulos e Carteiras'),h('div',{className:'page-sub'},'Permissões por usuário e carteira da Administração de Vendas')),
+      h('button',{className:'btn btn-primary',onClick:onUsuarios},'Usuários e Hierarquia')),
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Acesso aos módulos'),
       h('div',{style:{overflowX:'auto'}},
@@ -2481,6 +2485,200 @@ function PaginaConfiguracaoModulos({onVoltar,onUsuarios}){
       h('div',{className:'section-title'},'Carteira — Administração de Vendas'),
       h('div',{className:'page-sub',style:{marginBottom:12}},'Cada Adm. de Vendas pode responder por um ou mais Supervisores.'),
       ...(blocosCarteira.length?blocosCarteira:[h('div',{key:'vazio',className:'empty-state'},'Nenhum Adm. de Vendas cadastrado.')]))
+  );
+}
+
+
+function PaginaDashboardAdmin({profile}) {
+  const [d,setD]=useState(null);
+  useEffect(()=>{(async()=>{
+    const [u,m,c]=await Promise.all([
+      sb.from('usuarios').select('id,papel,ativo'),
+      sb.from('usuario_modulos').select('usuario_id,modulo,ativo'),
+      sb.from('adm_vendas_supervisores').select('adm_vendas_id,supervisor_id')
+    ]);
+    const us=u.data||[], mods=m.data||[], carts=c.data||[];
+    setD({
+      usuarios:us.length, ativos:us.filter(x=>x.ativo).length,
+      vendedores:us.filter(x=>x.papel==='vendedor'&&x.ativo).length,
+      supervisores:us.filter(x=>x.papel==='supervisor'&&x.ativo).length,
+      coordenadores:us.filter(x=>x.papel==='coordenador'&&x.ativo).length,
+      acessos:mods.filter(x=>x.ativo).length, carteiras:carts.length
+    });
+  })();},[]);
+  if(!d)return h('div',{className:'empty-state'},'Carregando...');
+  return h('div',null,
+    h('div',{className:'page-head'},h('div',null,
+      h('div',{className:'page-title'},'Dashboard Administrativo'),
+      h('div',{className:'page-sub'},'Visão geral da estrutura e das permissões do Meu Cliente'))),
+    h('div',{className:'kpi-grid'},
+      h(Kpi,{icon:'☺',cor:'accent',valor:d.ativos,label:'Usuários ativos'}),
+      h(Kpi,{icon:'▣',cor:'info',valor:d.acessos,label:'Acessos a módulos'}),
+      h(Kpi,{icon:'◉',cor:'success',valor:d.vendedores,label:'Vendedores'}),
+      h(Kpi,{icon:'⚑',cor:'warning',valor:d.carteiras,label:'Vínculos Adm. Vendas / Supervisor'})),
+    h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Estrutura Comercial'),
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:14}},
+        h('div',null,h('b',null,'Vendedores'),h('div',{style:{fontSize:24,fontWeight:900}},d.vendedores)),
+        h('div',null,h('b',null,'Supervisores'),h('div',{style:{fontSize:24,fontWeight:900}},d.supervisores)),
+        h('div',null,h('b',null,'Coordenadores'),h('div',{style:{fontSize:24,fontWeight:900}},d.coordenadores)),
+        h('div',null,h('b',null,'Usuários cadastrados'),h('div',{style:{fontSize:24,fontWeight:900}},d.usuarios))))
+  );
+}
+
+function DashboardComercialV38({profile,visao,modulo}) {
+  const [loading,setLoading]=useState(true);
+  const [vendedores,setVendedores]=useState([]);
+  const [supervisores,setSupervisores]=useState([]);
+  const [filtroSup,setFiltroSup]=useState('');
+  const [filtroVend,setFiltroVend]=useState('');
+  const [clientes,setClientes]=useState([]);
+  const [fichas,setFichas]=useState([]);
+  const [sols,setSols]=useState([]);
+  const [titulos,setTitulos]=useState([]); // reservado para integração Protheus / financeiro
+
+  useEffect(()=>{carregarEstrutura();},[profile.id,visao,modulo]);
+  useEffect(()=>{if(vendedores.length||visao==='vendedor')carregarDados();},[filtroSup,filtroVend,vendedores.length]);
+
+  async function carregarEstrutura(){
+    setLoading(true);
+    let supIds=null, vendIds=null;
+
+    if(visao==='vendedor'){
+      vendIds=[profile.id];
+    } else if(visao==='supervisor'){
+      supIds=[profile.id];
+    } else if(visao==='coordenador'){
+      const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('coordenador_id',profile.id).eq('ativo',true);
+      setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
+    } else if(visao==='adm_vendas'){
+      const {data:cart}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
+      supIds=(cart||[]).map(x=>x.supervisor_id);
+      if(supIds.length){
+        const {data:ss}=await sb.from('usuarios').select('id,nome').in('id',supIds).order('nome');
+        setSupervisores(ss||[]);
+      } else setSupervisores([]);
+    } else if(['gestao_adm_vendas','diretoria','admin'].includes(visao)){
+      const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true).order('nome');
+      setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
+    }
+
+    if(!vendIds){
+      if(supIds && !supIds.length){setVendedores([]);setLoading(false);return;}
+      let q=sb.from('usuarios').select('id,nome,supervisor_id').eq('papel','vendedor').eq('ativo',true).order('nome');
+      if(supIds)q=q.in('supervisor_id',supIds);
+      const {data:vv}=await q; setVendedores(vv||[]);
+    } else {
+      const {data:vv}=await sb.from('usuarios').select('id,nome,supervisor_id').in('id',vendIds);
+      setVendedores(vv||[]);
+    }
+    setLoading(false);
+  }
+
+  function idsSelecionados(){
+    let vs=vendedores;
+    if(filtroSup)vs=vs.filter(v=>v.supervisor_id===filtroSup);
+    if(filtroVend)vs=vs.filter(v=>v.id===filtroVend);
+    return vs.map(v=>v.id);
+  }
+
+  async function carregarDados(){
+    const ids=idsSelecionados();
+    if(!ids.length){setClientes([]);setFichas([]);setSols([]);return;}
+    const [rc,rf]=await Promise.all([
+      sb.from('clientes').select('id,codigo_totvs,razao_social,vendedor_id').in('vendedor_id',ids),
+      sb.from('fichas_clientes').select('id,vendedor_id,faturamento_previsto,created_at,ficha_aprovacoes(status)').in('vendedor_id',ids)
+    ]);
+    const cls=rc.data||[]; setClientes(cls); setFichas(rf.data||[]);
+    const cliIds=cls.map(c=>c.id);
+    if(cliIds.length){
+      const {data:ss}=await sb.from('solicitacoes')
+        .select('id,cliente_id,categoria,tipo,status_fluxo,created_at')
+        .in('cliente_id',cliIds);
+      setSols(ss||[]);
+    } else setSols([]);
+    // "Títulos / NF" fica propositalmente vazio até integração:
+    // estrutura visual já está pronta e não inventa dados financeiros.
+    setTitulos([]);
+  }
+
+  function fichaStatus(f){
+    const a=f.ficha_aprovacoes||[];
+    if(a.some(x=>x.status==='reprovado'))return'reprovada';
+    if(a.length&&a.every(x=>CONCLUIDAS.includes(x.status)))return'aprovada';
+    return'aguardando';
+  }
+  function solStatus(x){
+    const st=String(x.status_fluxo||'aberta').toLowerCase();
+    if(st.includes('reprov'))return'reprovada';
+    if(['concluida','concluído','concluido'].includes(st))return'concluida';
+    return'aguardando';
+  }
+  function contSol(cat,st){return sols.filter(x=>x.categoria===cat&&solStatus(x)===st).length;}
+  const fa=fichas.filter(x=>fichaStatus(x)==='aprovada').length;
+  const fr=fichas.filter(x=>fichaStatus(x)==='reprovada').length;
+  const fw=fichas.length-fa-fr;
+  const media=fichas.length?fichas.reduce((a,x)=>a+Number(x.faturamento_previsto||0),0)/fichas.length:0;
+
+  const porVendedor=vendedores.filter(v=>idsSelecionados().includes(v.id)).map(v=>{
+    const fc=fichas.filter(f=>f.vendedor_id===v.id), cc=clientes.filter(c=>c.vendedor_id===v.id);
+    return {id:v.id,nome:v.nome,clientes:cc.length,fichas:fc.length,aprov:fc.filter(x=>fichaStatus(x)==='aprovada').length,
+      reprov:fc.filter(x=>fichaStatus(x)==='reprovada').length,media:fc.length?fc.reduce((a,x)=>a+Number(x.faturamento_previsto||0),0)/fc.length:0};
+  });
+  const porSupervisor=supervisores.filter(sp=>!filtroSup||sp.id===filtroSup).map(sp=>{
+    const vv=vendedores.filter(v=>v.supervisor_id===sp.id), vids=vv.map(v=>v.id);
+    const fc=fichas.filter(f=>vids.includes(f.vendedor_id)), cc=clientes.filter(c=>vids.includes(c.vendedor_id));
+    return {id:sp.id,nome:sp.nome,vendedores:vv.length,clientes:cc.length,fichas:fc.length,aprov:fc.filter(x=>fichaStatus(x)==='aprovada').length};
+  });
+
+  if(loading)return h('div',{className:'empty-state'},'Carregando dashboard...');
+
+  return h('div',null,
+    h('div',{className:'page-head'},
+      h('div',null,
+        h('div',{className:'page-title'},modulo==='administracao_vendas'?'Dashboard — Administração de Vendas':'Dashboard de Vendas'),
+        h('div',{className:'page-sub'},
+          visao==='vendedor'?'Sua carteira e seus indicadores':
+          visao==='adm_vendas'?'Carteira vinculada aos seus Supervisores':
+          visao==='gestao_adm_vendas'?'Visão consolidada de todas as carteiras':
+          'Desempenho da estrutura comercial'))),
+    visao!=='vendedor' && h('div',{className:'card',style:{marginBottom:18,padding:16}},
+      h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}},
+        supervisores.length>0 && h(Campo,{label:'Supervisor'},h('select',{className:'form-select',value:filtroSup,onChange:e=>{setFiltroSup(e.target.value);setFiltroVend('');}},
+          h('option',{value:''},'Todos os supervisores'),...supervisores.map(x=>h('option',{key:x.id,value:x.id},x.nome)))),
+        h(Campo,{label:'Vendedor'},h('select',{className:'form-select',value:filtroVend,onChange:e=>setFiltroVend(e.target.value)},
+          h('option',{value:''},'Todos os vendedores'),...vendedores.filter(v=>!filtroSup||v.supervisor_id===filtroSup).map(x=>h('option',{key:x.id,value:x.id},x.nome)))))),
+    h('div',{className:'kpi-grid'},
+      h(Kpi,{icon:'☺',cor:'accent',valor:clientes.length,label:'Clientes na carteira'}),
+      h(Kpi,{icon:'≡',cor:'info',valor:fichas.length,label:'Fichas cadastradas'}),
+      h(Kpi,{icon:'✓',cor:'success',valor:fa,label:'Fichas aprovadas'}),
+      h(Kpi,{icon:'✗',cor:'danger',valor:fr,label:'Fichas reprovadas'}),
+      h(Kpi,{icon:'R$',cor:'warning',valor:fmtMoeda(media),label:'Faturamento médio esperado'})),
+    h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Solicitações da Carteira'),
+      h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
+        h('thead',null,h('tr',null,h('th',null,'Solicitação'),h('th',null,'Aguardando'),h('th',null,'Concluída'),h('th',null,'Reprovada'))),
+        h('tbody',null,
+          ...[['bonificacao','Bonificação'],['amostra','Amostra'],['equipamento','Equipamento / Manutenção']].map(([k,n])=>
+            h('tr',{key:k},h('td',null,h('b',null,n)),h('td',null,contSol(k,'aguardando')),h('td',null,contSol(k,'concluida')),h('td',null,contSol(k,'reprovada'))))))),
+    porSupervisor.length>0 && ['coordenador','adm_vendas','gestao_adm_vendas','admin','diretoria'].includes(visao) &&
+      h('div',{className:'card',style:{marginTop:18}},h('div',{className:'section-title'},'Resumo por Supervisor'),
+        h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,h('th',null,'Supervisor'),h('th',null,'Vendedores'),h('th',null,'Clientes'),h('th',null,'Fichas'),h('th',null,'Aprovadas'))),
+          h('tbody',null,...porSupervisor.map(x=>h('tr',{key:x.id},h('td',null,h('b',null,x.nome)),h('td',null,x.vendedores),h('td',null,x.clientes),h('td',null,x.fichas),h('td',null,x.aprov))))))),
+    porVendedor.length>0 && visao!=='vendedor' &&
+      h('div',{className:'card',style:{marginTop:18}},h('div',{className:'section-title'},'Resumo por Vendedor'),
+        h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,h('th',null,'Vendedor'),h('th',null,'Clientes'),h('th',null,'Fichas'),h('th',null,'Aprovadas'),h('th',null,'Reprovadas'),h('th',null,'Fat. médio esperado'))),
+          h('tbody',null,...porVendedor.map(x=>h('tr',{key:x.id},h('td',null,h('b',null,x.nome)),h('td',null,x.clientes),h('td',null,x.fichas),h('td',null,x.aprov),h('td',null,x.reprov),h('td',null,fmtMoeda(x.media))))))),
+    h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Gestão de Carteira — Títulos a Vencer e Vencidos'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Área preparada para a futura integração com o Protheus. Nenhum valor é simulado.'),
+      h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
+        h('thead',null,h('tr',null,h('th',null,'Cód. Cliente'),h('th',null,'Nome'),h('th',null,'NF'),h('th',null,'Pedido'),h('th',null,'Valor'),h('th',null,'Status'))),
+        h('tbody',null,...(titulos.length?titulos.map((t,i)=>h('tr',{key:i},h('td',null,t.codigo),h('td',null,t.nome),h('td',null,t.nf),h('td',null,t.pedido),h('td',null,fmtMoeda(t.valor)),h('td',null,t.status))):[
+          h('tr',{key:'sem'},h('td',{colSpan:6,style:{textAlign:'center',padding:24,color:'var(--text-muted)'}},'Aguardando integração com o Protheus para títulos a vencer e vencidos.'))
+        ]))))
   );
 }
 
@@ -3978,7 +4176,7 @@ function App() {
   const [modulosUsuario,setModulosUsuario]=useState([]);
 
   useEffect(() => {
-    const fn=()=>{setModulo(null);setPagina('config_modulos');};
+    const fn=()=>{setModulo('administracao');setVisao('admin');setPagina('config_modulos');};
     window.addEventListener('abrir-config-modulos',fn);
     return ()=>window.removeEventListener('abrir-config-modulos',fn);
   },[]);
@@ -4043,11 +4241,7 @@ function App() {
   if (!profile) return h(Login, { onLogged: carregarSessao });
 
   const ehPreview = profile.papel === 'admin' && visao !== 'admin';
-  if(!profile.exigir_troca_senha && pagina==='config_modulos' && profile.papel==='admin')
-    return h('div',{style:{padding:24}},h(PaginaConfiguracaoModulos,{
-      onVoltar:()=>{setModulo(null);setPagina('modulos')},
-      onUsuarios:()=>{setModulo('vendas');setVisao('admin');setPagina('administracao')}
-    }));
+
   if(!profile.exigir_troca_senha && (!modulo || pagina==='modulos')){
     return h(PaginaModulos,{profile,modulos:modulosUsuario,
       onAbrir:m=>{setModulo(m);setVisao(profile.papel);const x=menuForModulo(m,profile.papel)[0];setPagina(x?x.id:'dashboard')},
@@ -4060,7 +4254,10 @@ function App() {
     profile,
     onProfileUpdated: p => setProfile(p)
   });
-  else if (paginaAtual === 'dashboard') conteudo = h(PaginaDashboard, { profile, visao, ehPreview, modulo });
+  else if (paginaAtual === 'dashboard') conteudo = (modulo==='vendas'||modulo==='administracao_vendas')
+    ? h(DashboardComercialV38,{profile,visao,modulo})
+    : h(PaginaDashboard,{profile,visao,ehPreview,modulo});
+  else if (paginaAtual === 'dashboard_admin') conteudo = h(PaginaDashboardAdmin,{profile});
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
   else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile });
@@ -4069,6 +4266,7 @@ function App() {
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, null);
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
+  else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
 
   return h('div', { className: 'app-layout' },
