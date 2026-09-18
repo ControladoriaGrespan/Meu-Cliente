@@ -5,10 +5,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=qwmHgUfZZYHSvU-01YIfJFLuK9cCUclV2tfSSXfUI_nmyqbYmqyzix4XNNdVrUB0fvos3_w3-5DQsU2SstzlzY5tlKRYqCkAw6RwuI3V7WBSCHhTdwqyEpfB8PFDZPJF5URcqbdM0zoR-in7YtZVMlXDpj1Dhm2U1iW2yfmjFw1n3fi62hHjdF6SkXGJrQmD2YQBXoiMertxdR3XJkH4ujzJoKULP39PxiqrtKuJBGSwojZzxzNPzXtEFHb9qdz-KmnAxTFkih8rOWM6xKiMmKpPdpMqFsOWFVplby00_UjrykAn7laTNj466vXXay8DvnOzkxHE1fAn11lL9-YbpRtHasJ7aJHtOEiKxxYJygc" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=KWn-0Q3ggVZA7ONX_NxGMMu69a0KUZNC7c9rw97kC4-ua1HQav7qzuPpdXdiryhRTOl65jYrvoj83tWj484gHtgo92FGw9Cy_mKbQ9hMX2cJs6RUlzhcr8aruHB-b_DyRTHwmFNTZLZuR-8yjDCtW7BE-MWqH5n7_OM6IPIvugAqsnhd2jHFR5afCuGR4wQ_sM2m5b9KHsA0PJzENytX9c3DAf7lXDtaxromtslN2iqfQOYZfUqt0fJhzKreYxWnIdb-3pjgSDfbP7rRRSkj3EAuNc3zM0k90NMLrFAZyrC-97l4FwJKkPEC57_kQIxy9diHxy7-KXsMu421dvD91Q" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -601,7 +603,7 @@ function menuForModulo(modulo, papel) {
     {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
     {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
   if(modulo==='financeiro') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
-  if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'}];
+  if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'entregas_equipamentos',label:'Entregas e Rotas',icon:'⌖'}];
   if(modulo==='administracao') return [
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
     {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
@@ -975,7 +977,8 @@ function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, 
 // =====================================================================
 const FORM_VAZIO = {
   razao_social: '', cnpj_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
-  telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '',
+  entrega_rua: '', entrega_numero: '', entrega_bairro: '', entrega_cidade: '', entrega_estado: '', entrega_cep: '',
+  telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '', contrato: '',
   verba_introducao: '', verba_manutencao_cliente: '', verba_negociacao_cliente: '', duracao_verba: '', tecnico_panificacao: '', senioridade_tecnico: '',
   precisa_equipamento: '', equipamento_condicao: '', forno_tipo: '', forno_quantidade: '',
   forno_esteiras: '', freezer_tipos: [], armario_tipo: '', camara_climatica: '',
@@ -1020,7 +1023,8 @@ function PaginaEmissao({ profile, onSaved }) {
       ['bairro','Bairro'], ['cidade','Cidade'], ['estado','Estado'], ['cep','CEP'],
       ['telefone','Telefone'], ['email','E-mail'], ['numero_checkouts','Número de Checkouts'], ['numero_lojas','Número de Lojas'], ['preco_kg','Preço Kg'],
       ['prazo_pagamento','Prazo Pagamento'], ['consumo_previsto','Consumo Previsto'],
-      ['tecnico_panificacao','Técnico de Panificação'], ['precisa_equipamento','Precisa de Equipamento'],
+      ['tecnico_panificacao','Técnico de Panificação'], ['precisa_equipamento','Precisa de Equipamento'], ['contrato','Contrato'],
+      ['entrega_rua','Rua de Entrega'],['entrega_numero','Número de Entrega'],['entrega_bairro','Bairro de Entrega'],['entrega_cidade','Cidade de Entrega'],['entrega_estado','Estado de Entrega'],['entrega_cep','CEP de Entrega'],
     ];
     const faltando = obrig.filter(([k]) => !String(f[k] || '').trim()).map(([, l]) => l);
     if (faltando.length) return toast('Preencha: ' + faltando.join(', '), 'error');
@@ -1037,6 +1041,7 @@ function PaginaEmissao({ profile, onSaved }) {
       razao_social: f.razao_social.trim(), cnpj_cpf: f.cnpj_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
+      entrega_rua:f.entrega_rua.trim(), entrega_numero:f.entrega_numero.trim(), entrega_bairro:f.entrega_bairro.trim(), entrega_cidade:f.entrega_cidade.trim(), entrega_estado:f.entrega_estado.toUpperCase(), entrega_cep:f.entrega_cep, contrato:f.contrato==='Sim',
       telefone: f.telefone, email: f.email.trim(),
       numero_checkouts: num(f.numero_checkouts), numero_lojas: num(f.numero_lojas),
       preco_kg: moedaParaNumero(f.preco_kg),
@@ -1101,10 +1106,21 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Número de Checkouts', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.numero_checkouts, placeholder: 'ex: 8', onChange: e => set('numero_checkouts', e.target.value) })),
         h(Campo, { label: 'Número de Lojas', obrigatorio: true }, h(Input, { type: 'number', min: 1, step: 1, value: f.numero_lojas, placeholder: 'ex: 3', onChange: e => set('numero_lojas', e.target.value) })))),
 
+    h('div',{className:'card'},
+      h('div',{className:'section-title'},'Endereço de Entrega'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Obrigatório para entrega e roteirização dos equipamentos.'),
+      h('div',{className:'form-grid'},
+        h(Campo,{label:'Rua',obrigatorio:true},h(Input,{value:f.entrega_rua,onChange:e=>set('entrega_rua',e.target.value)})),
+        h(Campo,{label:'Número',obrigatorio:true},h(Input,{value:f.entrega_numero,onChange:e=>set('entrega_numero',e.target.value)})),
+        h(Campo,{label:'Bairro',obrigatorio:true},h(Input,{value:f.entrega_bairro,onChange:e=>set('entrega_bairro',e.target.value)})),
+        h(Campo,{label:'Cidade',obrigatorio:true},h(Input,{value:f.entrega_cidade,onChange:e=>set('entrega_cidade',e.target.value)})),
+        h(Campo,{label:'Estado',obrigatorio:true},h(Input,{value:f.entrega_estado,maxLength:2,onChange:e=>set('entrega_estado',e.target.value)})),
+        h(Campo,{label:'CEP',obrigatorio:true},h(Input,{value:f.entrega_cep,onChange:e=>set('entrega_cep',mascaraCep(e.target.value))})))),
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Negociação Comercial'),
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
+        h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
         h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(e.target.value)) })),
         h(Campo, { label: 'Prazo Pagamento', obrigatorio: true }, h(Input, { value: f.prazo_pagamento, placeholder: 'ex: 28 dias', onChange: e => set('prazo_pagamento', e.target.value) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
@@ -1318,6 +1334,7 @@ function baixarFichaPDF(f) {
   pdfLinha2(ctx,'Endereço',endereco,'Telefone',f.telefone);
   pdfLinha2(ctx,'E-mail',f.email,'Vendedor',f.usuarios&&f.usuarios.nome);
   pdfLinha2(ctx,'Número de Checkouts',f.numero_checkouts,'Número de Lojas',f.numero_lojas);
+  pdfLinha2(ctx,'Contrato',f.contrato?'Sim':'Não','Endereço de Entrega',[f.entrega_rua,f.entrega_numero,f.entrega_bairro,f.entrega_cidade,f.entrega_estado,f.entrega_cep].filter(Boolean).join(', '));
 
   pdfSec(ctx,'Condições Comerciais');
   pdfLinha2(ctx,'Preço por Kg',fmtMoeda(f.preco_kg),'Consumo Previsto',f.consumo_previsto?fmtNum(f.consumo_previsto)+' pães/dia':null);
@@ -1332,6 +1349,7 @@ function baixarFichaPDF(f) {
   if(f.credito_liberado){
     pdfSec(ctx,'Análise de Crédito');
     pdfLinha2(ctx,'Crédito Liberado',fmtMoeda(f.credito_liberado),'Condição de Pagamento',f.condicao_pagamento_credito);
+    pdfTxt(ctx,'Risco de Crédito',f.risco_credito);
     pdfTxt(ctx,'Observações da análise',f.observacoes_credito);
   }
 
@@ -1420,9 +1438,11 @@ function DetalheFicha({ ficha, onClose }) {
         linhaInfo('E-mail', f.email),
         linhaInfo('Checkouts', f.numero_checkouts),
         linhaInfo('Lojas', f.numero_lojas),
-        linhaInfo('Vendedor', f.usuarios && f.usuarios.nome)),
+        linhaInfo('Vendedor', f.usuarios && f.usuarios.nome),
+        linhaInfo('Endereço de entrega',[f.entrega_rua,f.entrega_numero,f.entrega_bairro,f.entrega_cidade,f.entrega_estado,f.entrega_cep].filter(Boolean).join(', '))),
       h('div', null,
         h('div', { className: 'section-title' }, 'Negociação Comercial'),
+        linhaInfo('Contrato',f.contrato?'Sim':'Não'),
         linhaInfo('Preço Kg', fmtMoeda(f.preco_kg)),
         linhaInfo('Consumo previsto', f.consumo_previsto ? fmtNum(f.consumo_previsto) + ' pães/dia  (' + fmtNum(Math.round(f.consumo_previsto * PESO_PAO_KG * 10) / 10) + ' kg/dia)' : null),
         linhaInfo('Faturamento previsto', fmtMoeda(f.faturamento_previsto) + ' / mês'),
@@ -1437,6 +1457,7 @@ function DetalheFicha({ ficha, onClose }) {
           h('div', { className: 'section-title' }, 'Análise de Crédito'),
           linhaInfo('Crédito liberado', fmtMoeda(f.credito_liberado)),
           linhaInfo('Condição pagamento', f.condicao_pagamento_credito),
+          linhaInfo('Risco de crédito',f.risco_credito),
           linhaInfo('Observações crédito', f.observacoes_credito),
           linhaInfo('Data análise', fmtData(f.analise_credito_em))),
         h('div', { className: 'section-title' }, 'Equipamentos'),
@@ -1547,6 +1568,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [pendentes, setPendentes] = useState(null);
   const [decidindo, setDecidindo] = useState(null); // { ap, status }
   const [obs, setObs] = useState('');
+  const [condicaoDiretoria,setCondicaoDiretoria]=useState('');
+  const [dataEntregaPrevista,setDataEntregaPrevista]=useState('');
   const [destinatarios, setDestinatarios] = useState([]);
   const [detalhe, setDetalhe] = useState(null);
 
@@ -1624,20 +1647,21 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
 
   async function confirmar() {
-    const { ap, status } = decidindo;
-    const winRef = window.open('', '_blank');
-    const { error } = await sb.from('ficha_aprovacoes').update({
-      status, observacao: obs.trim() || null, aprovador_id: profile.id,
-      decidido_em: new Date().toISOString()
-    }).eq('id', ap.id);
-
-    setDecidindo(null); setObs('');
-    if (error) { if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
-
-    const varios = await avisarProximo(ap.ficha_id, ap.ordem, ap.fichas_clientes, winRef);
-    setDestinatarios(varios);
-    toast(`Ficha ${status} com sucesso.`, status === 'aprovado' ? 'success' : 'info');
-    carregar(); onChanged && onChanged();
+    const {ap,status}=decidindo;
+    if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento&&!condicaoDiretoria) return toast('Confirme Novo ou Usado.','error');
+    const winRef=window.open('','_blank');
+    if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
+      const {error:x}=await sb.from('fichas_clientes').update({equipamento_condicao_manutencao:condicaoDiretoria}).eq('id',ap.ficha_id); if(x){if(winRef)winRef.close();return toast(x.message,'error');}
+    }
+    const {error}=await sb.from('ficha_aprovacoes').update({status,observacao:obs.trim()||null,aprovador_id:profile.id,decidido_em:new Date().toISOString()}).eq('id',ap.id);
+    if(error){if(winRef)winRef.close();return toast(error.message,'error');}
+    if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
+      const f=ap.fichas_clientes;
+      const {error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,status:'pendente_agendamento',data_prevista:dataEntregaPrevista||null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'});
+      if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
+      if(winRef)winRef.close();
+    } else { const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios); }
+    setDecidindo(null);setObs('');setCondicaoDiretoria('');setDataEntregaPrevista('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
   }
 
   if (pendentes === null || pendSolic === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -1676,6 +1700,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           decidindo.status === 'aprovado' ? 'Confirmar aprovação' : 'Confirmar reprovação')
       ]
     },
+      decidindo.ap && decidindo.ap.etapa==='diretoria' && decidindo.status==='aprovado' && decidindo.ap.fichas_clientes.precisa_equipamento && h('div',{className:'card',style:{marginBottom:12}},
+        h('div',{className:'section-title'},'Exclusivo Diretoria / Manutenção'),
+        h('div',{className:'form-grid'},
+          h(Campo,{label:'Estado final do equipamento',obrigatorio:true},h(Select,{opcoes:['Novo','Usado'],value:condicaoDiretoria,onChange:e=>setCondicaoDiretoria(e.target.value)})),
+          h(Campo,{label:'Data prevista para entrega'},h(Input,{type:'date',value:dataEntregaPrevista,onChange:e=>setDataEntregaPrevista(e.target.value)})))),
       h(Campo, { label: 'Observação (opcional)' },
         h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
       h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
@@ -1758,7 +1787,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               ap.etapa === 'analise_credito'
                 ? h('button', { className: 'btn btn-primary', onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
-                    h('button', { className: 'btn btn-success', onClick: () => setDecidindo({ ap, status: 'aprovado' }) }, '✓ Aprovar'),
+                    h('button',{className:'btn btn-success',onClick:()=>{if(ap.etapa==='diretoria'&&ap.fichas_clientes.precisa_equipamento){setCondicaoDiretoria(ap.fichas_clientes.equipamento_condicao||'');setDataEntregaPrevista('');}setDecidindo({ap,status:'aprovado'});}},'✓ Aprovar'),
                     h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ ap, status: 'reprovado' }) }, '✗ Reprovar')),
               h('button', { className: 'btn btn-secondary', onClick: () => setDetalhe(f) }, 'Ver ficha completa')));
         })));
@@ -3066,6 +3095,7 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
   const toast = useToast();
   const [credito, setCredito] = useState('');
   const [condicao, setCondicao] = useState('');
+  const [risco,setRisco]=useState('');
   const [obs, setObs] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -3073,12 +3103,14 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
     const valor = moedaParaNumero(credito);
     if (!valor || valor <= 0) return toast('Informe o crédito liberado.', 'error');
     if (!condicao.trim()) return toast('Informe a condição de pagamento.', 'error');
+    if(!risco) return toast('Informe o risco de crédito.', 'error');
 
     setSalvando(true);
     // salva os campos na ficha
     const { error: errFicha } = await sb.from('fichas_clientes').update({
       credito_liberado: valor,
       condicao_pagamento_credito: condicao.trim(),
+      risco_credito:risco,
       observacoes_credito: obs.trim() || null,
       analise_credito_em: new Date().toISOString(),
     }).eq('id', fichaId);
@@ -3093,7 +3125,7 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
     if (apEtapa) {
       const winRef = window.open('', '_blank');
       const { error: errAp } = await sb.from('ficha_aprovacoes').update({
-        status: 'aprovado', observacao: 'Crédito: ' + fmtMoeda(valor) + ' | ' + condicao.trim(),
+        status: 'aprovado', observacao: 'Crédito: ' + fmtMoeda(valor) + ' | Risco ' + risco + ' | ' + condicao.trim(),
         decidido_em: new Date().toISOString(),
       }).eq('id', apEtapa.id);
 
@@ -3126,10 +3158,25 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
       h(Campo, { label: 'Condição de Pagamento', obrigatorio: true },
         h(Input, { value: condicao, placeholder: 'ex: 28 dias boleto',
           onChange: e => setCondicao(e.target.value) })),
+      h(Campo,{label:'Risco de Crédito',obrigatorio:true},h(Select,{opcoes:['A','B','C','D'],value:risco,onChange:e=>setRisco(e.target.value)})),
       h('div', { style: { gridColumn: '1 / -1' } },
         h(Campo, { label: 'Observações' },
           h('textarea', { className: 'form-textarea', rows: 3, value: obs,
             onChange: e => setObs(e.target.value) })))));
+}
+
+function PaginaEntregasEquipamentos({profile}) {
+  const toast=useToast(); const [entregas,setEntregas]=useState(null); const [sel,setSel]=useState([]); const [data,setData]=useState(''); const [rotas,setRotas]=useState([]); const [aberta,setAberta]=useState(null); const mapRef=useRef(null);
+  useEffect(()=>{carregar();},[]); useEffect(()=>{if(aberta)setTimeout(()=>desenha(aberta),100);},[aberta]);
+  async function carregar(){const [a,b]=await Promise.all([sb.from('entregas_equipamentos').select('*,fichas_clientes(razao_social)').order('created_at'),sb.from('rotas_equipamentos').select('*,rota_equipamento_itens(*,entregas_equipamentos(*,fichas_clientes(razao_social)))').order('data_rota',{ascending:false})]);setEntregas(a.data||[]);setRotas(b.data||[]);}
+  async function geo(e){if(e.latitude!=null)return e;try{const q=[e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep,'Brasil'].filter(Boolean).join(', ');const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(q));const j=await r.json();if(j[0]){const latitude=+j[0].lat,longitude=+j[0].lon;await sb.from('entregas_equipamentos').update({latitude,longitude}).eq('id',e.id);return {...e,latitude,longitude};}}catch(_){}return e;}
+  function km(a,b){const R=6371,r=x=>x*Math.PI/180,d1=r(b.latitude-a.latitude),d2=r(b.longitude-a.longitude),z=Math.sin(d1/2)**2+Math.cos(r(a.latitude))*Math.cos(r(b.latitude))*Math.sin(d2/2)**2;return 2*R*Math.asin(Math.sqrt(z));}
+  function otimiza(xs){let p=xs.filter(x=>x.latitude!=null),sem=xs.filter(x=>x.latitude==null);if(p.length<2)return xs;let rest=p.slice(1),o=[p[0]];while(rest.length){let bi=0,bd=Infinity;rest.forEach((x,i)=>{let d=km(o[o.length-1],x);if(d<bd){bd=d;bi=i;}});o.push(rest.splice(bi,1)[0]);}return o.concat(sem);}
+  async function criar(){if(!data||!sel.length)return toast('Selecione entregas e informe a data.','error');let xs=otimiza(await Promise.all(entregas.filter(x=>sel.includes(x.id)).map(geo)));const {data:r,error}=await sb.from('rotas_equipamentos').insert({nome:'Entrega Equipamentos '+fmtData(data),data_rota:data,status:'planejada',criado_por:profile.id}).select().single();if(error)return toast(error.message,'error');const z=await sb.from('rota_equipamento_itens').insert(xs.map((x,i)=>({rota_id:r.id,entrega_id:x.id,ordem:i+1})));if(z.error)return toast(z.error.message,'error');await sb.from('entregas_equipamentos').update({status:'agendada',data_prevista:data}).in('id',sel);setSel([]);setData('');toast('Rota criada e otimizada.','success');carregar();}
+  async function melhorar(r){let xs=(r.rota_equipamento_itens||[]).sort((a,b)=>a.ordem-b.ordem).map(i=>({...i.entregas_equipamentos,_id:i.id}));xs=otimiza(await Promise.all(xs.map(geo)));for(let i=0;i<xs.length;i++)await sb.from('rota_equipamento_itens').update({ordem:i+1}).eq('id',xs[i]._id);await carregar();const {data:n}=await sb.from('rotas_equipamentos').select('*,rota_equipamento_itens(*,entregas_equipamentos(*,fichas_clientes(razao_social)))').eq('id',r.id).single();setAberta(n);toast('Rota melhorada.','success');}
+  function desenha(r){if(!window.L)return;const el=document.getElementById('mapa-equip');if(!el)return;if(mapRef.current)mapRef.current.remove();const m=L.map(el).setView([-22.2,-49.9],6);mapRef.current=m;L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);let pts=[];(r.rota_equipamento_itens||[]).slice().sort((a,b)=>a.ordem-b.ordem).forEach((i,n)=>{let e=i.entregas_equipamentos;if(e&&e.latitude!=null){let p=[e.latitude,e.longitude];pts.push(p);L.marker(p).addTo(m).bindPopup((n+1)+'. '+((e.fichas_clientes&&e.fichas_clientes.razao_social)||'Cliente'));}});if(pts.length){L.polyline(pts).addTo(m);m.fitBounds(pts,{padding:[25,25]});}}
+  if(entregas===null)return h('div',{className:'empty-state'},'Carregando...'); const pend=entregas.filter(x=>['pendente_agendamento','agendada'].includes(x.status));
+  return h('div',null,aberta&&h(Modal,{titulo:aberta.nome,largo:true,onClose:()=>setAberta(null),acoes:[h('button',{key:'m',className:'btn btn-primary',onClick:()=>melhorar(aberta)},'Melhorar rota'),h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')]},h('div',{id:'mapa-equip',style:{height:420}})),h('div',{className:'page-head'},h('div',null,h('div',{className:'page-title'},'Entregas e Rotas'),h('div',{className:'page-sub'},'Equipamentos liberados pela Diretoria'))),h('div',{className:'card'},h(Campo,{label:'Data prevista',obrigatorio:true},h(Input,{type:'date',value:data,onChange:e=>setData(e.target.value)})),h('table',null,h('thead',null,h('tr',null,h('th'),h('th',null,'Cliente'),h('th',null,'Endereço'),h('th',null,'Equipamento'))),h('tbody',null,...pend.map(e=>h('tr',{key:e.id},h('td',null,h('input',{type:'checkbox',checked:sel.includes(e.id),onChange:()=>setSel(x=>x.includes(e.id)?x.filter(y=>y!==e.id):[...x,e.id])})),h('td',null,e.fichas_clientes&&e.fichas_clientes.razao_social),h('td',null,[e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep].filter(Boolean).join(', ')),h('td',null,e.equipamento_resumo))))),h('button',{className:'btn btn-primary',style:{marginTop:12},onClick:criar},'Criar rota e otimizar')),h('div',{className:'card',style:{marginTop:18}},h('div',{className:'section-title'},'Rotas'),h('table',null,h('tbody',null,...rotas.map(r=>h('tr',{key:r.id},h('td',null,h('b',null,r.nome)),h('td',null,fmtData(r.data_rota)),h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'))))))));
 }
 
 // =====================================================================
@@ -4265,6 +4312,7 @@ function App() {
   else if (paginaAtual === 'solicitacoes') conteudo = h(PaginaSolicitacoes, { profile, visao, modulo });
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
+  else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, null);
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
