@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=k3oD8m4pORYkMIW-tsA8lp2AwN-ag3Pk5YgTmxc1JLLiU2GbHsu7V8WYcFCQGKNcJXKTaGOe-3qlJGzMpVdFrYIeN_J67LCO4xdnN6BPTm9M2CbYYwlInV37qqxeuAslcO0v0PH1eM2tPUe6yes6DuJqejVJiS5tsoAIhmgHMMo9Z7mxMGNOpvm7jvdvl7SEEalVuvU_1UtPypRbkWx_V1B6tV5ociXjRDppMW49b0y-StazYkR8z07QRxfSmDeRDupOowiXpQihMG0FYnzay_5FBdrdlrF3x3_tnfCNm59wrO0HjnpXfkCHVog4y1LvTrdQ242KgI9ZNwYq98H5RqQHcqrZmIQCXdMytUijZgY" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=2hBWy4USet_O_UKYGGw2d9g5E1kHfl1nDz9RLX0zXOhIzEYYDrxkXF4QO9xqiHD7MRfXpMQs_5GQh3eUxHeLSJ-286H2q8gSOeng_ZsxSYZ6t4OmINxqo-4hrGSFn62yGWonEyXSU77Ag-djXAU6G6zmOOGg1vnpnxYh0xAuOQMg_A1gm--d_kerW6XruGIVZYpbV0CHNVNESN1O4qho9xld4CJ4DiNvgBK3rFqwW7lkfhlgKx6rz66U13rIzMVv3VPkgQo7zDBZ2PbR5BiFvY6VFjabObtdGVDsaF2zMaRCzD5EWs301qYsO4QS4FVU9M4_vw0VWgMQs_OlJdXQZUvb0fcaBrYY2uF8nrYofGs" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -649,6 +649,14 @@ function mascaraTelefoneIntl(v) {
   if (d.length <= 9) return `+${d.slice(0,2)} (${d.slice(2,4)}) ${d.slice(4)}`;
   return `+${d.slice(0,2)} (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
 }
+function mascaraCpf(v) {
+  const n = String(v || '').replace(/\D/g, '').slice(0, 11);
+  if (n.length <= 3) return n;
+  if (n.length <= 6) return n.slice(0,3) + '.' + n.slice(3);
+  if (n.length <= 9) return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6);
+  return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6,9) + '-' + n.slice(9,11);
+}
+
 function mascaraCnpj(v) {
   const d = (v || '').replace(/\D/g, '').slice(0, 14);
   if (d.length <= 2) return d;
@@ -1111,7 +1119,7 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Razão Social', obrigatorio: true }, h(Input, { value: f.razao_social, onChange: e => set('razao_social', e.target.value) })),
         h(Campo, { label: 'CNPJ', obrigatorio: true }, h(Input, { value: f.cnpj_cpf, inputMode: 'numeric', placeholder: '00.000.000/0000-00', onChange: e => set('cnpj_cpf', mascaraCnpj(e.target.value)) })),
         h(Campo,{label:'Representante Legal',obrigatorio:true},h(Input,{value:f.representante_nome,onChange:e=>set('representante_nome',e.target.value)})),
-        h(Campo,{label:'CPF do Representante',obrigatorio:true},h(Input,{value:f.representante_cpf,inputMode:'numeric',placeholder:'000.000.000-00',onChange:e=>set('representante_cpf',mascaraCpfCnpj(e.target.value))})),
+        h(Campo,{label:'CPF do Representante',obrigatorio:true},h(Input,{value:f.representante_cpf,inputMode:'numeric',placeholder:'000.000.000-00',onChange:e=>set('representante_cpf',mascaraCpf(e.target.value))})),
         h(Campo, { label: 'Rua', obrigatorio: true }, h(Input, { value: f.rua, onChange: e => set('rua', e.target.value) })),
         h(Campo, { label: 'Número', obrigatorio: true }, h(Input, { value: f.numero, onChange: e => set('numero', e.target.value) })),
         h(Campo, { label: 'Bairro', obrigatorio: true }, h(Input, { value: f.bairro, onChange: e => set('bairro', e.target.value) })),
