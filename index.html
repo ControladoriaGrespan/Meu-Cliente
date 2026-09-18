@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=qwmHgUfZZYHSvU-01YIfJFLuK9cCUclV2tfSSXfUI_nmyqbYmqyzix4XNNdVrUB0fvos3_w3-5DQsU2SstzlzY5tlKRYqCkAw6RwuI3V7WBSCHhTdwqyEpfB8PFDZPJF5URcqbdM0zoR-in7YtZVMlXDpj1Dhm2U1iW2yfmjFw1n3fi62hHjdF6SkXGJrQmD2YQBXoiMertxdR3XJkH4ujzJoKULP39PxiqrtKuJBGSwojZzxzNPzXtEFHb9qdz-KmnAxTFkih8rOWM6xKiMmKpPdpMqFsOWFVplby00_UjrykAn7laTNj466vXXay8DvnOzkxHE1fAn11lL9-YbpRtHasJ7aJHtOEiKxxYJygc" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -2660,7 +2660,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
         h('thead',null,h('tr',null,h('th',null,'Solicitação'),h('th',null,'Aguardando'),h('th',null,'Concluída'),h('th',null,'Reprovada'))),
         h('tbody',null,
           ...[['bonificacao','Bonificação'],['amostra','Amostra'],['equipamento','Equipamento / Manutenção']].map(([k,n])=>
-            h('tr',{key:k},h('td',null,h('b',null,n)),h('td',null,contSol(k,'aguardando')),h('td',null,contSol(k,'concluida')),h('td',null,contSol(k,'reprovada'))))))),
+            h('tr',{key:k},h('td',null,h('b',null,n)),h('td',null,contSol(k,'aguardando')),h('td',null,contSol(k,'concluida')),h('td',null,contSol(k,'reprovada')))))))),
     porSupervisor.length>0 && ['coordenador','adm_vendas','gestao_adm_vendas','admin','diretoria'].includes(visao) &&
       h('div',{className:'card',style:{marginTop:18}},h('div',{className:'section-title'},'Resumo por Supervisor'),
         h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
@@ -2670,7 +2670,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
       h('div',{className:'card',style:{marginTop:18}},h('div',{className:'section-title'},'Resumo por Vendedor'),
         h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
           h('thead',null,h('tr',null,h('th',null,'Vendedor'),h('th',null,'Clientes'),h('th',null,'Fichas'),h('th',null,'Aprovadas'),h('th',null,'Reprovadas'),h('th',null,'Fat. médio esperado'))),
-          h('tbody',null,...porVendedor.map(x=>h('tr',{key:x.id},h('td',null,h('b',null,x.nome)),h('td',null,x.clientes),h('td',null,x.fichas),h('td',null,x.aprov),h('td',null,x.reprov),h('td',null,fmtMoeda(x.media))))))),
+          h('tbody',null,...porVendedor.map(x=>h('tr',{key:x.id},h('td',null,h('b',null,x.nome)),h('td',null,x.clientes),h('td',null,x.fichas),h('td',null,x.aprov),h('td',null,x.reprov),h('td',null,fmtMoeda(x.media)))))))),
     h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Gestão de Carteira — Títulos a Vencer e Vencidos'),
       h('div',{className:'page-sub',style:{marginBottom:12}},'Área preparada para a futura integração com o Protheus. Nenhum valor é simulado.'),
@@ -2679,6 +2679,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
         h('tbody',null,...(titulos.length?titulos.map((t,i)=>h('tr',{key:i},h('td',null,t.codigo),h('td',null,t.nome),h('td',null,t.nf),h('td',null,t.pedido),h('td',null,fmtMoeda(t.valor)),h('td',null,t.status))):[
           h('tr',{key:'sem'},h('td',{colSpan:6,style:{textAlign:'center',padding:24,color:'var(--text-muted)'}},'Aguardando integração com o Protheus para títulos a vencer e vencidos.'))
         ]))))
+  )
   );
 }
 
