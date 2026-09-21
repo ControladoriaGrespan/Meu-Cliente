@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=EChvZJi6xuXlj4b859WoQvIJsPExo7OCt8ik2XR3y7sBSVEslrPCJfc0-I3p55--tiDe_RqudB3wCyvlzO79xYhT12d8u3b79IFnL47lh8He9KGwO3IWuwkpV0KghCh16XKcH6rQDWPKbmHKlzosUJ-ajjJUQ8jfJm8J_wFP4GYX5-LKgteJEi_Yku3lkkcWwTMg_Ar5LoYkse75bLapL4PhihkZ252KT0-Cm8UzFHJ__76SKUlQybsDEKPC-bL1Sc38hMmYmVhVDohyuTHbRsUM3hNXE5lQ2XmSC2cetPl87dRxCgY1RNZWHEk1oetSNpMYCfBjAbQLaxW4tAMN1o848dmiEbzRKaXzdngqabx6PFRT5bgsO8eY0p5Kb9Tm" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -13,30 +13,30 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg-deep: #0a0f1a;
-  --bg-card: #111827;
-  --bg-card-hover: #1a2332;
-  --bg-input: #0d1520;
-  --border: #1e2a3a;
-  --border-focus: #2563eb;
-  --text-primary: #e8edf5;
-  --text-secondary: #8893a7;
-  --text-muted: #4a5568;
-  --accent: #2563eb;
-  --accent-hover: #3b82f6;
-  --accent-subtle: rgba(37, 99, 235, 0.12);
-  --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --danger: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.12);
-  --info: #06b6d4;
-  --info-bg: rgba(6, 182, 212, 0.12);
+ :root {
+  --bg-deep: #f0f2f5;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8f9fb;
+  --bg-input: #f5f6f8;
+  --border: #d4d8e0;
+  --border-focus: #e6321f;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #8a94a6;
+  --accent: #e6321f;
+  --accent-hover: #bd2518;
+  --accent-subtle: rgba(230,50,31,0.08);
+  --success: #059669;
+  --success-bg: rgba(5,150,105,0.08);
+  --warning: #d97706;
+  --warning-bg: rgba(217,119,6,0.08);
+  --danger: #dc2626;
+  --danger-bg: rgba(220,38,38,0.06);
+  --info: #0891b2;
+  --info-bg: rgba(8,145,178,0.06);
   --radius: 10px;
   --radius-sm: 6px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
 }
 html.light {
   --bg-deep: #f0f2f5;
@@ -479,6 +479,40 @@ a {
   font-weight:700;
   letter-spacing:.02em;
 }
+
+
+/* v64 — tema sempre claro + cascata de programação */
+.status-tabs-operacional .status-tab{
+  border:1px solid transparent !important;
+  background:#fff !important;
+  color:#4b5563 !important;
+  padding:8px 14px !important;
+  border-radius:7px 7px 0 0 !important;
+  cursor:pointer !important;
+  font-weight:600 !important;
+}
+.status-tabs-operacional .status-tab:hover{
+  background:#fff0ed !important;
+  color:#bd2518 !important;
+}
+.status-tabs-operacional .status-tab.active{
+  background:#fff0ed !important;
+  color:#bd2518 !important;
+  border-color:#f2b8ae !important;
+  box-shadow:inset 0 -2px 0 #e6321f !important;
+}
+.rota-cascade{border:1px solid #e1e5eb;border-radius:10px;background:#fff;margin-bottom:14px;overflow:hidden}
+.rota-cascade-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 15px;background:#f8f9fb;border-bottom:1px solid #e1e5eb;cursor:pointer;flex-wrap:wrap}
+.rota-cascade-title{font-weight:800;color:#1b2433;font-size:15px}
+.rota-cascade-meta{font-size:12px;color:#667085;margin-top:3px}
+.rota-cliente{padding:13px 16px;border-bottom:1px solid #eef0f3}
+.rota-cliente:last-child{border-bottom:0}
+.rota-cliente-nome{font-weight:750;color:#202938;margin-bottom:7px}
+.rota-equip-list{margin-left:22px;display:grid;gap:5px}
+.rota-equip-item{font-size:13px;color:#4b5563;position:relative;padding-left:12px}
+.rota-equip-item:before{content:"";width:5px;height:5px;border-radius:50%;background:#e6321f;position:absolute;left:0;top:7px}
+.rota-aprovacao-linha{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;align-items:center}
+.rota-obs-negada{margin-top:7px;padding:8px 10px;border-radius:6px;background:#fff4f4;color:#a51d1d;font-size:12px;border:1px solid #ffd3d3}
 
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -976,7 +1010,6 @@ function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, 
           h('div', { className: 'user-name' }, profile.nome),
           h('div', { className: 'user-mail' }, ROLE_LABELS[profile.papel]))),
       !collapsed && h('div', { style: { display: 'flex', gap: 6, marginTop: 10 } },
-        h('button', { className: 'btn btn-secondary btn-sm', style: { flex: 1 }, onClick: onToggleTema }, tema === 'dark' ? '☀ Claro' : '☾ Escuro'),
         h('button', { className: 'btn btn-secondary btn-sm', style: { flex: 1 }, onClick: onLogout }, 'Sair'))));
 }
 
@@ -1605,6 +1638,167 @@ function PaginaFichas({ profile }) {
   const [detalhe, setDetalhe] = useState(null);
 
   useEffect(() => { carregar(); }, []);
+  async function carregarProgramacoesRota(){
+    if(!['manutencao','supervisor','admin'].includes(etapa)){
+      setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);return;
+    }
+    try{
+      let qa=sb.from('rota_programacao_aprovacoes').select('*');
+      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id);
+      const ra=await qa;
+      if(ra.error){
+        console.error('Programações de rota:',ra.error);
+        setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);return;
+      }
+      const aps=(ra.data||[]).filter(Boolean);
+      setAprovProg(aps);
+
+      let rotaIds=[...new Set(aps.map(a=>a.rota_id).filter(Boolean))];
+      if(etapa==='manutencao'||(etapa==='admin'&&ehPreview)){
+        const rr0=await sb.from('rotas_equipamentos').select('*').order('data_rota',{ascending:false});
+        if(rr0.error)throw rr0.error;
+        const todas=(rr0.data||[]).filter(Boolean);
+        setRotasProg(todas);
+        rotaIds=todas.map(r=>r.id);
+      }else if(rotaIds.length){
+        const rr=await sb.from('rotas_equipamentos').select('*').in('id',rotaIds).order('data_rota',{ascending:false});
+        if(rr.error)throw rr.error;setRotasProg((rr.data||[]).filter(Boolean));
+      }else setRotasProg([]);
+
+      if(!rotaIds.length){setItensProg([]);setDemandasProg([]);setUsuariosProg([]);return;}
+      const ri=await sb.from('rota_equipamento_itens').select('*').in('rota_id',rotaIds).order('ordem');
+      if(ri.error)throw ri.error;
+      const its=(ri.data||[]).filter(Boolean);setItensProg(its);
+      const entIds=[...new Set(its.map(i=>i.entrega_id).filter(Boolean))];
+      if(!entIds.length){setDemandasProg([]);return;}
+
+      const re=await sb.from('entregas_equipamentos').select('*').in('id',entIds);
+      if(re.error)throw re.error;
+      const base=(re.data||[]).filter(Boolean);
+      const fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))];
+      const cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
+      const [ff,cc,uu]=await Promise.all([
+        fids.length?sb.from('fichas_clientes').select('*').in('id',fids):Promise.resolve({data:[],error:null}),
+        cids.length?sb.from('clientes').select('*').in('id',cids):Promise.resolve({data:[],error:null}),
+        aps.length?sb.from('usuarios').select('id,nome,telefone,papel').in('id',[...new Set(aps.map(a=>a.supervisor_id).filter(Boolean))]):Promise.resolve({data:[],error:null})
+      ]);
+      const fm=new Map(((ff.data||[]).filter(x=>x&&x.id)).map(x=>[x.id,x]));
+      const cm=new Map(((cc.data||[]).filter(x=>x&&x.id)).map(x=>[x.id,x]));
+      setDemandasProg(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
+      setUsuariosProg((uu.data||[]).filter(Boolean));
+    }catch(e){
+      console.error('Falha ao carregar programações de rota:',e);
+      setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);
+    }
+  }
+
+  function demandaProgPorId(id){return (demandasProg||[]).find(d=>d&&d.id===id)||null;}
+  function aprovDemanda(did){return (aprovProg||[]).filter(a=>a&&a.entrega_id===did);}
+  function statusAprovDemanda(did){
+    const a=aprovDemanda(did);
+    if(!a.length)return 'sem_supervisor';
+    if(a.some(x=>x.status==='reprovado'))return 'reprovado';
+    if(a.every(x=>x.status==='aprovado'))return 'aprovado';
+    return 'pendente';
+  }
+  function statusAprovRota(rid){
+    const a=(aprovProg||[]).filter(x=>x&&x.rota_id===rid);
+    if(!a.length)return 'sem_supervisor';
+    if(a.some(x=>x.status==='reprovado'))return 'reprovado';
+    if(a.every(x=>x.status==='aprovado'))return 'aprovado';
+    return 'pendente';
+  }
+  function labelAprov(st){return st==='aprovado'?'Aprovado':st==='reprovado'?'Reprovado':st==='sem_supervisor'?'Sem supervisor':'Aguardando aprovação';}
+  function badgeAprov(st){return st==='aprovado'?'badge-green':st==='reprovado'?'badge-red':st==='pendente'?'badge-yellow':'badge-gray';}
+  function listaEquip(d){
+    if(!d)return ['Equipamento não informado'];
+    if(tipoOperacional(d)==='troca')return [
+      'Retirar: '+(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:''),
+      'Entregar: '+(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')
+    ];
+    const txt=d.equipamento_resumo||d.equipamento_entrega||d.equipamento_coleta||'Equipamento não informado';
+    return String(txt).split(/\s*[·;|]\s*/).filter(Boolean);
+  }
+  function nomeDemandaProg(d){
+    const r=(d&&d._ref)||{};
+    return (r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
+  }
+  function tituloRota(r){
+    const its=(itensProg||[]).filter(i=>i&&i.rota_id===r.id);
+    const ds=its.map(i=>demandaProgPorId(i.entrega_id)).filter(Boolean);
+    const cidades=[...new Set(ds.map(d=>d.endereco_cidade).filter(Boolean))];
+    const local=cidades.length===1?cidades[0]:(cidades.length>1?cidades.length+' cidades':'Sem cidade');
+    return (r.codigo||r.nome||'Rota')+' - '+local;
+  }
+  function supervisoresRota(rid){
+    const ids=[...new Set((aprovProg||[]).filter(a=>a&&a.rota_id===rid).map(a=>a.supervisor_id).filter(Boolean))];
+    return ids.map(id=>(usuariosProg||[]).find(u=>u&&u.id===id)).filter(Boolean);
+  }
+  function msgRotaWhats(r){
+    return `🚚 Programação de rota aguardando sua aprovação\n*${tituloRota(r)}*\nData: ${fmtData(r.data_rota)}\n\nAcesse o sistema para aprovar ou reprovar as demandas sob sua responsabilidade:\n${linkSistema()}?rota_aprovacao=${encodeURIComponent(r.id)}`;
+  }
+  async function decidirProgramacao(){
+    const a=decisaoProg;if(!a)return;
+    if(a.status==='reprovado'&&!obsProg.trim())return toast('A observação é obrigatória para reprovar a programação.','error');
+    const {error}=await sb.rpc('decidir_programacao_rota',{
+      p_aprovacao_id:a.id,p_status:a.status,p_observacao:obsProg.trim()||null
+    });
+    if(error)return toast(error.message,'error');
+    setDecisaoProg(null);setObsProg('');
+    toast(a.status==='aprovado'?'Programação aprovada.':'Programação reprovada. A rota permanecerá pendente para revisão da Manutenção.',a.status==='aprovado'?'success':'info');
+    await carregarProgramacoesRota();
+  }
+  function renderRotasCascata(modoSupervisor=false){
+    const rotaParam=new URLSearchParams(window.location.search).get('rota_aprovacao');
+    const blocos=(rotasProg||[]).filter(r=>r&&r.id).map(r=>{
+      let its=(itensProg||[]).filter(i=>i&&i.rota_id===r.id).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+      let ds=its.map(i=>demandaProgPorId(i.entrega_id)).filter(Boolean);
+      if(etapa==='manutencao'&&subManut!=='manutencao')ds=ds.filter(d=>tipoOperacional(d)===subManut&&d.status==='roteirizada');
+      if(modoSupervisor){
+        const permitidas=new Set((aprovProg||[]).filter(a=>a&&a.rota_id===r.id&&a.supervisor_id===profile.id).map(a=>a.entrega_id));
+        ds=ds.filter(d=>permitidas.has(d.id));
+      }
+      if(!ds.length)return null;
+      const aberto=rotaExpandida===r.id||rotaParam===r.id;
+      const stR=statusAprovRota(r.id);
+      const porCliente=[];
+      ds.forEach(d=>{
+        const nome=nomeDemandaProg(d);
+        let g=porCliente.find(x=>x.nome===nome);
+        if(!g){g={nome,demandas:[]};porCliente.push(g);}
+        g.demandas.push(d);
+      });
+      return h('div',{className:'rota-cascade',key:'rp_'+r.id},
+        h('div',{className:'rota-cascade-head',onClick:()=>setRotaExpandida(aberto?null:r.id)},
+          h('div',null,h('div',{className:'rota-cascade-title'},(aberto?'▾ ':'▸ ')+tituloRota(r)),
+            h('div',{className:'rota-cascade-meta'},'Data: '+fmtData(r.data_rota)+' · '+ds.length+' demanda(s)')),
+          h('div',{style:{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}},
+            h('span',{className:'badge '+badgeAprov(stR)},labelAprov(stR)),
+            !modoSupervisor&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();setWhatsRota(r);}},'WhatsApp supervisores'))),
+        aberto&&h('div',null,...porCliente.map((g,idx)=>h('div',{className:'rota-cliente',key:r.id+'_c_'+idx},
+          h('div',{className:'rota-cliente-nome'},g.nome),
+          ...g.demandas.map(d=>{
+            const aps=aprovDemanda(d.id);
+            const minha=modoSupervisor?aps.find(a=>a.supervisor_id===profile.id):null;
+            const st=modoSupervisor?(minha?minha.status:'pendente'):statusAprovDemanda(d.id);
+            return h('div',{key:d.id,style:{marginBottom:12}},
+              h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
+              h('div',{className:'rota-aprovacao-linha'},
+                h('span',{className:'badge '+badgeAprov(st)},labelAprov(st)),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'aprovado'});setObsProg('');}},'Aprovar'),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'reprovado'});setObsProg('');}},'Reprovar')),
+              aps.filter(a=>a.status==='reprovado'&&a.observacao).map(a=>{
+                const u=(usuariosProg||[]).find(x=>x&&x.id===a.supervisor_id);
+                return h('div',{className:'rota-obs-negada',key:'obs_'+a.id},'Reprovado'+(u?' por '+u.nome:'')+': '+a.observacao);
+              })
+            );
+          })
+        )))
+      );
+    }).filter(Boolean);
+    return blocos.length?h('div',null,...blocos):h('div',{className:'card'},h(Empty,{icon:'✓',texto:modoSupervisor?'Nenhuma programação de rota aguardando sua análise.':'Nenhuma rota neste status.'}));
+  }
+
   async function carregar() {
     const { data } = await sb.from('fichas_clientes')
       .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(etapa, status, decidido_em, observacao)')
@@ -1640,6 +1834,37 @@ function PaginaFichas({ profile }) {
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+
+    whatsRota && h(Modal,{
+      titulo:'Enviar programação no WhatsApp',
+      sub:tituloRota(whatsRota),
+      onClose:()=>setWhatsRota(null),
+      acoes:[h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setWhatsRota(null)},'Fechar')]
+    },
+      supervisoresRota(whatsRota.id).length===0
+        ? h(Empty,{icon:'!',texto:'Nenhum supervisor com vínculo encontrado para os clientes desta rota.'})
+        : h('div',null,
+            h('div',{className:'page-sub',style:{marginBottom:12}},'Envie a programação para todos os supervisores abaixo. Cada botão abre o WhatsApp do responsável.'),
+            ...supervisoresRota(whatsRota.id).map(u=>h('div',{key:u.id,style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'9px 0',borderBottom:'1px solid var(--border)'}},
+              h('div',null,h('b',null,u.nome),h('div',{className:'page-sub'},u.telefone||'Sem telefone cadastrado')),
+              h('button',{className:'btn btn-success btn-sm',disabled:!u.telefone,onClick:()=>abrirWhats(u.telefone,msgRotaWhats(whatsRota))},'Enviar WhatsApp'))))),
+
+    decisaoProg && h(Modal,{
+      titulo:decisaoProg.status==='aprovado'?'Aprovar programação':'Reprovar programação',
+      sub:decisaoProg.status==='reprovado'?'Informe obrigatoriamente o motivo. A rota continuará pendente para a Manutenção.':'Confirme a programação desta demanda.',
+      onClose:()=>{setDecisaoProg(null);setObsProg('');},
+      acoes:[
+        h('button',{key:'c',className:'btn btn-secondary',onClick:()=>{setDecisaoProg(null);setObsProg('');}},'Cancelar'),
+        h('button',{key:'ok',className:'btn '+(decisaoProg.status==='aprovado'?'btn-success':'btn-danger'),onClick:decidirProgramacao},decisaoProg.status==='aprovado'?'Confirmar aprovação':'Confirmar reprovação')
+      ]
+    },
+      h(Campo,{label:'Observação'+(decisaoProg.status==='reprovado'?' *':'')},
+        h('textarea',{className:'form-textarea',rows:4,value:obsProg,onChange:e=>setObsProg(e.target.value),placeholder:decisaoProg.status==='reprovado'?'Explique o motivo da reprovação...':'Observação opcional'}))),
+
+    etapa==='supervisor' && h('div',{className:'card'},
+      h('div',{className:'section-title'},'Programações de rota para aprovação'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Aprove ou reprove somente as demandas dos clientes sob sua supervisão. Reprovações exigem observação.'),
+      renderRotasCascata(true)),
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Fichas de Clientes'),
@@ -1690,55 +1915,301 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [subStatusManut,setSubStatusManut]=useState('pendente');
   const [demandaAberta,setDemandaAberta]=useState(null);
   const [dataLiberacao,setDataLiberacao]=useState('');
+  const [rotasProg,setRotasProg]=useState([]);
+  const [itensProg,setItensProg]=useState([]);
+  const [demandasProg,setDemandasProg]=useState([]);
+  const [aprovProg,setAprovProg]=useState([]);
+  const [usuariosProg,setUsuariosProg]=useState([]);
+  const [rotaExpandida,setRotaExpandida]=useState(null);
+  const [whatsRota,setWhatsRota]=useState(null);
+  const [decisaoProg,setDecisaoProg]=useState(null);
+  const [obsProg,setObsProg]=useState('');
 
-  useEffect(() => { carregar(); }, [visao]);
+
+  // v66 — funções da aprovação de rotas.
+  // Na v65 os estados e a interface chamavam estas funções, mas as definições
+  // não estavam presentes no arquivo final. Isso causava ReferenceError ao
+  // montar PaginaPendencias em Financeiro e Manutenção.
+  async function carregarProgramacoesRota(){
+    if(!['manutencao','supervisor','admin'].includes(etapa)){
+      setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);
+      return;
+    }
+    try{
+      let qa=sb.from('rota_programacao_aprovacoes').select('*');
+      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id);
+      const ra=await qa;
+      if(ra.error)throw ra.error;
+      const aps=(ra.data||[]).filter(Boolean);
+      setAprovProg(aps);
+
+      let rotaIds=[...new Set(aps.map(a=>a.rota_id).filter(Boolean))], rotas=[];
+      if(etapa==='manutencao'||(etapa==='admin'&&ehPreview)){
+        const rr=await sb.from('rotas_equipamentos').select('*').order('data_rota',{ascending:false});
+        if(rr.error)throw rr.error;
+        rotas=(rr.data||[]).filter(Boolean);
+        rotaIds=rotas.map(r=>r.id);
+      }else if(rotaIds.length){
+        const rr=await sb.from('rotas_equipamentos').select('*').in('id',rotaIds).order('data_rota',{ascending:false});
+        if(rr.error)throw rr.error;
+        rotas=(rr.data||[]).filter(Boolean);
+      }
+      setRotasProg(rotas);
+      if(!rotaIds.length){setItensProg([]);setDemandasProg([]);setUsuariosProg([]);return;}
+
+      const ri=await sb.from('rota_equipamento_itens').select('*').in('rota_id',rotaIds).order('ordem');
+      if(ri.error)throw ri.error;
+      const its=(ri.data||[]).filter(Boolean);setItensProg(its);
+      const entIds=[...new Set(its.map(i=>i.entrega_id).filter(Boolean))];
+
+      let base=[];
+      if(entIds.length){
+        const re=await sb.from('entregas_equipamentos').select('*').in('id',entIds);
+        if(re.error)throw re.error;
+        base=(re.data||[]).filter(Boolean);
+      }
+
+      const fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))];
+      const cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
+      const supids=[...new Set(aps.map(a=>a.supervisor_id).filter(Boolean))];
+
+      const [ff,cc,uu]=await Promise.all([
+        fids.length?sb.from('fichas_clientes').select('*').in('id',fids):Promise.resolve({data:[],error:null}),
+        cids.length?sb.from('clientes').select('*').in('id',cids):Promise.resolve({data:[],error:null}),
+        supids.length?sb.from('usuarios').select('id,nome,telefone,papel').in('id',supids):Promise.resolve({data:[],error:null})
+      ]);
+      if(ff.error)console.error('Programação - fichas:',ff.error);
+      if(cc.error)console.error('Programação - clientes:',cc.error);
+      if(uu.error)console.error('Programação - supervisores:',uu.error);
+
+      const fm=new Map((ff.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+      const cm=new Map((cc.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+      setDemandasProg(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
+      setUsuariosProg((uu.data||[]).filter(Boolean));
+    }catch(e){
+      console.error('Falha ao carregar programações de rota:',e);
+      setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);
+    }
+  }
+
+  function demandaProgPorId(id){return (demandasProg||[]).find(d=>d&&String(d.id)===String(id))||null;}
+  function aprovDemanda(id){return (aprovProg||[]).filter(a=>a&&String(a.entrega_id)===String(id));}
+  function statusAprovDemanda(id){
+    const a=aprovDemanda(id);
+    if(!a.length)return 'sem_supervisor';
+    if(a.some(x=>x.status==='reprovado'))return 'reprovado';
+    if(a.every(x=>x.status==='aprovado'))return 'aprovado';
+    return 'pendente';
+  }
+  function statusAprovRota(id){
+    const a=(aprovProg||[]).filter(x=>x&&String(x.rota_id)===String(id));
+    if(!a.length)return 'sem_supervisor';
+    if(a.some(x=>x.status==='reprovado'))return 'reprovado';
+    if(a.every(x=>x.status==='aprovado'))return 'aprovado';
+    return 'pendente';
+  }
+  function labelAprov(st){return st==='aprovado'?'Aprovado':st==='reprovado'?'Reprovado':st==='sem_supervisor'?'Sem supervisor':'Aguardando aprovação';}
+  function badgeAprov(st){return st==='aprovado'?'badge-green':st==='reprovado'?'badge-red':st==='pendente'?'badge-yellow':'badge-gray';}
+  function listaEquip(d){
+    if(!d)return ['Equipamento não informado'];
+    if(tipoOperacional(d)==='troca')return [
+      'Retirar: '+(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:''),
+      'Entregar: '+(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')
+    ];
+    const txt=d.equipamento_resumo||d.equipamento_entrega||d.equipamento_coleta||d.equipamento||'Equipamento não informado';
+    return String(txt).split(/\s*[·;|]\s*/).filter(Boolean);
+  }
+  function nomeDemandaProg(d){
+    const r=(d&&d._ref)||{};
+    return (r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||r.nome_fantasia||'Cliente');
+  }
+  function tituloRota(r){
+    const its=(itensProg||[]).filter(i=>i&&String(i.rota_id)===String(r.id));
+    const ds=its.map(i=>demandaProgPorId(i.entrega_id)).filter(Boolean);
+    const cidades=[...new Set(ds.map(d=>d.endereco_cidade||((d._ref||{}).cidade)).filter(Boolean))];
+    return (r.codigo||r.nome||'Rota')+' - '+(cidades.length===1?cidades[0]:(cidades.length>1?cidades.length+' cidades':'Sem cidade'));
+  }
+  function supervisoresRota(rid){
+    const ids=[...new Set((aprovProg||[]).filter(a=>a&&String(a.rota_id)===String(rid)).map(a=>a.supervisor_id).filter(Boolean))];
+    return ids.map(id=>(usuariosProg||[]).find(u=>u&&String(u.id)===String(id))).filter(Boolean);
+  }
+  function msgRotaWhats(r){
+    return '🚚 Programação de rota aguardando sua aprovação\n*'+tituloRota(r)+'*\nData: '+fmtData(r.data_rota)+'\n\nAcesse o sistema para aprovar ou reprovar as demandas sob sua responsabilidade:\n'+linkSistema()+'?rota_aprovacao='+encodeURIComponent(r.id);
+  }
+  async function decidirProgramacao(){
+    const a=decisaoProg;if(!a)return;
+    if(a.status==='reprovado'&&!obsProg.trim())return toast('A observação é obrigatória para reprovar a programação.','error');
+    const {error}=await sb.rpc('decidir_programacao_rota',{p_aprovacao_id:a.id,p_status:a.status,p_observacao:obsProg.trim()||null});
+    if(error)return toast(error.message,'error');
+    setDecisaoProg(null);setObsProg('');
+    toast(a.status==='aprovado'?'Programação aprovada.':'Programação reprovada. A rota permanece pendente para revisão da Manutenção.',a.status==='aprovado'?'success':'info');
+    await carregarProgramacoesRota();
+  }
+  function renderRotasCascata(modoSupervisor=false){
+    const rotaParam=new URLSearchParams(window.location.search).get('rota_aprovacao');
+    const blocos=(rotasProg||[]).filter(r=>r&&r.id).map(r=>{
+      const its=(itensProg||[]).filter(i=>i&&String(i.rota_id)===String(r.id)).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+      let ds=its.map(i=>demandaProgPorId(i.entrega_id)).filter(Boolean);
+      if(etapa==='manutencao'&&subManut!=='manutencao')ds=ds.filter(d=>tipoOperacional(d)===subManut&&d.status==='roteirizada');
+      if(modoSupervisor){
+        const permitidas=new Set((aprovProg||[]).filter(a=>a&&String(a.rota_id)===String(r.id)&&String(a.supervisor_id)===String(profile.id)).map(a=>String(a.entrega_id)));
+        ds=ds.filter(d=>permitidas.has(String(d.id)));
+      }
+      if(!ds.length)return null;
+      const aberto=String(rotaExpandida)===String(r.id)||String(rotaParam)===String(r.id);
+      const porCliente=[];
+      ds.forEach(d=>{
+        const nome=nomeDemandaProg(d);
+        let g=porCliente.find(x=>x.nome===nome);
+        if(!g){g={nome,demandas:[]};porCliente.push(g);}
+        g.demandas.push(d);
+      });
+      return h('div',{className:'rota-cascade',key:'rp_'+r.id},
+        h('div',{className:'rota-cascade-head',onClick:()=>setRotaExpandida(aberto?null:r.id)},
+          h('div',null,h('div',{className:'rota-cascade-title'},(aberto?'▾ ':'▸ ')+tituloRota(r)),
+            h('div',{className:'rota-cascade-meta'},'Data: '+fmtData(r.data_rota)+' · '+ds.length+' demanda(s)')),
+          h('div',{style:{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}},
+            h('span',{className:'badge '+badgeAprov(statusAprovRota(r.id))},labelAprov(statusAprovRota(r.id))),
+            !modoSupervisor&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();setWhatsRota(r);}},'WhatsApp supervisores'))),
+        aberto&&h('div',null,...porCliente.map((g,idx)=>h('div',{className:'rota-cliente',key:r.id+'_c_'+idx},
+          h('div',{className:'rota-cliente-nome'},g.nome),
+          ...g.demandas.map(d=>{
+            const aps=aprovDemanda(d.id);
+            const minha=modoSupervisor?aps.find(a=>String(a.supervisor_id)===String(profile.id)):null;
+            const st=modoSupervisor?(minha?minha.status:'pendente'):statusAprovDemanda(d.id);
+            return h('div',{key:d.id,style:{marginBottom:12}},
+              h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
+              h('div',{className:'rota-aprovacao-linha'},
+                h('span',{className:'badge '+badgeAprov(st)},labelAprov(st)),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'aprovado'});setObsProg('');}},'Aprovar'),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'reprovado'});setObsProg('');}},'Reprovar')),
+              aps.filter(a=>a.status==='reprovado'&&a.observacao).map(a=>h('div',{className:'rota-obs-negada',key:'obs_'+a.id},'Reprovado: '+a.observacao))
+            );
+          })
+        )))
+      );
+    }).filter(Boolean);
+    return blocos.length?h('div',null,...blocos):h('div',{className:'card'},h(Empty,{icon:'✓',texto:modoSupervisor?'Nenhuma programação de rota aguardando sua análise.':'Nenhuma rota neste status.'}));
+  }
+
+  useEffect(() => { carregar(); carregarProgramacoesRota(); }, [visao]);
   async function carregar() {
-    setPendentes(null); setPendSolic(null); if(etapa==='manutencao')setDemandasManut(null);
+    setPendentes(null);
+    setPendSolic(null);
+    if(etapa==='manutencao')setDemandasManut(null);
 
-    // fila de FICHAS (manutencao nao participa do fluxo de ficha)
-    let q = sb.from('ficha_aprovacoes')
-      .select('*, fichas_clientes(*, usuarios:vendedor_id(nome), clientes(codigo_totvs), ficha_aprovacoes(etapa, status, decidido_em, observacao))')
-      .eq('etapa', etapa).eq('status', 'pendente');
-    // no preview nao filtra por responsavel (senao a fila vem vazia)
-    if (!ehPreview && (etapa === 'supervisor' || etapa === 'coordenador')) {
-      q = q.eq('responsavel_id', profile.id);
-    }
+    try{
+      // MANUTENÇÃO: carrega sua fila de forma independente.
+      // Assim uma consulta auxiliar com erro nunca deixa a página presa em "Carregando...".
+      if(etapa==='manutencao'){
+        setPendentes([]);
 
-    // fila de SOLICITACOES de equipamento
-    let qs = sb.from('solicitacao_aprovacoes')
-      .select('*, solicitacoes(*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
-      .eq('etapa', etapa).eq('status', 'pendente');
-    if (!ehPreview && (etapa === 'supervisor' || etapa === 'coordenador')) {
-      qs = qs.eq('responsavel_id', profile.id);
-    }
+        let rs={data:[],error:null};
+        try{
+          rs=await sb.from('solicitacao_aprovacoes')
+            .select('*, solicitacoes(*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
+            .eq('etapa','manutencao').eq('status','pendente')
+            .order('criado_em',{ascending:true});
+        }catch(e){
+          console.error('Pendências - solicitações manutenção:',e);
+        }
+        if(rs&&rs.error)console.error('Pendências - solicitações manutenção:',rs.error);
+        setPendSolic((rs&&rs.data)||[]);
 
-    const [rf, rs, rd] = await Promise.all([
-      etapa === 'manutencao' ? Promise.resolve({ data: [] }) : q.order('criado_em', { ascending: true }),
-      qs.order('criado_em', { ascending: true }),
-      etapa==='manutencao'
-        ? sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at,concluida_em,observacao_conclusao').order('created_at',{ascending:false})
-        : Promise.resolve({data:[]})
-    ]);
-    setPendentes(rf.data || []);
-    setPendSolic(rs.data || []);
-    if(etapa==='manutencao'){
-      if(rd.error){console.error(rd.error);setDemandasManut([]);}
-      else{
-        const base=rd.data||[], fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))], cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
-        const [ff,cc]=await Promise.all([
-          fids.length?sb.from('fichas_clientes').select('id,codigo,razao_social,cnpj_cpf,clientes(codigo_totvs)').in('id',fids):Promise.resolve({data:[],error:null}),
-          cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf').in('id',cids):Promise.resolve({data:[],error:null})
-        ]);
+        let rd={data:[],error:null};
+        try{
+          // select('*') evita quebrar a tela quando há diferença de schema entre versões.
+          rd=await sb.from('entregas_equipamentos')
+            .select('*')
+            .order('created_at',{ascending:false});
+        }catch(e){
+          console.error('Pendências - entregas equipamentos:',e);
+        }
+
+        if(rd&&rd.error){
+          console.error('Pendências - entregas equipamentos:',rd.error);
+          setDemandasManut([]);
+          return;
+        }
+
+        const base=((rd&&rd.data)||[]).filter(x=>x&&x.id);
+        const fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))];
+        const cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
+
+        let ff={data:[],error:null}, cc={data:[],error:null};
+
+        // Ficha e cliente são enriquecimento visual. Falha aqui não pode bloquear a fila.
+        if(fids.length){
+          try{
+            ff=await sb.from('fichas_clientes').select('*').in('id',fids);
+          }catch(e){
+            console.error('Pendências - fichas_clientes:',e);
+          }
+        }
+        if(cids.length){
+          try{
+            cc=await sb.from('clientes').select('*').in('id',cids);
+          }catch(e){
+            console.error('Pendências - clientes:',e);
+          }
+        }
+
         if(ff&&ff.error)console.error('Pendências - fichas_clientes:',ff.error);
         if(cc&&cc.error)console.error('Pendências - clientes:',cc.error);
-        const fichasOk=(ff&&ff.data||[]).filter(x=>x&&x.id).map(x=>({
+
+        const fichasOk=((ff&&ff.data)||[]).filter(x=>x&&x.id);
+        const clientesOk=((cc&&cc.data)||[]).filter(x=>x&&x.id);
+        const fm=new Map(fichasOk.map(x=>[x.id,x]));
+        const cm=new Map(clientesOk.map(x=>[x.id,x]));
+
+        setDemandasManut(base.map(x=>({
           ...x,
-          codigo_totvs:x.codigo_totvs||(x.clientes&&x.clientes.codigo_totvs)||null
-        }));
-        const clientesOk=(cc&&cc.data||[]).filter(x=>x&&x.id);
-        const fm=new Map(fichasOk.map(x=>[x.id,x])),cm=new Map(clientesOk.map(x=>[x.id,x]));
-        setDemandasManut(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
+          _ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null
+        })));
+        return;
       }
+
+      // DEMAIS ETAPAS
+      let q=sb.from('ficha_aprovacoes')
+        .select('*, fichas_clientes(*, usuarios:vendedor_id(nome), clientes(codigo_totvs), ficha_aprovacoes(etapa, status, decidido_em, observacao))')
+        .eq('etapa',etapa).eq('status','pendente');
+
+      if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
+        q=q.eq('responsavel_id',profile.id);
+      }
+
+      let qs=sb.from('solicitacao_aprovacoes')
+        .select('*, solicitacoes(*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
+        .eq('etapa',etapa).eq('status','pendente');
+
+      if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
+        qs=qs.eq('responsavel_id',profile.id);
+      }
+
+      const resultados=await Promise.allSettled([
+        q.order('criado_em',{ascending:true}),
+        qs.order('criado_em',{ascending:true})
+      ]);
+
+      const rf=resultados[0].status==='fulfilled'?resultados[0].value:{data:[],error:resultados[0].reason};
+      const rs=resultados[1].status==='fulfilled'?resultados[1].value:{data:[],error:resultados[1].reason};
+
+      if(rf&&rf.error)console.error('Pendências - fichas:',rf.error);
+      if(rs&&rs.error)console.error('Pendências - solicitações:',rs.error);
+
+      setPendentes((rf&&rf.data)||[]);
+      setPendSolic((rs&&rs.data)||[]);
+    }catch(e){
+      console.error('Falha ao carregar Pendências:',e);
+      setPendentes([]);
+      setPendSolic([]);
+      if(etapa==='manutencao')setDemandasManut([]);
+      toast('Não foi possível carregar todos os dados de Pendências. Verifique o Console.','error');
+    }finally{
+      // Garantia absoluta contra loading infinito.
+      setPendentes(v=>v===null?[]:v);
+      setPendSolic(v=>v===null?[]:v);
+      if(etapa==='manutencao')setDemandasManut(v=>v===null?[]:v);
     }
   }
 
@@ -1883,7 +2354,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       observacao_conclusao:obs.trim()||null
     }).eq('id',d.id);
     if(error)return toast(error.message,'error');
-    toast('Demanda concluída.','success');carregar();
+    toast('Demanda concluída.','success');carregar();carregarProgramacoesRota();
   }
   async function programarManutencao(d){
     const dt=window.prompt('Data programada no Alvo (AAAA-MM-DD):',d.data_prevista||'');
@@ -2009,13 +2480,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         [['envio','Envio'],['troca','Troca'],['retirada','Retirada'],['manutencao','Manutenção']].map(([k,l])=>
           h('button',{key:k,className:'btn '+(subManut===k?'btn-primary':'btn-secondary'),onClick:()=>{setSubManut(k);setSubStatusManut('pendente');}},l))),
 
-      h('div',{style:{display:'flex',gap:4,flexWrap:'wrap',borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:14}},
+      h('div',{className:'status-tabs-operacional',style:{display:'flex',gap:4,flexWrap:'wrap',borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:14}},
         (subManut==='manutencao'
           ? [['pendente','Pendente'],['programada','Agendada'],['concluida','Concluída']]
           : [['pendente','Pendente'],['ag_rota','Ag. Rota'],['roteirizada','Roteirizado'],['concluida','Concluído']]
         ).map(([k,l])=>h('button',{
-          key:k,
-          style:{border:'0',background:subStatusManut===k?'var(--red)':'transparent',color:subStatusManut===k?'#fff':'var(--text)',padding:'7px 13px',borderRadius:6,cursor:'pointer',fontWeight:subStatusManut===k?700:500},
+          key:k,className:'status-tab '+(subStatusManut===k?'active':''),
           onClick:()=>setSubStatusManut(k)
         },l))),
 
@@ -2032,7 +2502,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                     h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
                     h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
               }),
-            (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).length===0
+            subManut!=='manutencao'&&subStatusManut==='roteirizada'
+              ? renderRotasCascata(false)
+              : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).length===0
               ? h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda neste status.'}))
               : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).map(d=>{
                   const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
@@ -5101,7 +5573,7 @@ function App() {
   const [pagina, setPagina] = useState(profile && profile.exigir_troca_senha ? 'perfil' : 'dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [tema, setTema] = useState(() => localStorage.getItem('tema') || 'dark');
+  const tema = 'light';
   const [contador, setContador] = useState(0);
   const [modulo,setModulo]=useState(null);
   const [modulosUsuario,setModulosUsuario]=useState([]);
@@ -5113,11 +5585,25 @@ function App() {
   },[]);
 
   useEffect(() => {
-    document.documentElement.className = tema === 'light' ? 'light' : '';
-    localStorage.setItem('tema', tema);
-  }, [tema]);
+    document.documentElement.className = 'light';
+    try{ localStorage.removeItem('tema'); }catch(e){}
+  }, []);
 
   useEffect(() => { carregarSessao(); }, []);
+
+  // Link de aprovação de rota: este hook precisa ficar ANTES de qualquer
+  // return condicional do App. Caso contrário o login altera a quantidade
+  // de hooks entre renders e o React derruba a aplicação.
+  useEffect(()=>{
+    if(!profile)return;
+    const params=new URLSearchParams(window.location.search);
+    const rotaAprov=params.get('rota_aprovacao');
+    if(rotaAprov && ['supervisor','admin'].includes(profile.papel)){
+      setModulo('vendas');
+      setVisao(profile.papel);
+      setPagina('pendencias');
+    }
+  },[profile ? profile.id : null]);
 
   async function carregarSessao() {
     const { data: { session } } = await sb.auth.getSession();
@@ -5208,7 +5694,7 @@ function App() {
       profile, visao, modulo, pagina: paginaAtual, onNavigate: setPagina, onVoltarModulos:()=>{setModulo(null);setPagina('modulos')},
       open: sidebarOpen, collapsed, onToggleCollapse: () => setCollapsed(c => !c),
       onClose: () => setSidebarOpen(false), contadorPendencias: contador,
-      onLogout: logout, tema, onToggleTema: () => setTema(t => t === 'dark' ? 'light' : 'dark')
+      onLogout: logout, tema, onToggleTema: () => {}
     }),
     h('div', { className: `main-content ${collapsed ? 'wide' : ''}` },
       profile.papel === 'admin' && h('div', {
