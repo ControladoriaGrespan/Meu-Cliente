@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=5dESDmxPebvsR1g5drdtQESfZrArNWIqLtswiD9wGl4PRNeOh_NSwjXlyMX4gVUoLcvhoV-6J1c58u8rVFXQLg2WMs9LogUiyAtYHJXB0lv-tl_6VsA5gYyevlBudaA5e-kUD58fMS9NWNhcuVPxn98x5WKu72jY-lZDmn2NWI6DOAQMDiYIuCXOnlNqRIfHIsUH3t-5UHX4JYqLyakBZNT02v8eJovX8c0jldOQcT7JlPsSTqjp7KKgKTrQ1TrIyDwIkAPcc2ra6qEX2XdA5EDJDD-B-V-sebZW8zEiFpKpz4kN1FPcMAK1zzZ9wVS4fZyNGWBXPqIKEz3P6_ons0AWR97O1OWxqkJbLsJeF5rSBAhTvYWGNwgq3wbHGc64" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3557,7 +3557,7 @@ function PaginaEntregasEquipamentos({profile}) {
   const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
   const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
   const [fCidade,setFCidade]=useState(''),[fCliente,setFCliente]=useState(''),[fStatus,setFStatus]=useState('');
-  const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[dataProgramacao,setDataProgramacao]=useState(''),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[erro,setErro]=useState('');
+  const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[dataProgramacao,setDataProgramacao]=useState(''),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[criandoRota,setCriandoRota]=useState(false),[erro,setErro]=useState('');
   const mapMontagemRef=useRef(null),mapRotaRef=useRef(null);
 
   useEffect(()=>{carregar();},[]);
@@ -3695,69 +3695,89 @@ function PaginaEntregasEquipamentos({profile}) {
     toast('Ordem dos pontos otimizada.','success');
   }
   async function criar(){
+    if(criandoRota)return;
     if(!dataRota)return toast('Informe a data da rota.','error');
 
     const ids=[...new Set((selecionadas||[]).filter(Boolean))];
     if(!ids.length)return toast('Selecione as solicitações que farão parte da rota.','error');
 
-    let demandas=ids.map(entregaPorId).filter(e=>e&&e.id);
-    const unicas=new Map();
-    for(const e of demandas)unicas.set(e.id,e);
-    demandas=[...unicas.values()];
-    if(!demandas.length)return toast('Nenhuma demanda válida foi selecionada.','error');
+    setCriandoRota(true);
+    let rotaCriada=null;
+    try{
+      let demandas=ids.map(entregaPorId).filter(e=>e&&e.id);
+      const unicas=new Map();
+      for(const e of demandas)unicas.set(String(e.id),e);
+      demandas=[...unicas.values()];
+      if(!demandas.length)throw new Error('Nenhuma demanda válida foi selecionada.');
 
-    const divergentes=demandas.filter(e=>e.data_prevista&&e.data_prevista!==dataRota);
-    if(divergentes.length&&!window.confirm(divergentes.length+' demanda(s) possuem data prevista diferente da data da rota. Deseja continuar?'))return;
+      const divergentes=demandas.filter(e=>e.data_prevista&&e.data_prevista!==dataRota);
+      if(divergentes.length&&!window.confirm(divergentes.length+' demanda(s) possuem data prevista diferente da data da rota. Deseja continuar?'))return;
 
-    let xs=(await Promise.all(demandas.map(geo))).filter(e=>e&&e.id);
-    const geoUnicas=new Map();
-    for(const e of xs)geoUnicas.set(e.id,e);
-    xs=[...geoUnicas.values()];
-    if(!xs.length)return toast('Nenhuma demanda válida foi localizada para criar a rota.','error');
+      let xs=(await Promise.all(demandas.map(geo))).filter(e=>e&&e.id);
+      const geoUnicas=new Map();
+      for(const e of xs)geoUnicas.set(String(e.id),e);
+      xs=[...geoUnicas.values()];
+      if(!xs.length)throw new Error('Nenhuma demanda válida foi localizada para criar a rota.');
 
-    // Confere novamente no banco para impedir inclusão de demanda que já esteja em outra rota.
-    const {data:jaVinculados,error:ev}=await sb.from('rota_equipamento_itens').select('entrega_id').in('entrega_id',xs.map(e=>e.id));
-    if(ev)return toast(ev.message,'error');
-    const ocupados=new Set((jaVinculados||[]).filter(x=>x&&x.entrega_id).map(x=>x.entrega_id));
-    if(ocupados.size){
-      xs=xs.filter(e=>!ocupados.has(e.id));
-      if(!xs.length){
-        await carregar();
-        setSelecionadas([]);
-        return toast('As demandas selecionadas já pertencem a outra rota. A lista foi atualizada.','error');
+      // Uma demanda só pode pertencer a uma rota. Confere no banco imediatamente antes da gravação.
+      const idsFinal=xs.map(e=>e.id);
+      const {data:jaVinculados,error:ev}=await sb.from('rota_equipamento_itens').select('entrega_id').in('entrega_id',idsFinal);
+      if(ev)throw ev;
+      const ocupados=new Set((jaVinculados||[]).filter(x=>x&&x.entrega_id).map(x=>String(x.entrega_id)));
+      if(ocupados.size){
+        xs=xs.filter(e=>!ocupados.has(String(e.id)));
+        if(!xs.length){
+          setSelecionadas([]);
+          await carregar();
+          throw new Error('As demandas selecionadas já pertencem a outra rota. A lista foi atualizada.');
+        }
       }
-      toast(ocupados.size+' demanda(s) já estavam em outra rota e foram removidas desta montagem.','error');
+
+      const {data:r,error}=await sb.from('rotas_equipamentos').insert({
+        nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),
+        data_rota:dataRota,status:'planejada',criado_por:profile.id
+      }).select().single();
+      if(error)throw error;
+      rotaCriada=r;
+
+      // DEDUPLICAÇÃO FINAL por rota_id + entrega_id.
+      const pares=new Map();
+      xs.forEach((e,i)=>{
+        const item={rota_id:r.id,entrega_id:e.id,ordem:i+1};
+        pares.set(String(r.id)+'|'+String(e.id),item);
+      });
+      const itens=[...pares.values()];
+
+      // UPSERT torna a operação idempotente para a constraint (rota_id, entrega_id).
+      // Se o mesmo par chegar duas vezes por qualquer evento de UI/rede, o banco ignora a repetição.
+      const {error:ei}=await sb.from('rota_equipamento_itens')
+        .upsert(itens,{onConflict:'rota_id,entrega_id',ignoreDuplicates:true});
+      if(ei)throw ei;
+
+      // O trigger do banco já altera Ag. Rota -> Roteirizada.
+      // Apenas confirma o estado final das demandas realmente inseridas.
+      const idsCriados=[...new Set(itens.map(i=>i.entrega_id).filter(Boolean))];
+      const {data:gravados,error:eg}=await sb.from('rota_equipamento_itens')
+        .select('entrega_id').eq('rota_id',r.id);
+      if(eg)throw eg;
+      const gravadosSet=new Set((gravados||[]).filter(x=>x&&x.entrega_id).map(x=>String(x.entrega_id)));
+      const faltantes=idsCriados.filter(id=>!gravadosSet.has(String(id)));
+      if(faltantes.length)throw new Error('A rota não foi gravada completamente. '+faltantes.length+' demanda(s) ficaram sem vínculo.');
+
+      setSelecionadas([]);setDataRota('');setNomeRota('');
+      toast('Rota criada com '+gravadosSet.size+' demanda(s).','success');
+      await carregar();
+    }catch(err){
+      if(rotaCriada&&rotaCriada.id){
+        // rollback da rota criada nesta tentativa
+        await sb.from('rota_equipamento_itens').delete().eq('rota_id',rotaCriada.id);
+        await sb.from('rotas_equipamentos').delete().eq('id',rotaCriada.id);
+      }
+      toast('Não foi possível criar a rota: '+(err&&err.message?err.message:String(err)),'error');
+      await carregar();
+    }finally{
+      setCriandoRota(false);
     }
-
-    const {data:r,error}=await sb.from('rotas_equipamentos').insert({
-      nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),
-      data_rota:dataRota,status:'planejada',criado_por:profile.id
-    }).select().single();
-    if(error)return toast(error.message,'error');
-
-    const itens=xs.map((e,i)=>({rota_id:r.id,entrega_id:e.id,ordem:i+1}));
-    const {error:ei}=await sb.from('rota_equipamento_itens').insert(itens);
-    if(ei){
-      // Não deixa rota vazia/parcial criada quando a gravação dos itens falhar.
-      await sb.from('rota_equipamento_itens').delete().eq('rota_id',r.id);
-      await sb.from('rotas_equipamentos').delete().eq('id',r.id);
-      return toast('Não foi possível criar a rota: '+ei.message,'error');
-    }
-
-    const idsCriados=xs.map(e=>e.id);
-    const {error:eu}=await sb.from('entregas_equipamentos')
-      .update({status:'roteirizada',programada_em:new Date().toISOString()})
-      .in('id',idsCriados);
-    if(eu){
-      // Reverte a rota se a atualização de status falhar.
-      await sb.from('rota_equipamento_itens').delete().eq('rota_id',r.id);
-      await sb.from('rotas_equipamentos').delete().eq('id',r.id);
-      return toast('A rota foi revertida porque não foi possível atualizar as demandas: '+eu.message,'error');
-    }
-
-    setSelecionadas([]);setDataRota('');setNomeRota('');
-    toast('Rota criada com '+idsCriados.length+' demanda(s).','success');
-    await carregar();
   }
   async function melhorarRota(r){
     if(!r||!r.id)return;
@@ -4063,7 +4083,7 @@ function PaginaEntregasEquipamentos({profile}) {
       h('div',{className:'form-grid',style:{marginTop:14}},
         h(Campo,{label:'Nome da rota'},h(Input,{value:nomeRota,placeholder:'Ex.: Entregas Marília - Manhã',onChange:e=>setNomeRota(e.target.value)})),
         h(Campo,{label:'Data da rota',obrigatorio:true},h(Input,{type:'date',value:dataRota,onChange:e=>setDataRota(e.target.value)}))),
-      h('button',{className:'btn btn-primary',disabled:!selecionadasValidas.length||!dataRota,onClick:criar},'Criar rota com '+selecionadasValidas.length+' demanda(s)')),
+      h('button',{className:'btn btn-primary',disabled:criandoRota||!selecionadasValidas.length||!dataRota,onClick:criar},criandoRota?'Criando rota...':'Criar rota com '+selecionadasValidas.length+' demanda(s)')),
 
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Rotas criadas'),
