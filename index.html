@@ -2300,12 +2300,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const {error:x}=await sb.from('fichas_clientes').update({equipamento_condicao_manutencao:condicaoDiretoria}).eq('id',ap.ficha_id); if(x){if(winRef)winRef.close();return toast(x.message,'error');}
     }
-    const {error}=await sb.from('ficha_aprovacoes').update({status,observacao:obs.trim()||null,aprovador_id:profile.id,decidido_em:new Date().toISOString()}).eq('id',ap.id);
+    const {error}=await sb.rpc('decidir_ficha_workflow',{
+      p_aprovacao_id:ap.id,
+      p_status:status,
+      p_observacao:obs.trim()||null
+    });
     if(error){if(winRef)winRef.close();return toast(error.message,'error');}
-    if(status==='aprovado'){
-      const {data:nextWait}=await sb.from('ficha_aprovacoes').select('id').eq('ficha_id',ap.ficha_id).eq('status','aguardando').order('ordem').limit(1).maybeSingle();
-      if(nextWait)await sb.from('ficha_aprovacoes').update({status:'pendente'}).eq('id',nextWait.id);
-    }
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const f=ap.fichas_clientes;
       const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'envio',status:'pendente',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
@@ -3988,10 +3988,11 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
 
     if (apEtapa) {
       const winRef = window.open('', '_blank');
-      const { error: errAp } = await sb.from('ficha_aprovacoes').update({
-        status: 'aprovado', observacao: 'Crédito: ' + fmtMoeda(valor) + ' | Risco ' + risco + ' | ' + condicao.trim(),
-        decidido_em: new Date().toISOString(),
-      }).eq('id', apEtapa.id);
+      const { error: errAp } = await sb.rpc('decidir_ficha_workflow', {
+        p_aprovacao_id: apEtapa.id,
+        p_status: 'aprovado',
+        p_observacao: 'Crédito: ' + fmtMoeda(valor) + ' | Risco ' + risco + ' | ' + condicao.trim()
+      });
 
       if (errAp) { setSalvando(false); if (winRef && !winRef.closed) winRef.close(); return toast(errAp.message, 'error'); }
 
