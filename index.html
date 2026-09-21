@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v71-fichas-clean';
-console.info('[Meu Cliente] BUILD v71-fichas-clean');
+window.__MEU_CLIENTE_BUILD__='v75-whatsapp-supervisores';
+console.info('[Meu Cliente] BUILD v75-whatsapp-supervisores');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2390,6 +2390,44 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
       h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
         'Ao confirmar, o próximo responsável será avisado no WhatsApp.')),
+
+    whatsRota && h(Modal, {
+      titulo: 'Enviar programação no WhatsApp',
+      sub: tituloRota(whatsRota),
+      onClose: () => setWhatsRota(null),
+      acoes: [
+        h('button', { key:'fechar', className:'btn btn-secondary', onClick:()=>setWhatsRota(null) }, 'Fechar')
+      ]
+    },
+      (() => {
+        const sups = supervisoresRota(whatsRota.id);
+        if (!sups.length) {
+          return h('div', { className:'empty-state' },
+            'Nenhum supervisor vinculado às demandas desta rota.');
+        }
+        return h('div', null,
+          h('div', { className:'page-sub', style:{marginBottom:12} },
+            'Envie a programação para todos os supervisores relacionados à rota. Cada supervisor acessará somente as demandas sob sua responsabilidade.'),
+          ...sups.map(sup => h('div', {
+              key:sup.id,
+              style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid var(--border)'}
+            },
+            h('div', null,
+              h('div', { className:'strong' }, sup.nome || 'Supervisor'),
+              h('div', { className:'page-sub' }, sup.telefone || 'WhatsApp não cadastrado')),
+            sup.telefone
+              ? h('button', {
+                  className:'btn btn-success btn-sm',
+                  onClick:() => {
+                    const ok = abrirWhats(sup.telefone, msgRotaWhats(whatsRota));
+                    if (!ok) toast('WhatsApp não cadastrado para '+(sup.nome||'o supervisor')+'.','error');
+                  }
+                }, 'Enviar no WhatsApp')
+              : h('span', { className:'badge badge-gray' }, 'Sem telefone')
+          ))
+        );
+      })()
+    ),
 
     h('div', { className: 'page-head' },
       h('div', null,
