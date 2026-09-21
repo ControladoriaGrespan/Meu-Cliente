@@ -1208,6 +1208,18 @@ function linhaInfo(label, valor) {
     h('span', { style: { color: 'var(--text-primary)', minWidth: 0, wordBreak: 'break-word' } }, valor));
 }
 
+
+function itensEquipamentosFicha(f,condicaoFinal){
+  const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
+  if(f.forno_tipo)a.push({quantidade:Number(f.forno_quantidade||1),descricao:`FORNO ${String(f.forno_tipo).toUpperCase()}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});
+  (f.freezer_tipos||[]).forEach(x=>a.push({quantidade:1,descricao:'FREEZER '+String(x).toUpperCase(),patrimonio:'',condicao:c}));
+  if(f.armario_tipo)a.push({quantidade:1,descricao:'ARMÁRIO '+String(f.armario_tipo).toUpperCase(),patrimonio:'',condicao:c});
+  if(f.camara_climatica)a.push({quantidade:1,descricao:'CÂMARA CLIMÁTICA '+String(f.camara_climatica).toUpperCase(),patrimonio:'',condicao:c});
+  if(Number(f.assadeiras_quantidade||0)>0)a.push({quantidade:Number(f.assadeiras_quantidade),descricao:'ASSADEIRA',patrimonio:'',condicao:c});
+  if(Number(f.esteiras_quantidade||0)>0)a.push({quantidade:Number(f.esteiras_quantidade),descricao:'ESTEIRA',patrimonio:'',condicao:c});
+  return a;
+}
+
 function resumoEquipamentos(f) {
   if (!f.precisa_equipamento) return 'Não';
   const partes = [f.equipamento_condicao];
@@ -1408,7 +1420,7 @@ function gerarContratoPDF(f,salvar=true){
   function rod(){d.setDrawColor(210);d.line(margem,282,192,282);d.setFont('helvetica','normal');d.setFontSize(6.4);d.setTextColor(95);d.text('GRESPAN PAES CONGELADOS LTDA | Av. República, 7000 | Marília/SP | CNPJ 10.809.214/0001-67',margem,287);d.text('Página '+pag,192,287,{align:'right'});}
   function nova(){rod();d.addPage();pag++;cab();}
   function par(txt,bold=false){d.setFont('helvetica',bold?'bold':'normal');d.setFontSize(9.3);d.setTextColor(25);const ls=d.splitTextToSize(String(txt||''),larg),alt=ls.length*4.5+2;if(y+alt>277)nova();d.text(ls,margem,y);y+=alt;}
-  cab();d.setFont('helvetica','bold');d.setFontSize(14);d.setTextColor(25);d.text('ACORDO COMERCIAL',105,y,{align:'center'});y+=8;
+  cab();d.setFont('helvetica','bold');d.setFontSize(14);d.setTextColor(25);d.text('ACORDO COMERCIAL',105,y,{align:'center'});y+=6;if(f.acordo_comercial_numero){d.setFontSize(8);d.setTextColor(70);d.text('Acordo Comercial nº '+f.acordo_comercial_numero,105,y,{align:'center'});y+=6;}else y+=2;
   d.setFontSize(7.5);d.setTextColor(95);d.text(f.contrato?'MODELO ACORDO COMERCIAL GRESPAN 2025':'MODELO 1 ACORDO COMERCIAL GRESPAN 2025 - Sem Multa',105,y,{align:'center'});y+=10;
   par('Prezados(as) '+(f.representante_nome||f.razao_social||'')+',');
   par('É com grande satisfação que apresentamos nosso Acordo Comercial, elaborado de forma personalizada para atender às necessidades específicas de sua empresa.');
@@ -1740,6 +1752,27 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       else if (winRef && !winRef.closed) winRef.close();
     } else if (winRef && !winRef.closed) winRef.close();
 
+    // Após a aprovação final da Diretoria, uma troca vira DEMANDA OPERACIONAL da Manutenção.
+    if(status==='aprovado' && ap.etapa==='diretoria' && ap.solicitacoes &&
+       (ap.solicitacoes.categoria||'equipamento')==='equipamento' && ap.solicitacoes.tipo==='troca'){
+      const sol=ap.solicitacoes, cli=sol.clientes||{};
+      const {data:cf}=await sb.from('clientes').select('id,razao_social,fichas_clientes(*)').eq('id',sol.cliente_id).single();
+      const fichas=((cf&&cf.fichas_clientes)||[]).slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+      const f=fichas.find(x=>x.entrega_rua)||fichas[0]||{};
+      const {error:ed}=await sb.from('entregas_equipamentos').upsert({
+        solicitacao_id:sol.id,cliente_id:sol.cliente_id,origem_tipo:'troca',tipo_demanda:'troca',
+        status:'pendente_agendamento',
+        endereco_rua:f.entrega_rua||f.rua||'Não informado',endereco_numero:f.entrega_numero||f.numero||'S/N',
+        endereco_bairro:f.entrega_bairro||f.bairro||'Não informado',endereco_cidade:f.entrega_cidade||f.cidade||'Não informado',
+        endereco_estado:f.entrega_estado||f.estado||'--',endereco_cep:f.entrega_cep||f.cep||'Não informado',
+        equipamento_coleta:sol.equipamento||null,patrimonio_coleta:sol.patrimonio||null,
+        equipamento_entrega:sol.equipamento_entrega||null,patrimonio_entrega:sol.patrimonio_entrega||null,
+        equipamento_resumo:`COLETAR: ${sol.equipamento||'—'}${sol.patrimonio?' | Patrimônio '+sol.patrimonio:''} • ENTREGAR: ${sol.equipamento_entrega||'—'}${sol.patrimonio_entrega?' | Patrimônio '+sol.patrimonio_entrega:''}`,
+        criado_por:profile.id
+      },{onConflict:'solicitacao_id'});
+      if(ed) toast('Solicitação aprovada, mas a demanda da Manutenção não foi criada: '+ed.message,'error');
+    }
+
     toast(`Solicitação ${status}.`, status === 'aprovado' ? 'success' : 'info');
     carregar(); onChanged && onChanged();
   }
@@ -1755,8 +1788,16 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     if(error){if(winRef)winRef.close();return toast(error.message,'error');}
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const f=ap.fichas_clientes;
-      const {error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,status:'pendente_agendamento',data_prevista:dataEntregaPrevista||null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'});
+      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:f.cliente_id||null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:dataEntregaPrevista||null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
+      else if(demanda){
+        const itens=itensEquipamentosFicha(f,condicaoDiretoria);
+        const {data:exist}=await sb.from('comodato_equipamentos').select('id').eq('entrega_id',demanda.id).limit(1);
+        if(itens.length&&(!exist||!exist.length)){
+          const {error:ei}=await sb.from('comodato_equipamentos').insert(itens.map((it,i)=>({...it,entrega_id:demanda.id,ordem:i+1})));
+          if(ei)toast('Entrega criada, mas houve erro nos itens do comodato: '+ei.message,'error');
+        }
+      }
       if(winRef)winRef.close();
     } else { const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios); }
     setDecidindo(null);setObs('');setCondicaoDiretoria('');setDataEntregaPrevista('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
@@ -2313,6 +2354,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [equipamento, setEquipamento] = useState('');
   const [equipamentoManual, setEquipamentoManual] = useState('');
   const [patrimonio, setPatrimonio] = useState('');
+  const [equipamentoEntrega,setEquipamentoEntrega]=useState('');
+  const [patrimonioEntrega,setPatrimonioEntrega]=useState('');
   const [justificativa, setJustificativa] = useState('');
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
@@ -2351,10 +2394,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const equipamentos = clienteSel ? listarEquipamentos(clienteSel.fichas_clientes) : [];
   const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria) : [];
 
-  useEffect(() => { setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); }, [clienteId]);
+  useEffect(() => { setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega(''); }, [clienteId]);
   useEffect(() => {
     setTipo(modulo === 'administracao_vendas' && categoria === 'equipamento' ? 'troca' : '');
-    setEquipamento(''); setEquipamentoManual(''); setPatrimonio('');
+    setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega('');
     setJustificativa(''); setProdutoId(''); setQuantidade(''); setModalidadeBonificacao(''); setTipoAmostra('');
   }, [categoria]);
 
@@ -2384,7 +2427,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       const eqFinal = equipamento;
       if (!eqFinal) return toast('Selecione o equipamento.', 'error');
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
+      if (tipo === 'troca' && !equipamentoEntrega) return toast('Informe qual equipamento será entregue ao cliente.', 'error');
       payload = { ...payload, tipo, equipamento: eqFinal, patrimonio: patrimonio.trim() || null,
+        equipamento_entrega: tipo === 'troca' ? equipamentoEntrega : null,
+        patrimonio_entrega: tipo === 'troca' ? (patrimonioEntrega.trim() || null) : null,
         justificativa: tipo === 'troca' ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
@@ -2449,15 +2495,21 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
                 h('option', { value: 'aumento' }, 'Aumento de equipamento'),
                 h('option', { value: 'troca' }, 'Troca de equipamento'),
                 h('option', { value: 'manutencao' }, 'Manutenção de equipamento'))),
-        h(Campo, { label: 'Equipamento', obrigatorio: true },
+        h(Campo, { label: tipo === 'troca' ? 'Equipamento a coletar' : 'Equipamento', obrigatorio: true },
           h('select', { className: 'form-select', value: equipamento, onChange: e => setEquipamento(e.target.value) },
             h('option', { value: '' }, 'Selecione...'),
             equipamentos.length > 0 && h('optgroup', { label: 'Equipamentos já registrados no cliente' },
               equipamentos.map(eq => h('option', { key: 'cad_' + eq, value: eq }, eq))),
             h('optgroup', { label: 'Lista padrão de equipamentos' },
               EQUIPAMENTOS_PADRAO.map(eq => h('option', { key: 'pad_' + eq, value: eq }, eq))))),
-        h(Campo, { label: 'Patrimônio' },
+        h(Campo, { label: tipo === 'troca' ? 'Patrimônio a coletar' : 'Patrimônio' },
           h(Input, { value: patrimonio, placeholder: 'Número do patrimônio, se houver', onChange: e => setPatrimonio(e.target.value) })),
+        tipo === 'troca' && h(Campo,{label:'Equipamento a entregar',obrigatorio:true},
+          h('select',{className:'form-select',value:equipamentoEntrega,onChange:e=>setEquipamentoEntrega(e.target.value)},
+            h('option',{value:''},'Selecione...'),
+            EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'ent_'+eq,value:eq},eq)))),
+        tipo === 'troca' && h(Campo,{label:'Patrimônio a entregar'},
+          h(Input,{value:patrimonioEntrega,placeholder:'Se já estiver definido',onChange:e=>setPatrimonioEntrega(e.target.value)})),
         h(Campo, { label: 'Justificativa', obrigatorio: tipo === 'troca' },
           h('select', { className: 'form-select', value: justificativa, disabled: tipo !== 'troca', onChange: e => setJustificativa(e.target.value) },
             h('option', { value: '' }, tipo === 'troca' ? 'Selecione...' : 'Somente para troca'),
@@ -3268,7 +3320,7 @@ function PaginaEntregasEquipamentos({profile}) {
   const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
   const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
   const [fCidade,setFCidade]=useState(''),[fCliente,setFCliente]=useState(''),[fStatus,setFStatus]=useState('');
-  const [aberta,setAberta]=useState(null),[erro,setErro]=useState('');
+  const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[erro,setErro]=useState('');
   const mapMontagemRef=useRef(null),mapRotaRef=useRef(null);
 
   useEffect(()=>{carregar();},[]);
@@ -3279,7 +3331,7 @@ function PaginaEntregasEquipamentos({profile}) {
     setErro('');
     try{
       const [re,rr,ri]=await Promise.all([
-        sb.from('entregas_equipamentos').select('id,ficha_id,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,created_at,fichas_clientes(razao_social,codigo_totvs)').order('created_at',{ascending:false}),
+        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at,fichas_clientes(id,codigo,acordo_comercial_numero,razao_social,codigo_totvs,cnpj_cpf,rua,numero,bairro,cidade,estado,cep,consumo_previsto,equipamento_condicao_manutencao),clientes(razao_social,codigo_totvs,cnpj_cpf,acordo_comercial)').order('created_at',{ascending:false}),
         sb.from('rotas_equipamentos').select('id,nome,data_rota,status,created_at').order('data_rota',{ascending:false}),
         sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem')
       ]);
@@ -3288,8 +3340,8 @@ function PaginaEntregasEquipamentos({profile}) {
     }catch(e){console.error(e);setEntregas([]);setRotas([]);setItensRota([]);setErro(e&&e.message?e.message:'Erro ao carregar entregas.');}
   }
 
-  function nomeCliente(e){return (e&&e.fichas_clientes&&e.fichas_clientes.razao_social)||'—';}
-  function codCliente(e){return (e&&e.fichas_clientes&&e.fichas_clientes.codigo_totvs)||'';}
+  function nomeCliente(e){return (e&&e.clientes&&e.clientes.razao_social)||(e&&e.fichas_clientes&&e.fichas_clientes.razao_social)||'—';}
+  function codCliente(e){return (e&&e.clientes&&e.clientes.codigo_totvs)||(e&&e.fichas_clientes&&e.fichas_clientes.codigo_totvs)||'';}
   function endereco(e){return [e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep].filter(Boolean).join(', ');}
   function entregaPorId(id){return (entregas||[]).find(e=>e.id===id);}
   function itensDaRota(id){return itensRota.filter(i=>i.rota_id===id).slice().sort((a,b)=>a.ordem-b.ordem).map(i=>({...i,entrega:entregaPorId(i.entrega_id)}));}
@@ -3388,10 +3440,139 @@ function PaginaEntregasEquipamentos({profile}) {
     await carregar();setAberta(r);toast('Rota reorganizada.','success');
   }
 
+  async function abrirDemanda(e){
+    setDetalheDemanda(e);setComodatoItens([]);setComodatoRegistro(null);
+    if(e.tipo_demanda!=='entrega'||!e.ficha_id)return;
+    const [a,b]=await Promise.all([
+      sb.from('comodato_equipamentos').select('*').eq('entrega_id',e.id).order('ordem'),
+      sb.from('contratos_comodato').select('*').eq('entrega_id',e.id).maybeSingle()
+    ]);
+    if(a.error)toast(a.error.message,'error');if(b.error)toast(b.error.message,'error');
+    setComodatoItens(a.data||[]);setComodatoRegistro(b.data||null);
+  }
+  function setComodatoItem(id,k,v){setComodatoItens(xs=>xs.map(x=>x.id===id?{...x,[k]:v}:x));}
+  async function salvarComodatoItens(){
+    if(!comodatoItens.length)return toast('Nenhum equipamento cadastrado para o comodato.','error'),false;
+    if(comodatoItens.some(x=>!String(x.descricao||'').trim()||!String(x.condicao||'').trim()))return toast('Preencha descrição e condição de todos os equipamentos.','error'),false;
+    setSalvandoComodato(true);
+    try{
+      for(const x of comodatoItens){
+        const {error}=await sb.from('comodato_equipamentos').update({quantidade:Number(x.quantidade||1),descricao:String(x.descricao).trim(),patrimonio:String(x.patrimonio||'').trim()||null,condicao:String(x.condicao).trim().toUpperCase()}).eq('id',x.id);
+        if(error)throw error;
+      }
+      return true;
+    }catch(e){toast(e.message,'error');return false;}finally{setSalvandoComodato(false);}
+  }
+  function dataExtensoBR(){
+    const d=new Date(),m=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    return `${d.getDate()} de ${m[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+  async function gerarContratoComodato(){
+    if(!(await salvarComodatoItens()))return;
+    let ct=comodatoRegistro;
+    if(!ct){
+      const r=await sb.from('contratos_comodato').insert({entrega_id:detalheDemanda.id,ficha_id:detalheDemanda.ficha_id,cliente_id:detalheDemanda.cliente_id||null,criado_por:profile.id}).select().single();
+      if(r.error)return toast(r.error.message,'error');ct=r.data;setComodatoRegistro(ct);
+    }
+    if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
+    const f=detalheDemanda.fichas_clientes||{},cli=detalheDemanda.clientes||{}, {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'});
+    let y=14,pag=1;const ml=14,mr=196,w=182;
+    function footer(){d.setDrawColor(225);d.line(ml,284,mr,284);d.setFontSize(6.2);d.setTextColor(105);d.text('GRESPAN PAES CONGELADOS LTDA | Av. República, 7000 | Marília/SP',ml,289);d.text('Página '+pag,mr,289,{align:'right'});}
+    function head(){d.setFont('helvetica','bold');d.setTextColor(180,30,35);d.setFontSize(19);d.text('GRESPAN',ml,y);d.setFontSize(6.5);d.text('Pães congelados',ml,y+4);d.setTextColor(35);d.setFontSize(8);d.text('Contrato nº '+(ct.numero||'—'),mr,y,{align:'right'});d.text('Acordo Comercial nº '+(f.acordo_comercial_numero||f.codigo||'—'),mr,y+5,{align:'right'});y+=15;d.setFontSize(11);d.text('INSTRUMENTO PARTICULAR DE CONTRATO DE COMODATO',105,y,{align:'center'});y+=8;}
+    function nova(){footer();d.addPage();pag++;y=14;head();}
+    function par(t,b=false){d.setFont('helvetica',b?'bold':'normal');d.setFontSize(8.1);d.setTextColor(25);const ls=d.splitTextToSize(String(t||''),w),hh=ls.length*3.65+2;if(y+hh>279)nova();d.text(ls,ml,y);y+=hh;}
+    function sec(t){y+=1;par(t,true);}
+    head();
+    const end=[f.rua,f.numero,f.bairro,f.cidade,f.estado,f.cep].filter(Boolean).join(', ');
+    par(`Pelo presente instrumento particular, de um lado, ${f.razao_social||nomeCliente(detalheDemanda)}, pessoa jurídica de direito privado devidamente inscrita no Cadastro Nacional da Pessoa Jurídica – CNPJ sob o n.º ${f.cnpj_cpf||cli.cnpj_cpf||'—'}, sediada na ${end}, doravante denominada CONTRATANTE e, de outro lado, GRESPAN PAES CONGELADOS LTDA, pessoa jurídica de direito privado devidamente inscrita no Cadastro Nacional da Pessoa Jurídica – CNPJ sob o n.º 10.809.214/0001-67, sediada na Av. República, n.º 7000, Distrito Industrial Santo Barion, cidade de Marília, Estado de São Paulo, doravante designada CONTRATADA, resolvem celebrar o presente CONTRATO DE COMODATO, que se regerá pelas seguintes cláusulas e condições:`);
+    sec('I – DO OBJETO');
+    par('1. A COMODANTE, na qualidade de legítima proprietária do(s) bem(ns) abaixo relacionados, transfere-os neste ato, a título de comodato, o direito de uso e gozo à COMODATÁRIA, a qual se obriga a utilizá-los exclusivamente para acondicionar, armazenar e comercializar os produtos da COMODANTE, conservando-os como se lhe pertencessem:');
+    if(y+10+comodatoItens.length*7>278)nova();
+    const c=[14,30,112,153,196];d.setFillColor(245);d.rect(c[0],y,182,7,'F');d.setDrawColor(160);d.setFont('helvetica','bold');d.setFontSize(7);
+    ['QTDE','DESCRIÇÃO','PATRIMÔNIO','CONDIÇÃO'].forEach((t,i)=>d.text(t,(c[i]+c[i+1])/2,y+4.6,{align:'center'}));y+=7;
+    comodatoItens.forEach(it=>{if(y+7>278)nova();d.setFont('helvetica','normal');d.setFontSize(7);d.rect(c[0],y,182,7);d.line(c[1],y,c[1],y+7);d.line(c[2],y,c[2],y+7);d.line(c[3],y,c[3],y+7);d.text(String(it.quantidade||1).padStart(2,'0'),22,y+4.6,{align:'center'});d.text(d.splitTextToSize(String(it.descricao||''),78)[0],32,y+4.6);d.text(String(it.patrimonio||'—'),114,y+4.6);d.text(String(it.condicao||'—'),155,y+4.6);y+=7;});
+    y+=3;sec('II – DO PRAZO');
+    [
+      '2. O prazo de vigência deste contrato será por tempo indeterminado, iniciando-se na data de assinatura, podendo ser rescindido a qualquer tempo, mediante prévia e expressa notificação de qualquer das partes.',
+      '3. A COMODATÁRIA deverá restituir os bens acima especificados nas mesmas condições em que os receberem, cuidando para que não sofram desgaste além dos decorrentes do uso normal, nem se alterem as características visuais (logomarcas, cores, números etc.), sob pena de responder por perdas e danos e ser constituído em mora, bem como por ela responder.',
+      '4. Os danos advindos do mau uso ou negligência na sua conservação serão suportados pela COMODATÁRIA, que arcará com todas as despesas para a devida recuperação do bem.',
+      '5. É vedado à COMODATÁRIA subcomodatar ou locar o bem objeto deste instrumento a terceiros, bem como ceder ou transferir o presente contrato sem prévia autorização, por escrito, da COMODANTE.',
+      '6. A COMODATÁRIA, durante a vigência deste instrumento, responsabilizar-se-á perante terceiros por danos decorrentes de eventuais acidentes que envolvam o equipamento, independentemente de ter ou não contratado seguro para tal fim.',
+      '7. Verificada a dificuldade para retirada dos equipamentos por obstáculo criado pela COMODATÁRIA, será esta responsável pelo pagamento de aluguel à COMODANTE, enquanto perdurar a situação de mora, nos termos do art. 582 do Código Civil, sem prejuízos de perdas e danos, lucros cessantes, juros legais, correção monetária e honorários advocatícios.'
+    ].forEach(x=>par(x));
+    sec('III – DAS OBRIGAÇÕES');
+    par('8. Em caso de turbação ou esbulho da posse do bem por atos de terceiros, a COMODATÁRIA deverá tomar as providências cabíveis a fim de cessar tais atos, bem como comunicar imediatamente tais fatos à COMODANTE.');
+    par('9. A COMODATÁRIA deverá permitir a inspeção do equipamento sempre a COMODANTE solicitar.');
+    par('10. Qualquer tolerância ou concessão das partes quanto ao cumprimento do disposto neste contrato constituir-se-á ato de mera liberalidade, não podendo ser considerado novação.');
+    sec('VI – DA RESCISÃO');
+    par('11. Além do previsto nos itens acima, a rescisão também poderá ocorrer nos seguintes casos:');
+    par('a) atraso no pagamento pela COMODATÁRIA das faturas emitidas pelo COMODANTE;\nb) Falência e/ou recuperação judicial ou extrajudicial;\nc) Insolvência nos negócios, ainda que parcial;\nd) Fatos de responsabilidade da COMODATÁRIA que possam prejudicar o nome e a imagem da COMODANTE, seus produtos e/ou marca;\ne) Alteração do quadro societário, endereço ou da atividade comercial, trespasse do estabelecimento do COMODATÁRIO e/ou cessão dos direitos e obrigações deste contrato sem prévia comunicação e anuência expressa da COMODANTE;\nf) Utilização dos equipamentos para comercialização ou armazenagem de produtos de outras empresas;\ng) Diminuição da quantidade de produtos adquiridos mensalmente, conforme regras estabelecidas em Acordo Comercial, a qual passa a fazer parte do presente instrumento.');
+    par(`h) Caso não atinja em 90 dias o consumo mínimo negociado de ${fmtNum(f.consumo_previsto||0)} pães franceses por dia.`);
+    par('12. Em qualquer caso que motive a rescisão contratual, a COMODATÁRIA atenderá ao prazo máximo de 15 (quinze) dias para disponibilizar os equipamentos para retirada pela COMODANTE. Tendo decorrido o prazo ou havendo a oposição de obstáculos à retirada, a COMODATÁRIA incorrerá em mora e responderá por perdas e danos.');
+    sec('V – DA MULTA');par('Pelo descumprimento da presente avença, a parte infratora pagará, a título de multa não compensatória, o valor correspondente a 20% (vinte por cento) do total de bens comodatados, sem prejuízo do ressarcimento dos danos causados aos mesmos.');
+    sec('VI – DA SUCESSÃO');par('O presente contrato obriga as partes, seus herdeiros e sucessores.');par('As partes elegem o foro da Comarca de Marília/SP, com exclusão de qualquer outro, por mais privilegiado que seja, para dirimir eventuais dúvidas ou litígios decorrentes deste contrato.');
+    par('E assim, por estarem justas e contratadas, as partes assinam e rubricam o presente em 2 (duas) vias de igual teor, juntamente com as duas testemunhas abaixo.');
+    if(y>238)nova();y+=5;d.setFontSize(8);d.text('Marília-SP, '+dataExtensoBR()+'.',mr,y,{align:'right'});y+=19;d.line(25,y,90,y);d.line(120,y,185,y);y+=5;d.text('Comodante',57,y,{align:'center'});d.text('Comodatária',152,y,{align:'center'});y+=14;d.text('Testemunhas:',ml,y);y+=12;d.line(25,y,90,y);d.line(120,y,185,y);y+=5;d.text('1.',18,y);d.text('2.',113,y);footer();
+    d.save('Contrato de Comodato GRESPAN PÃES x '+String(f.razao_social||nomeCliente(detalheDemanda)||'CLIENTE').replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
+  }
+
+  function baixarRomaneio(r){
+    if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
+    const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'}),its=itensDaRota(r.id);
+    let y=18;
+    d.setFont('helvetica','bold');d.setTextColor(176,28,32);d.setFontSize(18);d.text('GRESPAN',15,y);
+    d.setTextColor(30);d.setFontSize(14);d.text('ROMANEIO DE EQUIPAMENTOS',105,y,{align:'center'});y+=10;
+    d.setFontSize(9);d.setFont('helvetica','normal');d.text(`Rota: ${r.nome}`,15,y);d.text(`Data: ${fmtData(r.data_rota)}`,150,y);y+=8;
+    its.forEach((it,i)=>{
+      const e=it.entrega||{};
+      if(y>258){d.addPage();y=18;}
+      d.setDrawColor(210);d.roundedRect(15,y,180,31,2,2);
+      d.setFont('helvetica','bold');d.setFontSize(9);d.text(`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)}`,19,y+6);
+      d.setFont('helvetica','normal');d.setFontSize(7.5);d.text(d.splitTextToSize('Endereço: '+endereco(e),170),19,y+11);
+      if(e.tipo_demanda==='troca'){
+        d.text(d.splitTextToSize(`COLETAR: ${e.equipamento_coleta||'—'} | Patrimônio: ${e.patrimonio_coleta||'—'}`,170),19,y+18);
+        d.text(d.splitTextToSize(`ENTREGAR: ${e.equipamento_entrega||'—'} | Patrimônio: ${e.patrimonio_entrega||'—'}`,170),19,y+23);
+      }else d.text(d.splitTextToSize(`ENTREGAR: ${e.equipamento_entrega||e.equipamento_resumo||'—'} | Condição: ${e.equipamento_condicao||'—'}`,170),19,y+18);
+      d.text('Recebido por: ______________________________   Assinatura: ______________________________',19,y+28);
+      y+=35;
+    });
+    d.save('Romaneio - '+String(r.nome||'Rota').replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
+  }
+
   if(entregas===null)return h('div',{className:'empty-state'},'Carregando...');
   return h('div',null,
+    detalheDemanda&&h(Modal,{titulo:(detalheDemanda.tipo_demanda==='troca'?'Troca de Equipamentos':'Entrega de Equipamentos'),sub:(codCliente(detalheDemanda)?codCliente(detalheDemanda)+' — ':'')+nomeCliente(detalheDemanda),largo:true,onClose:()=>setDetalheDemanda(null),acoes:[
+      detalheDemanda.tipo_demanda==='entrega'&&h('button',{key:'comodato',className:'btn btn-primary',disabled:salvandoComodato,onClick:gerarContratoComodato},comodatoRegistro?'Gerar novamente Contrato de Comodato':'Gerar Contrato de Comodato'),
+      h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setDetalheDemanda(null)},'Fechar')].filter(Boolean)},
+      h('div',{className:'info-grid'},
+        linhaInfo('Tipo da demanda',detalheDemanda.tipo_demanda==='troca'?'Troca de equipamento':'Entrega de novo cliente'),
+        linhaInfo('Status',detalheDemanda.status),
+        linhaInfo('Endereço de entrega',endereco(detalheDemanda)),
+        linhaInfo('Data prevista',detalheDemanda.data_prevista?fmtData(detalheDemanda.data_prevista):'Não agendada')),
+      detalheDemanda.tipo_demanda==='troca'
+        ? h('div',{className:'form-grid',style:{marginTop:14}},
+            h('div',{className:'card',style:{margin:0}},h('div',{className:'section-title'},'Equipamento a coletar'),linhaInfo('Equipamento',detalheDemanda.equipamento_coleta||'—'),linhaInfo('Patrimônio',detalheDemanda.patrimonio_coleta||'—')),
+            h('div',{className:'card',style:{margin:0}},h('div',{className:'section-title'},'Equipamento a entregar'),linhaInfo('Equipamento',detalheDemanda.equipamento_entrega||'—'),linhaInfo('Patrimônio',detalheDemanda.patrimonio_entrega||'—')))
+        : h('div',{className:'card',style:{marginTop:14}},
+            h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center'}},
+              h('div',{className:'section-title'},'Equipamentos / Contrato de Comodato'),
+              comodatoRegistro&&h('span',{className:'badge badge-green'},comodatoRegistro.numero||'Contrato criado')),
+            h('div',{className:'page-sub',style:{marginBottom:12}},'Confira quantidade, descrição, patrimônio e condição antes de gerar o contrato.'),
+            comodatoItens.length===0?h(Empty,{icon:'▣',texto:'Nenhum equipamento individualizado. Execute a Migração 44 para demandas antigas.'}):
+            h('div',{className:'table-wrap'},h('table',null,
+              h('thead',null,h('tr',null,h('th',null,'Qtde'),h('th',null,'Descrição'),h('th',null,'Patrimônio'),h('th',null,'Condição'))),
+              h('tbody',null,...comodatoItens.map(it=>h('tr',{key:it.id},
+                h('td',null,h(Input,{type:'number',min:1,value:it.quantidade,onChange:e=>setComodatoItem(it.id,'quantidade',e.target.value)})),
+                h('td',null,h(Input,{value:it.descricao,onChange:e=>setComodatoItem(it.id,'descricao',e.target.value)})),
+                h('td',null,h(Input,{value:it.patrimonio||'',placeholder:'Se houver',onChange:e=>setComodatoItem(it.id,'patrimonio',e.target.value)})),
+                h('td',null,h(Select,{opcoes:['NOVO','SEMI NOVO','USADO'],value:it.condicao||'',onChange:e=>setComodatoItem(it.id,'condicao',e.target.value)}))))))),
+            comodatoItens.length>0&&h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:12},disabled:salvandoComodato,onClick:salvarComodatoItens},salvandoComodato?'Salvando...':'Salvar equipamentos'),
+            comodatoRegistro&&h('div',{style:{marginTop:12}},linhaInfo('Contrato de Comodato',comodatoRegistro.numero),linhaInfo('Acordo Comercial',(detalheDemanda.fichas_clientes||{}).acordo_comercial_numero||'—'))),
+      ),
+
     aberta&&h(Modal,{titulo:aberta.nome,sub:'Data: '+fmtData(aberta.data_rota),largo:true,onClose:()=>setAberta(null),acoes:[
-      h('button',{key:'m',className:'btn btn-primary',onClick:()=>melhorarRota(aberta)},'Melhorar rota'),
+      h('button',{key:'r',className:'btn btn-primary',onClick:()=>baixarRomaneio(aberta)},'Gerar Romaneio'),
+      h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(aberta)},'Melhorar rota'),
       h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')]},
       h('div',{id:'mapa-rota-equip',style:{height:430,border:'1px solid var(--border)',borderRadius:10,marginBottom:14}}),
       h('div',{className:'table-wrap'},h('table',null,h('thead',null,h('tr',null,h('th',null,'#'),h('th',null,'Cliente'),h('th',null,'Equipamento'))),
@@ -3413,14 +3594,26 @@ function PaginaEntregasEquipamentos({profile}) {
     h('div',{style:{display:'grid',gridTemplateColumns:'minmax(420px,1fr) minmax(420px,1fr)',gap:18,alignItems:'start'}},
       h('div',{className:'card',style:{margin:0}},
         h('div',{className:'section-title'},'Solicitações disponíveis'),
-        filtradas.length===0?h(Empty,{icon:'⌖',texto:'Nenhuma solicitação para os filtros informados.'}):
-        h('div',{className:'table-wrap',style:{maxHeight:520,overflow:'auto'}},h('table',null,
-          h('thead',null,h('tr',null,h('th',null,''),h('th',null,'Cliente'),h('th',null,'Cidade'),h('th',null,'Equipamento'))),
-          h('tbody',null,...filtradas.map(e=>h('tr',{key:e.id,style:{cursor:'pointer',background:selecionadas.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)},
-            h('td',null,h('input',{type:'checkbox',checked:selecionadas.includes(e.id),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
-            h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
-            h('td',null,e.endereco_cidade||'—'),
-            h('td',null,e.equipamento_resumo||'—'))))))),
+        filtradas.length===0
+          ? h(Empty,{icon:'⌖',texto:'Nenhuma solicitação para os filtros informados.'})
+          : h('div',{className:'table-wrap',style:{maxHeight:520,overflow:'auto'}},
+              h('table',null,
+                h('thead',null,h('tr',null,
+                  h('th',null,''),h('th',null,'Cliente'),h('th',null,'Demanda'),
+                  h('th',null,'Cidade'),h('th',null,'Equipamentos'),h('th',null,''))),
+                h('tbody',null,...filtradas.map(e=>
+                  h('tr',{key:e.id,style:{cursor:'pointer',background:selecionadas.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)},
+                    h('td',null,h('input',{type:'checkbox',checked:selecionadas.includes(e.id),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
+                    h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
+                    h('td',null,e.tipo_demanda==='troca'?h('span',{className:'badge badge-yellow'},'Troca'):h('span',{className:'badge badge-blue'},'Entrega')),
+                    h('td',null,e.endereco_cidade||'—'),
+                    h('td',null,e.equipamento_resumo||'—'),
+                    h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:ev=>{ev.stopPropagation();abrirDemanda(e);}},'Abrir'))
+                  )
+                ))
+              )
+            )
+      ),
 
       h('div',{className:'card',style:{margin:0,position:'sticky',top:16}},
         h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:10}},
@@ -3445,7 +3638,7 @@ function PaginaEntregasEquipamentos({profile}) {
       rotas.length===0?h(Empty,{icon:'⌖',texto:'Nenhuma rota criada.'}):
       h('div',{className:'table-wrap'},h('table',null,h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Entregas'),h('th',null,''))),
         h('tbody',null,...rotas.map(r=>h('tr',{key:r.id},h('td',null,h('b',null,r.nome)),h('td',null,fmtData(r.data_rota)),h('td',null,itensDaRota(r.id).length),
-          h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota')))))))
+          h('td',null,h('div',{style:{display:'flex',gap:6}},h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'),h('button',{className:'btn btn-primary btn-sm',onClick:()=>baixarRomaneio(r)},'Romaneio'))))))))
   );
 }
 
