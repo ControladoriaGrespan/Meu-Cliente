@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=2JItK_O_yK4NfJjzuKMXx725BCPg6HkBytE-Avf_cRNzZZkeDJY8_iX94_atm1XqY6cuX-XoP8CSELtGIkkaQS7TB-IOBkIUHqV80YbVxeni4KBhSlDzK61Px0ROSqkGAem_DJ7Y5pgvgkFJNhtZxd7l2zmjvTrujEzPbWyEvJ2TDFlEq39BmJF0jk7-uUylKKWGodre5VW25Q-Bs-GPXHOE--888Zm8KBGjbw6JgRCAEicXItGnGgATuJyGogL3six9naQ8z88--viDGxrKnVHC5KJ32vRBl7ILWgij5a0m-NUbGW5Lp71Q4PoHkrVXpVzGLdIaFSgsJmV5R2qmGUuIh8Xz2XKf3qXK6fj96SrHt3A9zvaxakhm-S6ASZjs" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=QGS1YcMrJ9nxN7N2kngEVJjutmIyU5eV2sg58pY5Q71xity_YsB4G-ayH7TEA3Ae6otuQiNC3Ne3ci_bkLqloNaRZwUJWr2eMhjcuDCeSAJzC1beAW9K9G6oDeYaKrBOsuu7KLPfpyrW79Ydy8_HTgHAxeVJm8KhHAFk7nR5RSM8ygvJuAVFuRx4dTLj3t9iCKqvP9XpefPPwNcUCxBaXwD-2bWHVEm29NARfx-45POcMpeMFhGf_c0pCVMSdLsu9Kdg5umAmRvAPsCppyk4mkFXG93oZry8HmQQqJdiNwSU9xROEXso4YHsQ6i0k1AbZSSliQcjTWi0I7F37owA7NC1jZR0r-_ff7ziF48GvvaTdlj3uJVdLKUmn0h11exy" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v76-whatsapp-rota-direto';
-console.info('[Meu Cliente] BUILD v76-whatsapp-rota-direto');
+window.__MEU_CLIENTE_BUILD__='v77-pendencias-programacao-supervisor';
+console.info('[Meu Cliente] BUILD v77-pendencias-programacao-supervisor');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2324,7 +2324,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
 
   if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
-  const totalPend = pendentes.length + pendSolic.length;
+  const totalProgSupervisor = etapa==='supervisor'
+    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(profile.id)&&a.enviado_em&&a.status==='pendente').length
+    : 0;
+  const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
@@ -2490,6 +2493,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('button', { className: 'btn btn-success', onClick: () => setDecidindo({ solAp: ap, status: 'aprovado' }) }, '✓ Aprovar'),
             h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
       })),
+
+    etapa==='supervisor' && totalProgSupervisor>0 && h('div',null,
+      h('div',{className:'section-title'},'Programações de entrega / retirada / troca'),
+      renderRotasCascata(true)),
 
     etapa!=='manutencao' && totalPend === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u2713', texto: 'Nenhuma pendência na sua fila.' }))
