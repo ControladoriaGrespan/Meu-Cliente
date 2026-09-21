@@ -1809,6 +1809,14 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           if(ei)toast('Entrega criada, mas houve erro nos itens do comodato: '+ei.message,'error');
         }
       }
+      // Confirma que a demanda operacional realmente existe.
+      const {data:demandaConfirmada,error:erroConfirmacao}=await sb.from('entregas_equipamentos')
+        .select('id,status').eq('ficha_id',ap.ficha_id).maybeSingle();
+      if(erroConfirmacao||!demandaConfirmada){
+        toast('A Diretoria aprovou a ficha, mas a demanda da Manutenção não foi confirmada. Execute a Migração 46 e tente novamente.','error');
+      } else {
+        toast('Demanda de entrega enviada para a Manutenção.','success');
+      }
       if(winRef)winRef.close();
     } else { const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios); }
     setDecidindo(null);setObs('');setCondicaoDiretoria('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
