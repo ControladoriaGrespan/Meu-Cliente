@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=Cd2XE8nN7K-ZkwdSxQcEWrNls9B9fj21U3MtWtqYgDF8RT6Q3NFfQfcrkAMwuZHecQO72xXVEMGSdsyqX_Lsnm3tz9UJpgv9DEKfKGKK31C8zuqmC4N7IbP_erE1IlXmjkBDUu2xez9gWzpyfMTHzHgGuVqjVptg1DegGpdePdqnt_o-i23a_EEEj0xfIsRIWu7Ha0LAydBlvCms5Ho6p_6Ji9DIe3Df357TW-BXA8SavckynubA4sNJvrGpVs6AbgN8xuGD6kf3f7qKQgropA4lqUkGo6VP89tRyYh3EyuplD2T9c-jGZaYkTwuBhLkVXOdlUVOmRAiow_UV07LXSZTJN5ceQA-H7ML6Z3eFgVyPOXUkpWJDoSH69TTTVf2" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3598,10 +3598,12 @@ function PaginaEntregasEquipamentos({profile}) {
   function jaEmRota(id){return !!id&&(itensRota||[]).filter(Boolean).some(i=>i&&i.entrega_id===id);}
   function toggle(e){
     if(!e||!e.id)return;
-    if(selecionadas.includes(e.id)){setSelecionadas(x=>x.filter(id=>id!==e.id));return;}
-    setSelecionadas(x=>[...x,e.id]);
+    setSelecionadas(atual=>{
+      const ids=[...new Set((atual||[]).filter(Boolean))];
+      return ids.includes(e.id)?ids.filter(id=>id!==e.id):[...ids,e.id];
+    });
     if(!dataRota&&e.data_prevista)setDataRota(e.data_prevista);
-    if(e.latitude==null||e.longitude==null)geo(e).then(n=>{if(n&&n.latitude!=null)setEntregas(xs=>xs.map(z=>z.id===n.id?n:z));});
+    if(e.latitude==null||e.longitude==null)geo(e).then(n=>{if(n&&n.latitude!=null)setEntregas(xs=>(xs||[]).map(z=>z&&z.id===n.id?n:z));});
   }
 
   const cidades=[...new Set((entregas||[]).filter(Boolean).map(e=>e.endereco_cidade).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -3615,7 +3617,8 @@ function PaginaEntregasEquipamentos({profile}) {
     if(fStatus&&e.status!==fStatus)return false;
     return true;
   });
-  const escolhidas=selecionadas.map(entregaPorId).filter(Boolean);
+  const idsSelecionados=[...new Set((selecionadas||[]).filter(Boolean))];
+  const escolhidas=idsSelecionados.map(entregaPorId).filter(Boolean);
 
   async function geo(e){
     if(!e)return e;if(e.latitude!=null&&e.longitude!=null)return e;
@@ -3693,17 +3696,68 @@ function PaginaEntregasEquipamentos({profile}) {
   }
   async function criar(){
     if(!dataRota)return toast('Informe a data da rota.','error');
-    if(!selecionadas.length)return toast('Selecione as solicitações que farão parte da rota.','error');
-    const divergentes=escolhidas.filter(e=>e.data_prevista&&e.data_prevista!==dataRota);
+
+    const ids=[...new Set((selecionadas||[]).filter(Boolean))];
+    if(!ids.length)return toast('Selecione as solicitações que farão parte da rota.','error');
+
+    let demandas=ids.map(entregaPorId).filter(e=>e&&e.id);
+    const unicas=new Map();
+    for(const e of demandas)unicas.set(e.id,e);
+    demandas=[...unicas.values()];
+    if(!demandas.length)return toast('Nenhuma demanda válida foi selecionada.','error');
+
+    const divergentes=demandas.filter(e=>e.data_prevista&&e.data_prevista!==dataRota);
     if(divergentes.length&&!window.confirm(divergentes.length+' demanda(s) possuem data prevista diferente da data da rota. Deseja continuar?'))return;
-    let xs=await Promise.all(escolhidas.map(geo));
-    const {data:r,error}=await sb.from('rotas_equipamentos').insert({nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),data_rota:dataRota,status:'planejada',criado_por:profile.id}).select().single();
+
+    let xs=(await Promise.all(demandas.map(geo))).filter(e=>e&&e.id);
+    const geoUnicas=new Map();
+    for(const e of xs)geoUnicas.set(e.id,e);
+    xs=[...geoUnicas.values()];
+    if(!xs.length)return toast('Nenhuma demanda válida foi localizada para criar a rota.','error');
+
+    // Confere novamente no banco para impedir inclusão de demanda que já esteja em outra rota.
+    const {data:jaVinculados,error:ev}=await sb.from('rota_equipamento_itens').select('entrega_id').in('entrega_id',xs.map(e=>e.id));
+    if(ev)return toast(ev.message,'error');
+    const ocupados=new Set((jaVinculados||[]).filter(x=>x&&x.entrega_id).map(x=>x.entrega_id));
+    if(ocupados.size){
+      xs=xs.filter(e=>!ocupados.has(e.id));
+      if(!xs.length){
+        await carregar();
+        setSelecionadas([]);
+        return toast('As demandas selecionadas já pertencem a outra rota. A lista foi atualizada.','error');
+      }
+      toast(ocupados.size+' demanda(s) já estavam em outra rota e foram removidas desta montagem.','error');
+    }
+
+    const {data:r,error}=await sb.from('rotas_equipamentos').insert({
+      nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),
+      data_rota:dataRota,status:'planejada',criado_por:profile.id
+    }).select().single();
     if(error)return toast(error.message,'error');
-    const {error:ei}=await sb.from('rota_equipamento_itens').insert(xs.map((e,i)=>({rota_id:r.id,entrega_id:e.id,ordem:i+1})));
-    if(ei)return toast(ei.message,'error');
-    const {error:eu}=await sb.from('entregas_equipamentos').update({status:'roteirizada',programada_em:new Date().toISOString()}).in('id',selecionadas);
-    if(eu)return toast(eu.message,'error');
-    setSelecionadas([]);setDataRota('');setNomeRota('');toast('Rota criada com sucesso.','success');await carregar();
+
+    const itens=xs.map((e,i)=>({rota_id:r.id,entrega_id:e.id,ordem:i+1}));
+    const {error:ei}=await sb.from('rota_equipamento_itens').insert(itens);
+    if(ei){
+      // Não deixa rota vazia/parcial criada quando a gravação dos itens falhar.
+      await sb.from('rota_equipamento_itens').delete().eq('rota_id',r.id);
+      await sb.from('rotas_equipamentos').delete().eq('id',r.id);
+      return toast('Não foi possível criar a rota: '+ei.message,'error');
+    }
+
+    const idsCriados=xs.map(e=>e.id);
+    const {error:eu}=await sb.from('entregas_equipamentos')
+      .update({status:'roteirizada',programada_em:new Date().toISOString()})
+      .in('id',idsCriados);
+    if(eu){
+      // Reverte a rota se a atualização de status falhar.
+      await sb.from('rota_equipamento_itens').delete().eq('rota_id',r.id);
+      await sb.from('rotas_equipamentos').delete().eq('id',r.id);
+      return toast('A rota foi revertida porque não foi possível atualizar as demandas: '+eu.message,'error');
+    }
+
+    setSelecionadas([]);setDataRota('');setNomeRota('');
+    toast('Rota criada com '+idsCriados.length+' demanda(s).','success');
+    await carregar();
   }
   async function melhorarRota(r){
     if(!r||!r.id)return;
@@ -3943,9 +3997,9 @@ function PaginaEntregasEquipamentos({profile}) {
     : h('div',{className:'table-wrap',style:{maxHeight:520,overflow:'auto'}},h('table',null,
         h('thead',null,h('tr',null,h('th',null,''),h('th',null,'Cliente'),h('th',null,'Demanda'),h('th',null,'Data prevista'),h('th',null,'Cidade'),h('th',null,'Equipamentos'),h('th',null,''))),
         h('tbody',null,...disponiveis.map(e=>h('tr',{
-          key:e.id,style:{cursor:'pointer',background:selecionadas.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)
+          key:e.id,style:{cursor:'pointer',background:idsSelecionados.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)
         },
-          h('td',null,h('input',{type:'checkbox',checked:selecionadas.includes(e.id),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
+          h('td',null,h('input',{type:'checkbox',checked:idsSelecionados.includes(e.id),onClick:ev=>ev.stopPropagation(),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
           h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
           h('td',null,e.tipo_demanda==='troca'?h('span',{className:'badge badge-yellow'},'Troca'):e.tipo_demanda==='retirada'?h('span',{className:'badge badge-gray'},'Retirada'):h('span',{className:'badge badge-blue'},'Envio')),
           h('td',null,e.data_prevista?fmtData(e.data_prevista):'—'),
