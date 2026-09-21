@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=Cd2XE8nN7K-ZkwdSxQcEWrNls9B9fj21U3MtWtqYgDF8RT6Q3NFfQfcrkAMwuZHecQO72xXVEMGSdsyqX_Lsnm3tz9UJpgv9DEKfKGKK31C8zuqmC4N7IbP_erE1IlXmjkBDUu2xez9gWzpyfMTHzHgGuVqjVptg1DegGpdePdqnt_o-i23a_EEEj0xfIsRIWu7Ha0LAydBlvCms5Ho6p_6Ji9DIe3Df357TW-BXA8SavckynubA4sNJvrGpVs6AbgN8xuGD6kf3f7qKQgropA4lqUkGo6VP89tRyYh3EyuplD2T9c-jGZaYkTwuBhLkVXOdlUVOmRAiow_UV07LXSZTJN5ceQA-H7ML6Z3eFgVyPOXUkpWJDoSH69TTTVf2" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1729,7 +1729,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           fids.length?sb.from('fichas_clientes').select('id,codigo,razao_social,codigo_totvs,cnpj_cpf').in('id',fids):Promise.resolve({data:[]}),
           cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf').in('id',cids):Promise.resolve({data:[]})
         ]);
-        const fm=new Map((ff.data||[]).filter(Boolean).map(x=>[x.id,x])),cm=new Map((cc.data||[]).filter(Boolean).map(x=>[x.id,x]));
+        if(ff&&ff.error)throw ff.error;
+      if(cc&&cc.error)throw cc.error;
+      const fm=new Map((ff.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x])),cm=new Map((cc.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
         setDemandasManut(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
       }
     }
@@ -3573,8 +3575,8 @@ function PaginaEntregasEquipamentos({profile}) {
       if(re.error)throw re.error;if(rr.error)throw rr.error;if(ri.error)throw ri.error;
       const base=(re.data||[]).filter(Boolean),fids=[...new Set(base.map(x=>x&&x.ficha_id).filter(Boolean))],cids=[...new Set(base.map(x=>x&&x.cliente_id).filter(Boolean))];
       const [ff,cc]=await Promise.all([
-        fids.length?sb.from('fichas_clientes').select('id,codigo,acordo_comercial_numero,razao_social,codigo_totvs,cnpj_cpf,rua,numero,bairro,cidade,estado,cep,consumo_previsto,equipamento_condicao_manutencao').in('id',fids):Promise.resolve({data:[]}),
-        cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf,acordo_comercial').in('id',cids):Promise.resolve({data:[]})
+        fids.length?sb.from('fichas_clientes').select('*').in('id',fids):Promise.resolve({data:[],error:null}),
+        cids.length?sb.from('clientes').select('*').in('id',cids):Promise.resolve({data:[],error:null})
       ]);
       const fm=new Map((ff.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x])),cm=new Map((cc.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
       setEntregas(base.map(x=>({...x,fichas_clientes:fm.get(x.ficha_id)||null,clientes:cm.get(x.cliente_id)||null})));
@@ -3642,7 +3644,7 @@ function PaginaEntregasEquipamentos({profile}) {
     if(!window.L){el.innerHTML='<div style="padding:18px">Mapa indisponível. Verifique a conexão.</div>';return null;}
     if(ref.current){try{ref.current.remove();}catch(_){}ref.current=null;}
     const m=L.map(el).setView([-22.2,-49.9],6);ref.current=m;
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors',crossOrigin:true}).addTo(m);
     return m;
   }
   function desenhaMontagem(){
@@ -3878,16 +3880,16 @@ function PaginaEntregasEquipamentos({profile}) {
             h('div',{className:'section-title'},'Equipamentos / Contrato de Comodato'),
             comodatoRegistro&&h('span',{className:'badge badge-green'},comodatoRegistro.numero||'Contrato criado')),
           h('div',{className:'page-sub',style:{marginBottom:12}},'Confira quantidade, descrição, patrimônio e condição antes de gerar o contrato.'),
-          comodatoItens.length===0
+          (Array.isArray(comodatoItens)?comodatoItens:[]).length===0
             ? h(Empty,{icon:'▣',texto:'Nenhum equipamento individualizado para esta demanda.'})
             : h('div',{className:'table-wrap'},h('table',null,
                 h('thead',null,h('tr',null,h('th',null,'Qtde'),h('th',null,'Descrição'),h('th',null,'Patrimônio'),h('th',null,'Condição'))),
-                h('tbody',null,...comodatoItens.filter(it=>it&&it.id).map(it=>h('tr',{key:it.id},
+                h('tbody',null,...(Array.isArray(comodatoItens)?comodatoItens:[]).filter(it=>it&&it.id).map(it=>h('tr',{key:it.id},
                   h('td',null,h(Input,{type:'number',min:1,value:it.quantidade||1,onChange:e=>setComodatoItem(it.id,'quantidade',e.target.value)})),
                   h('td',null,h(Input,{value:it.descricao||'',onChange:e=>setComodatoItem(it.id,'descricao',e.target.value)})),
                   h('td',null,h(Input,{value:it.patrimonio||'',placeholder:'Se houver',onChange:e=>setComodatoItem(it.id,'patrimonio',e.target.value)})),
                   h('td',null,h(Select,{opcoes:['NOVO','SEMI NOVO','USADO'],value:it.condicao||'',onChange:e=>setComodatoItem(it.id,'condicao',e.target.value)}))))))),
-          comodatoItens.length>0&&h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:12},disabled:salvandoComodato,onClick:salvarComodatoItens},salvandoComodato?'Salvando...':'Salvar equipamentos'),
+          (Array.isArray(comodatoItens)?comodatoItens:[]).length>0&&h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:12},disabled:salvandoComodato,onClick:salvarComodatoItens},salvandoComodato?'Salvando...':'Salvar equipamentos'),
           comodatoRegistro&&h('div',{style:{marginTop:12}},linhaInfo('Contrato de Comodato',comodatoRegistro.numero||'—'),linhaInfo('Acordo Comercial',detalheFicha.acordo_comercial_numero||'—')));
 
     modalDemanda=h(Modal,{
