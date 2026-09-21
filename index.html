@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=2JItK_O_yK4NfJjzuKMXx725BCPg6HkBytE-Avf_cRNzZZkeDJY8_iX94_atm1XqY6cuX-XoP8CSELtGIkkaQS7TB-IOBkIUHqV80YbVxeni4KBhSlDzK61Px0ROSqkGAem_DJ7Y5pgvgkFJNhtZxd7l2zmjvTrujEzPbWyEvJ2TDFlEq39BmJF0jk7-uUylKKWGodre5VW25Q-Bs-GPXHOE--888Zm8KBGjbw6JgRCAEicXItGnGgATuJyGogL3six9naQ8z88--viDGxrKnVHC5KJ32vRBl7ILWgij5a0m-NUbGW5Lp71Q4PoHkrVXpVzGLdIaFSgsJmV5R2qmGUuIh8Xz2XKf3qXK6fj96SrHt3A9zvaxakhm-S6ASZjs" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v75-whatsapp-supervisores';
-console.info('[Meu Cliente] BUILD v75-whatsapp-supervisores');
+window.__MEU_CLIENTE_BUILD__='v76-whatsapp-rota-direto';
+console.info('[Meu Cliente] BUILD v76-whatsapp-rota-direto');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1756,7 +1756,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     try{
       let qa=sb.from('rota_programacao_aprovacoes').select('*');
-      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id);
+      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id).not('enviado_em','is',null);
       const ra=await qa;
       if(ra.error)throw ra.error;
       const aps=(ra.data||[]).filter(Boolean);
@@ -1855,6 +1855,60 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   function msgRotaWhats(r){
     return '🚚 Programação de rota aguardando sua aprovação\n*'+tituloRota(r)+'*\nData: '+fmtData(r.data_rota)+'\n\nAcesse o sistema para aprovar ou reprovar as demandas sob sua responsabilidade:\n'+linkSistema()+'?rota_aprovacao='+encodeURIComponent(r.id);
   }
+  async function enviarRotaWhatsSupervisores(r){
+    // Pré-abre as janelas durante o clique para evitar bloqueador de pop-up.
+    const conhecidos=supervisoresRota(r.id);
+    const janelas=conhecidos.map(()=>window.open('about:blank','_blank'));
+
+    const {error}=await sb.rpc('enviar_programacao_rota',{p_rota_id:r.id});
+    if(error){
+      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
+      return toast(error.message,'error');
+    }
+
+    // Busca novamente após sincronizar para garantir todos os supervisores.
+    const qa=await sb.from('rota_programacao_aprovacoes')
+      .select('supervisor_id')
+      .eq('rota_id',r.id)
+      .not('enviado_em','is',null);
+    if(qa.error){
+      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
+      return toast(qa.error.message,'error');
+    }
+    const ids=[...new Set((qa.data||[]).map(x=>x.supervisor_id).filter(Boolean))];
+    if(!ids.length){
+      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
+      return toast('Nenhum supervisor foi encontrado para as demandas desta rota.','error');
+    }
+
+    const qu=await sb.from('usuarios').select('id,nome,telefone').in('id',ids);
+    if(qu.error){
+      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
+      return toast(qu.error.message,'error');
+    }
+    const sups=(qu.data||[]).filter(Boolean);
+    const semTelefone=sups.filter(u=>!String(u.telefone||'').replace(/\D/g,''));
+    const comTelefone=sups.filter(u=>String(u.telefone||'').replace(/\D/g,''));
+
+    // Fecha janelas excedentes ou abre as que faltarem.
+    while(janelas.length<comTelefone.length)janelas.push(window.open('about:blank','_blank'));
+    while(janelas.length>comTelefone.length){
+      const w=janelas.pop();try{if(w&&!w.closed)w.close();}catch(e){}
+    }
+
+    const msg=msgRotaWhats(r);
+    comTelefone.forEach((sup,i)=>{
+      const ok=abrirWhats(sup.telefone,msg,janelas[i]||null);
+      if(!ok&&janelas[i])try{janelas[i].close();}catch(e){}
+    });
+
+    await carregarProgramacoesRota();
+    if(semTelefone.length){
+      toast('Programação enviada para Pendências. Sem WhatsApp cadastrado: '+semTelefone.map(x=>x.nome||'Supervisor').join(', ')+'.','info');
+    }else{
+      toast('Programação enviada para Pendências dos supervisores e WhatsApp aberto.','success');
+    }
+  }
   async function decidirProgramacao(){
     const a=decisaoProg;if(!a)return;
     if(a.status==='reprovado'&&!obsProg.trim())return toast('A observação é obrigatória para reprovar a programação.','error');
@@ -1889,7 +1943,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('div',{className:'rota-cascade-meta'},'Data: '+fmtData(r.data_rota)+' · '+ds.length+' demanda(s)')),
           h('div',{style:{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}},
             h('span',{className:'badge '+badgeAprov(statusAprovRota(r.id))},labelAprov(statusAprovRota(r.id))),
-            !modoSupervisor&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();setWhatsRota(r);}},'WhatsApp supervisores'))),
+            !modoSupervisor&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();enviarRotaWhatsSupervisores(r);}},'WhatsApp supervisores'))),
         aberto&&h('div',null,...porCliente.map((g,idx)=>h('div',{className:'rota-cliente',key:r.id+'_c_'+idx},
           h('div',{className:'rota-cliente-nome'},g.nome),
           ...g.demandas.map(d=>{
@@ -2390,44 +2444,6 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
       h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
         'Ao confirmar, o próximo responsável será avisado no WhatsApp.')),
-
-    whatsRota && h(Modal, {
-      titulo: 'Enviar programação no WhatsApp',
-      sub: tituloRota(whatsRota),
-      onClose: () => setWhatsRota(null),
-      acoes: [
-        h('button', { key:'fechar', className:'btn btn-secondary', onClick:()=>setWhatsRota(null) }, 'Fechar')
-      ]
-    },
-      (() => {
-        const sups = supervisoresRota(whatsRota.id);
-        if (!sups.length) {
-          return h('div', { className:'empty-state' },
-            'Nenhum supervisor vinculado às demandas desta rota.');
-        }
-        return h('div', null,
-          h('div', { className:'page-sub', style:{marginBottom:12} },
-            'Envie a programação para todos os supervisores relacionados à rota. Cada supervisor acessará somente as demandas sob sua responsabilidade.'),
-          ...sups.map(sup => h('div', {
-              key:sup.id,
-              style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid var(--border)'}
-            },
-            h('div', null,
-              h('div', { className:'strong' }, sup.nome || 'Supervisor'),
-              h('div', { className:'page-sub' }, sup.telefone || 'WhatsApp não cadastrado')),
-            sup.telefone
-              ? h('button', {
-                  className:'btn btn-success btn-sm',
-                  onClick:() => {
-                    const ok = abrirWhats(sup.telefone, msgRotaWhats(whatsRota));
-                    if (!ok) toast('WhatsApp não cadastrado para '+(sup.nome||'o supervisor')+'.','error');
-                  }
-                }, 'Enviar no WhatsApp')
-              : h('span', { className:'badge badge-gray' }, 'Sem telefone')
-          ))
-        );
-      })()
-    ),
 
     h('div', { className: 'page-head' },
       h('div', null,
