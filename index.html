@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=z9Z9SUX8T3KCihAGGyEAa1-QLif7g2pVqh95H2Cr6SsTLebVPSQ721mcj7-Gn6wATBW3fVZNJHpksrpfZ8TvuA7vLcLtH_NfKLY5RrlB77Je6l-juzbw9YoMK74JeZr9wiVc1lb3CEBajZrkeA0X0yAnRAgnuySOvPhGU9Qtr1upcpKpNnhQpRyldTBoi9YOz9TDr7qAMqYJhSQTzN1t88Oq7pIPY9gHpXIz7jeuBsWHz1v31RMrVwGPpdOUUZdbwA7PV1uMw7oWSUtHP8sYoaepOF9pN204uLq9diDNl8bZ4pij0C8o2Cg3OmRMADkPmbRgC3p20DpN1NwyUETJnd6yNH8EnlDQNkEWxQVVouQ" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1799,7 +1799,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const f=ap.fichas_clientes;
-      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:f.cliente_id||null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
+      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
       else if(demanda){
         const itens=itensEquipamentosFicha(f,condicaoDiretoria);
