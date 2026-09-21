@@ -1106,46 +1106,6 @@ function PaginaEmissao({ profile, onSaved }) {
         h('div', { className: 'page-title' }, 'Emissão de Fichas'),
         h('div', { className: 'page-sub' }, 'Cadastro de novo cliente para aprovação'))),
 
-    etapa==='manutencao' && h('div',null,
-      h('div',{className:'tabs',style:{marginBottom:14}},
-        [['envio','Envio'],['troca','Troca'],['retirada','Retirada'],['manutencao','Manutenção']].map(([k,l])=>
-          h('button',{key:k,className:'tab '+(subManut===k?'active':''),onClick:()=>setSubManut(k)},l))),
-      subManut==='retirada'
-        ? h('div',{className:'card'},h(Empty,{icon:'↩',texto:'Fluxo de retirada será configurado na próxima etapa.'}))
-        : h('div',null,
-            subManut==='manutencao' && pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').length>0 &&
-              h('div',null,h('div',{className:'section-title'},'Aguardando aprovação da Manutenção'),
-                pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').map(ap=>{
-                  const sol=ap.solicitacoes,cli=sol.clientes||{};
-                  return h('div',{className:'card',key:'apr_'+ap.id},
-                    h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
-                    linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
-                    h('div',{style:{display:'flex',gap:8,marginTop:10}},
-                      h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
-                      h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
-                })),
-            (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).length===0
-              ? h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda nesta aba.'}))
-              : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).map(d=>{
-                  const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
-                  return h('div',{className:'card',key:'op_'+d.id},
-                    h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
-                      h('div',null,h('div',{style:{fontSize:16,fontWeight:700}},nome),
-                        h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):'')),
-                      h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='programada'?'badge-blue':'badge-yellow')},labelStatusOp(d.status))),
-                    h('div',{className:'info-grid',style:{marginTop:10}},
-                      linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||'—'),
-                      subManut==='troca'&&linhaInfo('Retirar',(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:'')),
-                      subManut==='troca'&&linhaInfo('Entregar',(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')),
-                      linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')||'—'),
-                      linhaInfo('Data programada',d.data_prevista?fmtData(d.data_prevista):'—')),
-                    h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
-                      ['envio','troca'].includes(subManut)&&d.status==='pendente'&&h('span',{className:'page-sub'},'Inclua esta demanda em uma rota para programá-la.'),
-                      subManut==='manutencao'&&d.status==='pendente'&&h('button',{className:'btn btn-primary btn-sm',onClick:()=>programarManutencao(d)},'Programar no Alvo'),
-                      d.status==='programada'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirDemanda(d)},subManut==='manutencao'?'Concluir manutenção':subManut==='troca'?'Concluir troca':'Concluir entrega')));
-                }))
-    ),
-
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
       h('div', { className: 'card-title' }, 'Avisar no WhatsApp'),
       h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
@@ -1911,6 +1871,47 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+
+    etapa==='manutencao' && h('div',null,
+      h('div',{className:'tabs',style:{marginBottom:14}},
+        [['envio','Envio'],['troca','Troca'],['retirada','Retirada'],['manutencao','Manutenção']].map(([k,l])=>
+          h('button',{key:k,className:'tab '+(subManut===k?'active':''),onClick:()=>setSubManut(k)},l))),
+      subManut==='retirada'
+        ? h('div',{className:'card'},h(Empty,{icon:'↩',texto:'Fluxo de retirada será configurado na próxima etapa.'}))
+        : h('div',null,
+            subManut==='manutencao' && pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').length>0 &&
+              h('div',null,h('div',{className:'section-title'},'Aguardando aprovação da Manutenção'),
+                pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').map(ap=>{
+                  const sol=ap.solicitacoes,cli=sol.clientes||{};
+                  return h('div',{className:'card',key:'apr_'+ap.id},
+                    h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
+                    linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
+                    h('div',{style:{display:'flex',gap:8,marginTop:10}},
+                      h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
+                      h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
+                })),
+            (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).length===0
+              ? h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda nesta aba.'}))
+              : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).map(d=>{
+                  const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
+                  return h('div',{className:'card',key:'op_'+d.id},
+                    h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
+                      h('div',null,h('div',{style:{fontSize:16,fontWeight:700}},nome),
+                        h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):'')),
+                      h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='programada'?'badge-blue':'badge-yellow')},labelStatusOp(d.status))),
+                    h('div',{className:'info-grid',style:{marginTop:10}},
+                      linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||'—'),
+                      subManut==='troca'&&linhaInfo('Retirar',(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:'')),
+                      subManut==='troca'&&linhaInfo('Entregar',(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')),
+                      linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')||'—'),
+                      linhaInfo('Data programada',d.data_prevista?fmtData(d.data_prevista):'—')),
+                    h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
+                      ['envio','troca'].includes(subManut)&&d.status==='pendente'&&h('span',{className:'page-sub'},'Inclua esta demanda em uma rota para programá-la.'),
+                      subManut==='manutencao'&&d.status==='pendente'&&h('button',{className:'btn btn-primary btn-sm',onClick:()=>programarManutencao(d)},'Programar no Alvo'),
+                      d.status==='programada'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirDemanda(d)},subManut==='manutencao'?'Concluir manutenção':subManut==='troca'?'Concluir troca':'Concluir entrega')));
+                }))
+    ),
+
 
     decidindo && decidindo.anCredito && h(ModalAnaliseCredito, {
       fichaId: decidindo.anCredito.ficha_id,
@@ -3454,7 +3455,7 @@ function PaginaEntregasEquipamentos({profile}) {
 
   const cidades=[...new Set((entregas||[]).map(e=>e.endereco_cidade).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   const filtradas=(entregas||[]).filter(e=>{
-    if(e.status!=='pendente')return false;
+    if(!['pendente','programada'].includes(e.status))return false;
     if(jaEmRota(e.id))return false;
     if(fCidade&&e.endereco_cidade!==fCidade)return false;
     const q=fCliente.trim().toLowerCase();
@@ -3507,12 +3508,27 @@ function PaginaEntregasEquipamentos({profile}) {
     if(pts.length){if(pts.length>1)L.polyline(pts,{weight:4,opacity:.65}).addTo(m);m.fitBounds(pts,{padding:[35,35]});}
     setTimeout(()=>m.invalidateSize(),80);
   }
-  function desenhaRota(r){
+  async function desenhaRota(r){
     const el=document.getElementById('mapa-rota-equip');if(!el)return;
     const m=baseMapa(el,mapRotaRef);if(!m)return;const pts=[];
-    itensDaRota(r.id).forEach((it,i)=>{const e=it.entrega;if(e&&e.latitude!=null&&e.longitude!=null){const p=[+e.latitude,+e.longitude];pts.push(p);L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}`);}});
-    if(pts.length){if(pts.length>1)L.polyline(pts,{weight:4,opacity:.7}).addTo(m);m.fitBounds(pts,{padding:[35,35]});}
-    setTimeout(()=>m.invalidateSize(),80);
+    const its=itensDaRota(r.id);
+    for(let i=0;i<its.length;i++){
+      let e=its[i].entrega;if(!e)continue;
+      if(e.latitude==null||e.longitude==null){
+        try{e=await geo(e);}catch(err){console.warn('Geocodificação da rota:',err);}
+      }
+      if(e&&e.latitude!=null&&e.longitude!=null){
+        const p=[+e.latitude,+e.longitude];pts.push(p);
+        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}`);
+      }
+    }
+    if(pts.length){
+      if(pts.length>1)L.polyline(pts,{weight:4,opacity:.7}).addTo(m);
+      m.fitBounds(pts,{padding:[35,35]});
+    }else{
+      m.setView([-22.2,-49.9],6);
+    }
+    setTimeout(()=>m.invalidateSize(),120);
   }
 
   async function melhorarMontagem(){
@@ -3705,7 +3721,8 @@ function PaginaEntregasEquipamentos({profile}) {
       h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')]},
       h('div',{id:'mapa-rota-equip',style:{height:430,border:'1px solid var(--border)',borderRadius:10,marginBottom:14}}),
       h('div',{className:'table-wrap'},h('table',null,h('thead',null,h('tr',null,h('th',null,'#'),h('th',null,'Cliente'),h('th',null,'Equipamento'))),
-        h('tbody',null,...itensDaRota(aberta.id).map(it=>h('tr',{key:it.id},h('td',null,it.ordem),h('td',null,nomeCliente(it.entrega)),h('td',null,(it.entrega&&it.entrega.equipamento_resumo)||'—'))))))),
+        h('tbody',null,...itensDaRota(aberta.id).map(it=>h('tr',{key:it.id},h('td',null,it.ordem),h('td',null,it.entrega?nomeCliente(it.entrega):'Demanda não localizada'),h('td',null,(it.entrega&&it.entrega.equipamento_resumo)||'—'))))))),
+      itensDaRota(aberta.id).length===0&&h('div',{className:'empty-state',style:{padding:20}},'Esta rota não possui itens vinculados.'),
 
     h('div',{className:'page-head'},h('div',null,h('div',{className:'page-title'},'Entregas e Rotas'),h('div',{className:'page-sub'},'Selecione as solicitações e monte visualmente cada rota no mapa'))),
     erro&&h('div',{className:'card',style:{borderColor:'#ef4444',background:'#fff7f7'}},h('b',null,'Erro ao carregar: '),erro),
@@ -3715,7 +3732,7 @@ function PaginaEntregasEquipamentos({profile}) {
       h('div',{className:'form-grid'},
         h(Campo,{label:'Cidade'},h(Select,{opcoes:cidades,value:fCidade,onChange:e=>setFCidade(e.target.value)})),
         h(Campo,{label:'Cliente / Código'},h(Input,{value:fCliente,placeholder:'Digite o nome ou código do cliente',onChange:e=>setFCliente(e.target.value)})),
-        h(Campo,{label:'Status'},h(Select,{opcoes:[{value:'pendente_agendamento',label:'Aguardando agendamento'},{value:'agendada',label:'Agendada'}],value:fStatus,onChange:e=>setFStatus(e.target.value)}))),
+        h(Campo,{label:'Status'},h(Select,{opcoes:[{value:'pendente',label:'Pendente'},{value:'programada',label:'Programada'}],value:fStatus,onChange:e=>setFStatus(e.target.value)}))),
       h('div',{style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}},
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setFCidade('');setFCliente('');setFStatus('');}},'Limpar filtros'),
         h('span',{style:{fontSize:12,color:'var(--text-muted)',alignSelf:'center'}},filtradas.length+' solicitação(ões) encontrada(s)'))),
