@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=EChvZJi6xuXlj4b859WoQvIJsPExo7OCt8ik2XR3y7sBSVEslrPCJfc0-I3p55--tiDe_RqudB3wCyvlzO79xYhT12d8u3b79IFnL47lh8He9KGwO3IWuwkpV0KghCh16XKcH6rQDWPKbmHKlzosUJ-ajjJUQ8jfJm8J_wFP4GYX5-LKgteJEi_Yku3lkkcWwTMg_Ar5LoYkse75bLapL4PhihkZ252KT0-Cm8UzFHJ__76SKUlQybsDEKPC-bL1Sc38hMmYmVhVDohyuTHbRsUM3hNXE5lQ2XmSC2cetPl87dRxCgY1RNZWHEk1oetSNpMYCfBjAbQLaxW4tAMN1o848dmiEbzRKaXzdngqabx6PFRT5bgsO8eY0p5Kb9Tm" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1726,12 +1726,17 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       else{
         const base=rd.data||[], fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))], cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
         const [ff,cc]=await Promise.all([
-          fids.length?sb.from('fichas_clientes').select('id,codigo,razao_social,codigo_totvs,cnpj_cpf').in('id',fids):Promise.resolve({data:[]}),
-          cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf').in('id',cids):Promise.resolve({data:[]})
+          fids.length?sb.from('fichas_clientes').select('id,codigo,razao_social,cnpj_cpf,clientes(codigo_totvs)').in('id',fids):Promise.resolve({data:[],error:null}),
+          cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf').in('id',cids):Promise.resolve({data:[],error:null})
         ]);
-        if(ff&&ff.error)throw ff.error;
-      if(cc&&cc.error)throw cc.error;
-      const fm=new Map((ff.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x])),cm=new Map((cc.data||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+        if(ff&&ff.error)console.error('Pendências - fichas_clientes:',ff.error);
+        if(cc&&cc.error)console.error('Pendências - clientes:',cc.error);
+        const fichasOk=(ff&&ff.data||[]).filter(x=>x&&x.id).map(x=>({
+          ...x,
+          codigo_totvs:x.codigo_totvs||(x.clientes&&x.clientes.codigo_totvs)||null
+        }));
+        const clientesOk=(cc&&cc.data||[]).filter(x=>x&&x.id);
+        const fm=new Map(fichasOk.map(x=>[x.id,x])),cm=new Map(clientesOk.map(x=>[x.id,x]));
         setDemandasManut(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
       }
     }
