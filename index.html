@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=5dESDmxPebvsR1g5drdtQESfZrArNWIqLtswiD9wGl4PRNeOh_NSwjXlyMX4gVUoLcvhoV-6J1c58u8rVFXQLg2WMs9LogUiyAtYHJXB0lv-tl_6VsA5gYyevlBudaA5e-kUD58fMS9NWNhcuVPxn98x5WKu72jY-lZDmn2NWI6DOAQMDiYIuCXOnlNqRIfHIsUH3t-5UHX4JYqLyakBZNT02v8eJovX8c0jldOQcT7JlPsSTqjp7KKgKTrQ1TrIyDwIkAPcc2ra6qEX2XdA5EDJDD-B-V-sebZW8zEiFpKpz4kN1FPcMAK1zzZ9wVS4fZyNGWBXPqIKEz3P6_ons0AWR97O1OWxqkJbLsJeF5rSBAhTvYWGNwgq3wbHGc64" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3698,82 +3698,47 @@ function PaginaEntregasEquipamentos({profile}) {
     if(criandoRota)return;
     if(!dataRota)return toast('Informe a data da rota.','error');
 
-    const ids=[...new Set((selecionadas||[]).filter(Boolean))];
+    const ids=[...new Set((selecionadas||[]).filter(Boolean).map(String))];
     if(!ids.length)return toast('Selecione as solicitações que farão parte da rota.','error');
 
     setCriandoRota(true);
-    let rotaCriada=null;
     try{
-      let demandas=ids.map(entregaPorId).filter(e=>e&&e.id);
-      const unicas=new Map();
-      for(const e of demandas)unicas.set(String(e.id),e);
-      demandas=[...unicas.values()];
+      const demandas=ids.map(id=>entregaPorId(id)).filter(e=>e&&e.id);
       if(!demandas.length)throw new Error('Nenhuma demanda válida foi selecionada.');
 
       const divergentes=demandas.filter(e=>e.data_prevista&&e.data_prevista!==dataRota);
       if(divergentes.length&&!window.confirm(divergentes.length+' demanda(s) possuem data prevista diferente da data da rota. Deseja continuar?'))return;
 
       let xs=(await Promise.all(demandas.map(geo))).filter(e=>e&&e.id);
-      const geoUnicas=new Map();
-      for(const e of xs)geoUnicas.set(String(e.id),e);
-      xs=[...geoUnicas.values()];
+      const unicas=new Map();
+      xs.forEach(e=>unicas.set(String(e.id),e));
+      xs=[...unicas.values()];
       if(!xs.length)throw new Error('Nenhuma demanda válida foi localizada para criar a rota.');
 
-      // Uma demanda só pode pertencer a uma rota. Confere no banco imediatamente antes da gravação.
-      const idsFinal=xs.map(e=>e.id);
-      const {data:jaVinculados,error:ev}=await sb.from('rota_equipamento_itens').select('entrega_id').in('entrega_id',idsFinal);
-      if(ev)throw ev;
-      const ocupados=new Set((jaVinculados||[]).filter(x=>x&&x.entrega_id).map(x=>String(x.entrega_id)));
-      if(ocupados.size){
-        xs=xs.filter(e=>!ocupados.has(String(e.id)));
-        if(!xs.length){
-          setSelecionadas([]);
-          await carregar();
-          throw new Error('As demandas selecionadas já pertencem a outra rota. A lista foi atualizada.');
-        }
-      }
+      const nomeFinal=nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR'));
+      const idsFinal=[...new Set(xs.map(e=>String(e.id)))];
 
-      const {data:r,error}=await sb.from('rotas_equipamentos').insert({
-        nome:nomeRota.trim()||('Entrega Equipamentos '+new Date(dataRota+'T12:00:00').toLocaleDateString('pt-BR')),
-        data_rota:dataRota,status:'planejada',criado_por:profile.id
-      }).select().single();
-      if(error)throw error;
-      rotaCriada=r;
-
-      // DEDUPLICAÇÃO FINAL por rota_id + entrega_id.
-      const pares=new Map();
-      xs.forEach((e,i)=>{
-        const item={rota_id:r.id,entrega_id:e.id,ordem:i+1};
-        pares.set(String(r.id)+'|'+String(e.id),item);
+      // A criação inteira é feita no PostgreSQL em uma única transação.
+      // O banco deduplica os IDs antes do INSERT e usa ON CONFLICT DO NOTHING.
+      const {data,error}=await sb.rpc('criar_rota_equipamentos_segura',{
+        p_nome:nomeFinal,
+        p_data_rota:dataRota,
+        p_entrega_ids:idsFinal
       });
-      const itens=[...pares.values()];
+      if(error)throw error;
 
-      // UPSERT torna a operação idempotente para a constraint (rota_id, entrega_id).
-      // Se o mesmo par chegar duas vezes por qualquer evento de UI/rede, o banco ignora a repetição.
-      const {error:ei}=await sb.from('rota_equipamento_itens')
-        .upsert(itens,{onConflict:'rota_id,entrega_id',ignoreDuplicates:true});
-      if(ei)throw ei;
-
-      // O trigger do banco já altera Ag. Rota -> Roteirizada.
-      // Apenas confirma o estado final das demandas realmente inseridas.
-      const idsCriados=[...new Set(itens.map(i=>i.entrega_id).filter(Boolean))];
-      const {data:gravados,error:eg}=await sb.from('rota_equipamento_itens')
-        .select('entrega_id').eq('rota_id',r.id);
-      if(eg)throw eg;
-      const gravadosSet=new Set((gravados||[]).filter(x=>x&&x.entrega_id).map(x=>String(x.entrega_id)));
-      const faltantes=idsCriados.filter(id=>!gravadosSet.has(String(id)));
-      if(faltantes.length)throw new Error('A rota não foi gravada completamente. '+faltantes.length+' demanda(s) ficaram sem vínculo.');
-
+      const resultado=Array.isArray(data)?data[0]:data;
+      const qtd=resultado&&resultado.quantidade!=null?Number(resultado.quantidade):idsFinal.length;
       setSelecionadas([]);setDataRota('');setNomeRota('');
-      toast('Rota criada com '+gravadosSet.size+' demanda(s).','success');
+      toast('Rota criada com '+qtd+' demanda(s).','success');
       await carregar();
     }catch(err){
-      if(rotaCriada&&rotaCriada.id){
-        // rollback da rota criada nesta tentativa
-        await sb.from('rota_equipamento_itens').delete().eq('rota_id',rotaCriada.id);
-        await sb.from('rotas_equipamentos').delete().eq('id',rotaCriada.id);
+      const msg=err&&err.message?err.message:String(err);
+      if(msg.includes('criar_rota_equipamentos_segura')||msg.includes('Could not find the function')){
+        toast('Execute primeiro a Migração 61 no Supabase.','error');
+      }else{
+        toast('Não foi possível criar a rota: '+msg,'error');
       }
-      toast('Não foi possível criar a rota: '+(err&&err.message?err.message:String(err)),'error');
       await carregar();
     }finally{
       setCriandoRota(false);
