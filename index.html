@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=nvPRIZ2-k84UrcrasiK6jXTiDjM1VgvTvPOp_WDJe70vCt9pZ92DPxPLAc_cprtcXfvPg7FHjFGy4G009ejfjelW1eRpSb964Kb5i_qljhPCNJj-XnOGVZBw-ZBVJr8cZpCe1-_Wa0k39f0RPsxQMCUD7ZJbXZwys9HwFd_tFUIKa2XmdS_i71USomLBx4ld4T_ad6p_k79oGTrAZTufvwmoadVXiqHxibIFz_vNx_dRgOvep0qIyrcgPHtJ1lydAmqWqgovGP9gS-6480g7qiXNZzhUo-Wp_WG5TohOcDsOs9GG3sdHJOD74YN-kdkHN-W6F8hjJWrnBEIdjQkBIRwxO426uA1E30PBt6yM83P0GlsxpPYoCm10SpWN-WQd" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1633,124 +1633,74 @@ function DetalheFicha({ ficha, onClose }) {
 // PAGINA: FICHAS (tabela geral - hierarquia garantida pelo RLS)
 // =====================================================================
 function PaginaFichas({ profile }) {
-  const toast=useToast();
-  const [fichas,setFichas]=useState(null);
-  const [busca,setBusca]=useState('');
-  const [detalhe,setDetalhe]=useState(null);
-  const [erro,setErro]=useState('');
+  const [fichas, setFichas] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [detalhe, setDetalhe] = useState(null);
 
-  useEffect(()=>{carregar();},[]);
-
-  async function carregar(){
-    setFichas(null);setErro('');
-    try{
-      // A tela não depende mais de relacionamento embutido do PostgREST.
-      // Primeiro busca as fichas visíveis pelo RLS.
-      const rf=await sb.from('fichas_clientes').select('*').order('created_at',{ascending:false});
-      if(rf.error)throw rf.error;
-      const base=(rf.data||[]).filter(x=>x&&x.id);
-
-      // Aprovações são carregadas separadamente para não derrubar Fichas
-      // caso o relacionamento automático do PostgREST esteja indisponível.
-      const ids=base.map(x=>x.id);
-      let aprovacoes=[];
-      if(ids.length){
-        const ra=await sb.from('ficha_aprovacoes')
-          .select('id,ficha_id,etapa,status,decidido_em,observacao,ordem')
-          .in('ficha_id',ids);
-        if(ra.error)console.error('Fichas - aprovações:',ra.error);
-        else aprovacoes=(ra.data||[]).filter(Boolean);
-      }
-
-      // Nome do vendedor também é enriquecimento independente.
-      const vendedorIds=[...new Set(base.map(x=>x.vendedor_id).filter(Boolean))];
-      let vendedores=[];
-      if(vendedorIds.length){
-        const ru=await sb.from('usuarios').select('id,nome').in('id',vendedorIds);
-        if(ru.error)console.error('Fichas - vendedores:',ru.error);
-        else vendedores=(ru.data||[]).filter(Boolean);
-      }
-      const vm=new Map(vendedores.map(u=>[String(u.id),u]));
-
-      setFichas(base.map(f=>({
-        ...f,
-        usuarios:vm.get(String(f.vendedor_id))||null,
-        ficha_aprovacoes:aprovacoes.filter(a=>String(a.ficha_id)===String(f.id))
-      })));
-    }catch(e){
-      console.error('Falha ao carregar Fichas:',e);
-      setErro(e&&e.message?e.message:'Não foi possível carregar as fichas.');
-      setFichas([]);
-    }
+  useEffect(() => { carregar(); }, []);
+  async function carregar() {
+    const { data } = await sb.from('fichas_clientes')
+      .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(etapa, status, decidido_em, observacao)')
+      .order('created_at', { ascending: false });
+    setFichas(data || []);
   }
 
-  const lista=Array.isArray(fichas)?fichas:[];
-  const termo=String(busca||'').trim().toLowerCase();
-  const filtradas=!termo?lista:lista.filter(f=>{
-    const vendedor=f&&f.usuarios&&f.usuarios.nome?f.usuarios.nome:'';
-    return String((f&&f.razao_social)||'').toLowerCase().includes(termo)
-      ||String((f&&f.cnpj_cpf)||'').toLowerCase().includes(termo)
-      ||String((f&&f.cidade)||'').toLowerCase().includes(termo)
-      ||String(vendedor).toLowerCase().includes(termo);
-  });
-  const totalFat=filtradas.reduce((acc,f)=>acc+Number((f&&f.faturamento_previsto)||0),0);
+  const filtradas = useMemo(() => {
+    if (!fichas) return [];
+    const t = busca.trim().toLowerCase();
+    if (!t) return fichas;
+    return fichas.filter(f =>
+      (f.razao_social || '').toLowerCase().includes(t) ||
+      (f.cnpj_cpf || '').includes(t) ||
+      (f.cidade || '').toLowerCase().includes(t) ||
+      ((f.usuarios && f.usuarios.nome) || '').toLowerCase().includes(t));
+  }, [fichas, busca]);
 
-  function dataEtapa(f,etapa){
-    const arr=Array.isArray(f&&f.ficha_aprovacoes)?f.ficha_aprovacoes:[];
-    const ap=arr.find(a=>a&&a.etapa===etapa);
-    if(!ap)return h('span',{style:{color:'var(--text-muted)'}},'—');
-    if(ap.status==='nao_aplica')return h('span',{style:{color:'var(--text-muted)'},title:'Não se aplica'},'–');
-    if(ap.status==='aguardando')return h('span',{style:{color:'var(--text-muted)'},title:'Aguardando etapa anterior'},'○');
-    if(ap.status==='pendente')return h('span',{style:{color:'var(--warning)'},title:'Aguardando decisão'},'●');
-    const ok=ap.status==='aprovado';
-    return h('span',{style:{color:ok?'var(--success)':'var(--danger)',whiteSpace:'nowrap'}},
-      (ok?'✓ ':'✗ ')+fmtData(ap.decidido_em));
+  const totalFat = filtradas.reduce((s, f) => s + Number(f.faturamento_previsto || 0), 0);
+
+  function dataEtapa(f, etapa) {
+    const ap = (f.ficha_aprovacoes || []).find(a => a.etapa === etapa);
+    if (!ap) return h('span', { style: { color: 'var(--text-muted)' } }, '—');
+    if (ap.status === 'nao_aplica') return h('span', { style: { color: 'var(--text-muted)' }, title: 'Etapa pulada (sem responsável)' }, '–');
+    if (ap.status === 'aguardando') return h('span', { style: { color: 'var(--text-muted)' } }, '○');
+    if (ap.status === 'pendente') return h('span', { style: { color: 'var(--warning)' }, title: 'Aguardando decisão' }, '●');
+    const cor = ap.status === 'aprovado' ? 'var(--success)' : 'var(--danger)';
+    return h('span', { style: { color: cor, whiteSpace: 'nowrap' } },
+      (ap.status === 'aprovado' ? '✓ ' : '✗ ') + fmtData(ap.decidido_em));
   }
 
-  if(fichas===null)return h('div',{className:'empty-state'},'Carregando...');
+  if (fichas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
-  return h('div',null,
-    detalhe&&h(DetalheFicha,{ficha:detalhe,onClose:()=>setDetalhe(null)}),
+  return h('div', null,
+    detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+    h('div', { className: 'page-head' },
+      h('div', null,
+        h('div', { className: 'page-title' }, 'Fichas de Clientes'),
+        h('div', { className: 'page-sub' }, filtradas.length + ' ficha(s) · Faturamento previsto ' + fmtMoeda(totalFat) + '/mês')),
+      h('input', { className: 'form-input', style: { maxWidth: 260 }, placeholder: 'Buscar cliente, CNPJ, vendedor...', value: busca, onChange: e => setBusca(e.target.value) })),
 
-    h('div',{className:'page-head'},
-      h('div',null,
-        h('div',{className:'page-title'},'Fichas de Clientes'),
-        h('div',{className:'page-sub'},filtradas.length+' ficha(s) · Faturamento previsto '+fmtMoeda(totalFat)+'/mês')),
-      h('input',{className:'form-input',style:{maxWidth:260},placeholder:'Buscar cliente, CNPJ, vendedor...',value:busca,onChange:e=>setBusca(e.target.value)})),
-
-    erro&&h('div',{className:'alert alert-danger',style:{marginBottom:12}},
-      h('b',null,'Não foi possível carregar todos os dados de Fichas. '),
-      h('span',null,erro),
-      h('button',{className:'btn btn-secondary btn-sm',style:{marginLeft:10},onClick:carregar},'Tentar novamente')),
-
-    filtradas.length===0
-      ?h('div',{className:'card'},h(Empty,{icon:'≡',texto:erro?'A consulta de Fichas retornou erro.':'Nenhuma ficha visível para você.'}))
-      :h('div',{className:'card',style:{padding:0}},
-        h('div',{className:'table-wrap'},
-          h('table',null,
-            h('thead',null,h('tr',null,
-              ...['Cliente','CNPJ','Vendedor','Cidade','Preço Kg','Pães/dia','Fat. Previsto/mês','Criação','Superv.','Coord.','Anál. Crédito','Financ.','Diretoria']
-                .map(c=>h('th',{key:c},c)))),
-            h('tbody',null,
-              ...filtradas.map(f=>h('tr',{key:f.id,style:{cursor:'pointer'},onClick:()=>setDetalhe(f)},
-                h('td',{className:'strong'},f.razao_social||'Sem nome'),
-                h('td',{className:'mono'},f.cnpj_cpf||'—'),
-                h('td',null,(f.usuarios&&f.usuarios.nome)||'—'),
-                h('td',null,(f.cidade||'—')+(f.estado?'/'+f.estado:'')),
-                h('td',{className:'mono'},fmtMoeda(f.preco_kg)),
-                h('td',{className:'mono'},f.consumo_previsto?fmtNum(f.consumo_previsto):'—'),
-                h('td',{className:'mono strong'},fmtMoeda(f.faturamento_previsto)),
-                h('td',{className:'mono'},fmtData(f.created_at)),
-                h('td',{className:'mono'},dataEtapa(f,'supervisor')),
-                h('td',{className:'mono'},dataEtapa(f,'coordenador')),
-                h('td',{className:'mono'},dataEtapa(f,'analise_credito')),
-                h('td',{className:'mono'},dataEtapa(f,'financeiro')),
-                h('td',{className:'mono'},dataEtapa(f,'diretoria'))
-              )))
-          )
-        )
-      )
-  );
+    filtradas.length === 0
+      ? h('div', { className: 'card' }, h(Empty, { icon: '\u2261', texto: 'Nenhuma ficha visível para você.' }))
+      : h('div', { className: 'card', style: { padding: 0 } },
+          h('div', { className: 'table-wrap' },
+            h('table', null,
+              h('thead', null, h('tr', null,
+                ['Cliente','CNPJ','Vendedor','Cidade','Preço Kg','Pães/dia','Fat. Previsto/mês','Criação','Superv.','Coord.','Financ.','Diretoria']
+                  .map(c => h('th', { key: c }, c)))),
+              h('tbody', null,
+                filtradas.map(f => h('tr', { key: f.id, style: { cursor: 'pointer' }, onClick: () => setDetalhe(f) },
+                  h('td', { className: 'strong' }, f.razao_social),
+                  h('td', { className: 'mono' }, f.cnpj_cpf || '—'),
+                  h('td', null, (f.usuarios && f.usuarios.nome) || '—'),
+                  h('td', null, (f.cidade || '—') + (f.estado ? '/' + f.estado : '')),
+                  h('td', { className: 'mono' }, fmtMoeda(f.preco_kg)),
+                  h('td', { className: 'mono' }, f.consumo_previsto ? fmtNum(f.consumo_previsto) : '—'),
+                  h('td', { className: 'mono strong' }, fmtMoeda(f.faturamento_previsto)),
+                  h('td', { className: 'mono' }, fmtData(f.created_at)),
+                  h('td', { className: 'mono' }, dataEtapa(f, 'supervisor')),
+                  h('td', { className: 'mono' }, dataEtapa(f, 'coordenador')),
+                  h('td', { className: 'mono' }, dataEtapa(f, 'financeiro')),
+                  h('td', { className: 'mono' }, dataEtapa(f, 'diretoria')))))))));
 }
 
 // =====================================================================
