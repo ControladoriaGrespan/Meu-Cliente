@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=z9Z9SUX8T3KCihAGGyEAa1-QLif7g2pVqh95H2Cr6SsTLebVPSQ721mcj7-Gn6wATBW3fVZNJHpksrpfZ8TvuA7vLcLtH_NfKLY5RrlB77Je6l-juzbw9YoMK74JeZr9wiVc1lb3CEBajZrkeA0X0yAnRAgnuySOvPhGU9Qtr1upcpKpNnhQpRyldTBoi9YOz9TDr7qAMqYJhSQTzN1t88Oq7pIPY9gHpXIz7jeuBsWHz1v31RMrVwGPpdOUUZdbwA7PV1uMw7oWSUtHP8sYoaepOF9pN204uLq9diDNl8bZ4pij0C8o2Cg3OmRMADkPmbRgC3p20DpN1NwyUETJnd6yNH8EnlDQNkEWxQVVouQ" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1106,6 +1106,46 @@ function PaginaEmissao({ profile, onSaved }) {
         h('div', { className: 'page-title' }, 'Emissão de Fichas'),
         h('div', { className: 'page-sub' }, 'Cadastro de novo cliente para aprovação'))),
 
+    etapa==='manutencao' && h('div',null,
+      h('div',{className:'tabs',style:{marginBottom:14}},
+        [['envio','Envio'],['troca','Troca'],['retirada','Retirada'],['manutencao','Manutenção']].map(([k,l])=>
+          h('button',{key:k,className:'tab '+(subManut===k?'active':''),onClick:()=>setSubManut(k)},l))),
+      subManut==='retirada'
+        ? h('div',{className:'card'},h(Empty,{icon:'↩',texto:'Fluxo de retirada será configurado na próxima etapa.'}))
+        : h('div',null,
+            subManut==='manutencao' && pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').length>0 &&
+              h('div',null,h('div',{className:'section-title'},'Aguardando aprovação da Manutenção'),
+                pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').map(ap=>{
+                  const sol=ap.solicitacoes,cli=sol.clientes||{};
+                  return h('div',{className:'card',key:'apr_'+ap.id},
+                    h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
+                    linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
+                    h('div',{style:{display:'flex',gap:8,marginTop:10}},
+                      h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
+                      h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
+                })),
+            (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).length===0
+              ? h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda nesta aba.'}))
+              : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut).map(d=>{
+                  const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
+                  return h('div',{className:'card',key:'op_'+d.id},
+                    h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
+                      h('div',null,h('div',{style:{fontSize:16,fontWeight:700}},nome),
+                        h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):'')),
+                      h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='programada'?'badge-blue':'badge-yellow')},labelStatusOp(d.status))),
+                    h('div',{className:'info-grid',style:{marginTop:10}},
+                      linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||'—'),
+                      subManut==='troca'&&linhaInfo('Retirar',(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:'')),
+                      subManut==='troca'&&linhaInfo('Entregar',(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')),
+                      linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')||'—'),
+                      linhaInfo('Data programada',d.data_prevista?fmtData(d.data_prevista):'—')),
+                    h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
+                      ['envio','troca'].includes(subManut)&&d.status==='pendente'&&h('span',{className:'page-sub'},'Inclua esta demanda em uma rota para programá-la.'),
+                      subManut==='manutencao'&&d.status==='pendente'&&h('button',{className:'btn btn-primary btn-sm',onClick:()=>programarManutencao(d)},'Programar no Alvo'),
+                      d.status==='programada'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirDemanda(d)},subManut==='manutencao'?'Concluir manutenção':subManut==='troca'?'Concluir troca':'Concluir entrega')));
+                }))
+    ),
+
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
       h('div', { className: 'card-title' }, 'Avisar no WhatsApp'),
       h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
@@ -1685,10 +1725,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   // no preview do admin, o papel "admin" nao tem fila propria: mostra supervisor
   const etapa = visao === 'admin' ? 'supervisor' : visao;
   const [pendSolic, setPendSolic] = useState(null);
+  const [demandasManut,setDemandasManut]=useState(null);
+  const [subManut,setSubManut]=useState('envio');
 
   useEffect(() => { carregar(); }, [visao]);
   async function carregar() {
-    setPendentes(null); setPendSolic(null);
+    setPendentes(null); setPendSolic(null); if(etapa==='manutencao')setDemandasManut(null);
 
     // fila de FICHAS (manutencao nao participa do fluxo de ficha)
     let q = sb.from('ficha_aprovacoes')
@@ -1707,12 +1749,27 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       qs = qs.eq('responsavel_id', profile.id);
     }
 
-    const [rf, rs] = await Promise.all([
+    const [rf, rs, rd] = await Promise.all([
       etapa === 'manutencao' ? Promise.resolve({ data: [] }) : q.order('criado_em', { ascending: true }),
-      qs.order('criado_em', { ascending: true })
+      qs.order('criado_em', { ascending: true }),
+      etapa==='manutencao'
+        ? sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at,concluida_em,observacao_conclusao').order('created_at',{ascending:false})
+        : Promise.resolve({data:[]})
     ]);
     setPendentes(rf.data || []);
     setPendSolic(rs.data || []);
+    if(etapa==='manutencao'){
+      if(rd.error){console.error(rd.error);setDemandasManut([]);}
+      else{
+        const base=rd.data||[], fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))], cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
+        const [ff,cc]=await Promise.all([
+          fids.length?sb.from('fichas_clientes').select('id,codigo,razao_social,codigo_totvs,cnpj_cpf').in('id',fids):Promise.resolve({data:[]}),
+          cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf').in('id',cids):Promise.resolve({data:[]})
+        ]);
+        const fm=new Map((ff.data||[]).map(x=>[x.id,x])),cm=new Map((cc.data||[]).map(x=>[x.id,x]));
+        setDemandasManut(base.map(x=>({...x,_ref:cm.get(x.cliente_id)||fm.get(x.ficha_id)||null})));
+      }
+    }
   }
 
   // decide uma etapa de SOLICITACAO de equipamento
@@ -1759,6 +1816,17 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       else if (winRef && !winRef.closed) winRef.close();
     } else if (winRef && !winRef.closed) winRef.close();
 
+    // Manutenção de equipamento: após a própria Manutenção aprovar, vira ordem operacional PENDENTE.
+    if(status==='aprovado' && ap.etapa==='manutencao' && ap.solicitacoes && ap.solicitacoes.tipo==='manutencao'){
+      const sol=ap.solicitacoes,cli=sol.clientes||{};
+      const {error:em}=await sb.from('entregas_equipamentos').upsert({
+        solicitacao_id:sol.id,cliente_id:sol.cliente_id,origem_tipo:'solicitacao_manutencao',tipo_demanda:'manutencao',status:'pendente',
+        equipamento_resumo:sol.equipamento||sol.descricao||'Manutenção de equipamento',
+        equipamento_coleta:sol.equipamento||null,patrimonio_coleta:sol.patrimonio||null,criado_por:profile.id
+      },{onConflict:'solicitacao_id'});
+      if(em)toast('Solicitação aprovada, mas a ordem operacional não foi criada: '+em.message,'error');
+    }
+
     // Após a aprovação final da Diretoria, uma troca vira DEMANDA OPERACIONAL da Manutenção.
     if(status==='aprovado' && ap.etapa==='diretoria' && ap.solicitacoes &&
        (ap.solicitacoes.categoria||'equipamento')==='equipamento' && ap.solicitacoes.tipo==='troca'){
@@ -1768,7 +1836,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       const f=fichas.find(x=>x.entrega_rua)||fichas[0]||{};
       const {error:ed}=await sb.from('entregas_equipamentos').upsert({
         solicitacao_id:sol.id,cliente_id:sol.cliente_id,origem_tipo:'troca',tipo_demanda:'troca',
-        status:'pendente_agendamento',
+        status:'pendente',
         endereco_rua:f.entrega_rua||f.rua||'Não informado',endereco_numero:f.entrega_numero||f.numero||'S/N',
         endereco_bairro:f.entrega_bairro||f.bairro||'Não informado',endereco_cidade:f.entrega_cidade||f.cidade||'Não informado',
         endereco_estado:f.entrega_estado||f.estado||'--',endereco_cep:f.entrega_cep||f.cep||'Não informado',
@@ -1799,7 +1867,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const f=ap.fichas_clientes;
-      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
+      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'envio',status:'pendente',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
       else if(demanda){
         const itens=itensEquipamentosFicha(f,condicaoDiretoria);
@@ -1822,7 +1890,23 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     setDecidindo(null);setObs('');setCondicaoDiretoria('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
   }
 
-  if (pendentes === null || pendSolic === null) return h('div', { className: 'empty-state' }, 'Carregando...');
+  function tipoOperacional(d){return d.tipo_demanda==='entrega'?'envio':(d.tipo_demanda||'envio');}
+  function labelStatusOp(st){return st==='programada'?'Programada':st==='concluida'?'Concluída':'Pendente';}
+  async function concluirDemanda(d){
+    const obs=window.prompt('Observação da conclusão (opcional):','');
+    if(obs===null)return;
+    const {error}=await sb.from('entregas_equipamentos').update({status:'concluida',concluida_em:new Date().toISOString(),concluida_por:profile.id,observacao_conclusao:obs.trim()||null}).eq('id',d.id);
+    if(error)return toast(error.message,'error');
+    toast('Demanda concluída.','success');carregar();
+  }
+  async function programarManutencao(d){
+    const dt=window.prompt('Data programada no Alvo (AAAA-MM-DD):',d.data_prevista||'');
+    if(dt===null)return;if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(dt))return toast('Informe a data no formato AAAA-MM-DD.','error');
+    const {error}=await sb.from('entregas_equipamentos').update({status:'programada',data_prevista:dt,programada_em:new Date().toISOString()}).eq('id',d.id);
+    if(error)return toast(error.message,'error');toast('Manutenção programada.','success');carregar();
+  }
+
+  if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
   const totalPend = pendentes.length + pendSolic.length;
 
   return h('div', null,
@@ -1881,7 +1965,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           onClick: () => abrirWhats(d.telefone, d._msg) }, 'Enviar para ' + d.nome)),
         h('button', { className: 'btn btn-primary btn-sm', onClick: () => setDestinatarios([]) }, 'Concluir'))),
 
-    pendSolic.length > 0 && h('div', null,
+    etapa!=='manutencao' && pendSolic.length > 0 && h('div', null,
       h('div', { className: 'section-title' }, 'Solicitações de Serviços'),
       pendSolic.map(ap => {
         const sol = ap.solicitacoes;
@@ -1913,7 +1997,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
       })),
 
-    totalPend === 0
+    etapa!=='manutencao' && totalPend === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u2713', texto: 'Nenhuma pendência na sua fila.' }))
       : pendentes.length > 0 && h('div', null,
         h('div', { className: 'section-title' }, 'Fichas de cadastro'),
@@ -3340,12 +3424,19 @@ function PaginaEntregasEquipamentos({profile}) {
     setErro('');
     try{
       const [re,rr,ri]=await Promise.all([
-        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at,fichas_clientes(id,codigo,acordo_comercial_numero,razao_social,codigo_totvs,cnpj_cpf,rua,numero,bairro,cidade,estado,cep,consumo_previsto,equipamento_condicao_manutencao),clientes(razao_social,codigo_totvs,cnpj_cpf,acordo_comercial)').order('created_at',{ascending:false}),
+        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','troca','retirada']).order('created_at',{ascending:false}),
         sb.from('rotas_equipamentos').select('id,nome,data_rota,status,created_at').order('data_rota',{ascending:false}),
         sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem')
       ]);
       if(re.error)throw re.error;if(rr.error)throw rr.error;if(ri.error)throw ri.error;
-      setEntregas(re.data||[]);setRotas(rr.data||[]);setItensRota(ri.data||[]);
+      const base=re.data||[],fids=[...new Set(base.map(x=>x.ficha_id).filter(Boolean))],cids=[...new Set(base.map(x=>x.cliente_id).filter(Boolean))];
+      const [ff,cc]=await Promise.all([
+        fids.length?sb.from('fichas_clientes').select('id,codigo,acordo_comercial_numero,razao_social,codigo_totvs,cnpj_cpf,rua,numero,bairro,cidade,estado,cep,consumo_previsto,equipamento_condicao_manutencao').in('id',fids):Promise.resolve({data:[]}),
+        cids.length?sb.from('clientes').select('id,razao_social,codigo_totvs,cnpj_cpf,acordo_comercial').in('id',cids):Promise.resolve({data:[]})
+      ]);
+      const fm=new Map((ff.data||[]).map(x=>[x.id,x])),cm=new Map((cc.data||[]).map(x=>[x.id,x]));
+      setEntregas(base.map(x=>({...x,fichas_clientes:fm.get(x.ficha_id)||null,clientes:cm.get(x.cliente_id)||null})));
+      setRotas(rr.data||[]);setItensRota(ri.data||[]);
     }catch(e){console.error(e);setEntregas([]);setRotas([]);setItensRota([]);setErro(e&&e.message?e.message:'Erro ao carregar entregas.');}
   }
 
@@ -3363,7 +3454,7 @@ function PaginaEntregasEquipamentos({profile}) {
 
   const cidades=[...new Set((entregas||[]).map(e=>e.endereco_cidade).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   const filtradas=(entregas||[]).filter(e=>{
-    if(!['pendente_agendamento','agendada'].includes(e.status))return false;
+    if(e.status!=='pendente')return false;
     if(jaEmRota(e.id))return false;
     if(fCidade&&e.endereco_cidade!==fCidade)return false;
     const q=fCliente.trim().toLowerCase();
@@ -3439,7 +3530,7 @@ function PaginaEntregasEquipamentos({profile}) {
     if(error)return toast(error.message,'error');
     const {error:ei}=await sb.from('rota_equipamento_itens').insert(xs.map((e,i)=>({rota_id:r.id,entrega_id:e.id,ordem:i+1})));
     if(ei)return toast(ei.message,'error');
-    const {error:eu}=await sb.from('entregas_equipamentos').update({status:'agendada',data_prevista:dataRota}).in('id',selecionadas);
+    const {error:eu}=await sb.from('entregas_equipamentos').update({status:'programada',data_prevista:dataRota,programada_em:new Date().toISOString()}).in('id',selecionadas);
     if(eu)return toast(eu.message,'error');
     setSelecionadas([]);setDataRota('');setNomeRota('');toast('Rota criada com sucesso.','success');await carregar();
   }
@@ -3451,7 +3542,7 @@ function PaginaEntregasEquipamentos({profile}) {
 
   async function abrirDemanda(e){
     setDetalheDemanda(e);setDataProgramacao(e.data_prevista||'');setComodatoItens([]);setComodatoRegistro(null);
-    if(e.tipo_demanda!=='entrega'||!e.ficha_id)return;
+    if(e.tipo_demanda!=='envio'||!e.ficha_id)return;
     const [a,b]=await Promise.all([
       sb.from('comodato_equipamentos').select('*').eq('entrega_id',e.id).order('ordem'),
       sb.from('contratos_comodato').select('*').eq('entrega_id',e.id).maybeSingle()
@@ -3534,6 +3625,22 @@ function PaginaEntregasEquipamentos({profile}) {
     d.save('Contrato de Comodato GRESPAN PÃES x '+String(f.razao_social||nomeCliente(detalheDemanda)||'CLIENTE').replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
   }
 
+  function gerarComodatoTroca(dem){
+    if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
+    const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'}),cli=dem.clientes||{},nome=nomeCliente(dem);
+    let y=18;d.setFont('helvetica','bold');d.setTextColor(180,30,35);d.setFontSize(18);d.text('GRESPAN',15,y);
+    d.setTextColor(30);d.setFontSize(13);d.text('ATUALIZAÇÃO DE COMODATO — TROCA DE EQUIPAMENTO',105,y,{align:'center'});y+=13;
+    d.setFontSize(9);d.setFont('helvetica','normal');d.text('Cliente: '+((codCliente(dem)?codCliente(dem)+' — ':'')+nome),15,y);y+=6;
+    d.text('Endereço: '+endereco(dem),15,y);y+=12;
+    d.setFont('helvetica','bold');d.setFontSize(11);d.text('EQUIPAMENTO RETIRADO',15,y);y+=7;
+    d.setFont('helvetica','normal');d.setFontSize(9);d.text('Descrição: '+(dem.equipamento_coleta||'—'),18,y);y+=6;d.text('Patrimônio: '+(dem.patrimonio_coleta||'—'),18,y);y+=12;
+    d.setFont('helvetica','bold');d.setFontSize(11);d.text('EQUIPAMENTO ENTREGUE EM SUBSTITUIÇÃO',15,y);y+=7;
+    d.setFont('helvetica','normal');d.setFontSize(9);d.text('Descrição: '+(dem.equipamento_entrega||'—'),18,y);y+=6;d.text('Patrimônio: '+(dem.patrimonio_entrega||'—'),18,y);y+=6;d.text('Condição: '+(dem.equipamento_condicao||'—'),18,y);y+=18;
+    d.text('As partes registram a retirada e a substituição acima, atualizando a relação de bens mantidos em comodato.',15,y);y+=25;
+    d.line(25,y,90,y);d.line(120,y,185,y);y+=5;d.text('GRESPAN PÃES CONGELADOS',57,y,{align:'center'});d.text('CLIENTE',152,y,{align:'center'});
+    d.save('Atualização de Comodato - Troca - '+String(nome).replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
+  }
+
   function baixarRomaneio(r){
     if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
     const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'}),its=itensDaRota(r.id);
@@ -3560,18 +3667,17 @@ function PaginaEntregasEquipamentos({profile}) {
   if(entregas===null)return h('div',{className:'empty-state'},'Carregando...');
   return h('div',null,
     detalheDemanda&&h(Modal,{titulo:(detalheDemanda.tipo_demanda==='troca'?'Troca de Equipamentos':'Entrega de Equipamentos'),sub:(codCliente(detalheDemanda)?codCliente(detalheDemanda)+' — ':'')+nomeCliente(detalheDemanda),largo:true,onClose:()=>setDetalheDemanda(null),acoes:[
-      detalheDemanda.tipo_demanda==='entrega'&&h('button',{key:'comodato',className:'btn btn-primary',disabled:salvandoComodato,onClick:gerarContratoComodato},comodatoRegistro?'Gerar novamente Contrato de Comodato':'Gerar Contrato de Comodato'),
+      detalheDemanda.tipo_demanda==='envio'&&h('button',{key:'comodato',className:'btn btn-primary',disabled:salvandoComodato,onClick:gerarContratoComodato},comodatoRegistro?'Gerar novamente Contrato de Comodato':'Gerar Contrato de Comodato'),
+      detalheDemanda.tipo_demanda==='troca'&&h('button',{key:'comodato_troca',className:'btn btn-primary',onClick:()=>gerarComodatoTroca(detalheDemanda)},'Gerar Comodato da Troca'),
       h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setDetalheDemanda(null)},'Fechar')].filter(Boolean)},
       h('div',{className:'info-grid'},
-        linhaInfo('Tipo da demanda',detalheDemanda.tipo_demanda==='troca'?'Troca de equipamento':'Entrega de novo cliente'),
+        linhaInfo('Tipo da demanda',detalheDemanda.tipo_demanda==='troca'?'Troca de equipamento':detalheDemanda.tipo_demanda==='manutencao'?'Manutenção de equipamento':'Envio de equipamento'),
         linhaInfo('Status',detalheDemanda.status),
         linhaInfo('Endereço de entrega',endereco(detalheDemanda)),
         linhaInfo('Data prevista',detalheDemanda.data_prevista?fmtData(detalheDemanda.data_prevista):'Não agendada')),
-      h('div',{className:'card',style:{marginTop:14}},
-        h('div',{className:'section-title'},'Programação da Manutenção'),
-        h('div',{className:'form-grid'},
-          h(Campo,{label:'Data prevista para entrega',obrigatorio:true},h(Input,{type:'date',value:dataProgramacao,onChange:e=>setDataProgramacao(e.target.value)}))),
-        h('button',{className:'btn btn-secondary btn-sm',onClick:salvarProgramacaoDemanda},'Salvar programação')),
+      ['envio','troca'].includes(detalheDemanda.tipo_demanda)&&h('div',{className:'card',style:{marginTop:14}},
+        h('div',{className:'section-title'},'Programação'),
+        h('div',{className:'page-sub'},detalheDemanda.status==='pendente'?'Esta demanda será programada automaticamente quando for incluída em uma rota.':'Programada para '+(detalheDemanda.data_prevista?fmtData(detalheDemanda.data_prevista):'—'))),
       detalheDemanda.tipo_demanda==='troca'
         ? h('div',{className:'form-grid',style:{marginTop:14}},
             h('div',{className:'card',style:{margin:0}},h('div',{className:'section-title'},'Equipamento a coletar'),linhaInfo('Equipamento',detalheDemanda.equipamento_coleta||'—'),linhaInfo('Patrimônio',detalheDemanda.patrimonio_coleta||'—')),
@@ -3628,7 +3734,7 @@ function PaginaEntregasEquipamentos({profile}) {
                   h('tr',{key:e.id,style:{cursor:'pointer',background:selecionadas.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)},
                     h('td',null,h('input',{type:'checkbox',checked:selecionadas.includes(e.id),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
                     h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
-                    h('td',null,e.tipo_demanda==='troca'?h('span',{className:'badge badge-yellow'},'Troca'):h('span',{className:'badge badge-blue'},'Entrega')),
+                    h('td',null,e.tipo_demanda==='troca'?h('span',{className:'badge badge-yellow'},'Troca'):e.tipo_demanda==='retirada'?h('span',{className:'badge badge-gray'},'Retirada'):h('span',{className:'badge badge-blue'},'Envio')),
                     h('td',null,e.endereco_cidade||'—'),
                     h('td',null,e.equipamento_resumo||'—'),
                     h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:ev=>{ev.stopPropagation();abrirDemanda(e);}},'Abrir'))
