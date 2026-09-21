@@ -1679,7 +1679,6 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [decidindo, setDecidindo] = useState(null); // { ap, status }
   const [obs, setObs] = useState('');
   const [condicaoDiretoria,setCondicaoDiretoria]=useState('');
-  const [dataEntregaPrevista,setDataEntregaPrevista]=useState('');
   const [destinatarios, setDestinatarios] = useState([]);
   const [detalhe, setDetalhe] = useState(null);
 
@@ -1724,6 +1723,14 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       decidido_em: new Date().toISOString()
     }).eq('id', ap.id);
     if (error) { if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
+
+    if(status==='aprovado'){
+      const {data:nextWait}=await sb.from('solicitacao_aprovacoes').select('id').eq('solicitacao_id',ap.solicitacao_id).eq('status','aguardando').order('ordem').limit(1).maybeSingle();
+      if(nextWait)await sb.from('solicitacao_aprovacoes').update({status:'pendente'}).eq('id',nextWait.id);
+      else await sb.from('solicitacoes').update({status_fluxo:'aprovada'}).eq('id',ap.solicitacao_id);
+    } else if(status==='reprovado'){
+      await sb.from('solicitacoes').update({status_fluxo:'reprovada'}).eq('id',ap.solicitacao_id);
+    }
 
     // avisa o proximo da fila da solicitacao
     const { data: prox } = await sb.from('solicitacao_aprovacoes')
@@ -1786,9 +1793,13 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     const {error}=await sb.from('ficha_aprovacoes').update({status,observacao:obs.trim()||null,aprovador_id:profile.id,decidido_em:new Date().toISOString()}).eq('id',ap.id);
     if(error){if(winRef)winRef.close();return toast(error.message,'error');}
+    if(status==='aprovado'){
+      const {data:nextWait}=await sb.from('ficha_aprovacoes').select('id').eq('ficha_id',ap.ficha_id).eq('status','aguardando').order('ordem').limit(1).maybeSingle();
+      if(nextWait)await sb.from('ficha_aprovacoes').update({status:'pendente'}).eq('id',nextWait.id);
+    }
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const f=ap.fichas_clientes;
-      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:f.cliente_id||null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:dataEntregaPrevista||null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
+      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:f.cliente_id||null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'entrega',status:'pendente_agendamento',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
       else if(demanda){
         const itens=itensEquipamentosFicha(f,condicaoDiretoria);
@@ -1800,7 +1811,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       }
       if(winRef)winRef.close();
     } else { const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios); }
-    setDecidindo(null);setObs('');setCondicaoDiretoria('');setDataEntregaPrevista('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
+    setDecidindo(null);setObs('');setCondicaoDiretoria('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
   }
 
   if (pendentes === null || pendSolic === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -1840,10 +1851,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       ]
     },
       decidindo.ap && decidindo.ap.etapa==='diretoria' && decidindo.status==='aprovado' && decidindo.ap.fichas_clientes.precisa_equipamento && h('div',{className:'card',style:{marginBottom:12}},
-        h('div',{className:'section-title'},'Exclusivo Diretoria / Manutenção'),
-        h('div',{className:'form-grid'},
-          h(Campo,{label:'Estado final do equipamento',obrigatorio:true},h(Select,{opcoes:['Novo','Usado'],value:condicaoDiretoria,onChange:e=>setCondicaoDiretoria(e.target.value)})),
-          h(Campo,{label:'Data prevista para entrega'},h(Input,{type:'date',value:dataEntregaPrevista,onChange:e=>setDataEntregaPrevista(e.target.value)})))),
+        h('div',{className:'section-title'},'Confirmação do equipamento'),
+        h('div',{className:'page-sub',style:{marginBottom:10}},'A Diretoria confirma apenas se o equipamento será Novo ou Usado. O agendamento da entrega será feito posteriormente pela Manutenção.'),
+        h(Campo,{label:'Estado final do equipamento',obrigatorio:true},h(Select,{opcoes:['Novo','Usado'],value:condicaoDiretoria,onChange:e=>setCondicaoDiretoria(e.target.value)}))),
       h(Campo, { label: 'Observação (opcional)' },
         h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
       h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
@@ -1926,7 +1936,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               ap.etapa === 'analise_credito'
                 ? h('button', { className: 'btn btn-primary', onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
-                    h('button',{className:'btn btn-success',onClick:()=>{if(ap.etapa==='diretoria'&&ap.fichas_clientes.precisa_equipamento){setCondicaoDiretoria(ap.fichas_clientes.equipamento_condicao||'');setDataEntregaPrevista('');}setDecidindo({ap,status:'aprovado'});}},'✓ Aprovar'),
+                    h('button',{className:'btn btn-success',onClick:()=>{if(ap.etapa==='diretoria'&&ap.fichas_clientes.precisa_equipamento){setCondicaoDiretoria(ap.fichas_clientes.equipamento_condicao||'');}setDecidindo({ap,status:'aprovado'});}},'✓ Aprovar'),
                     h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ ap, status: 'reprovado' }) }, '✗ Reprovar')),
               h('button', { className: 'btn btn-secondary', onClick: () => setDetalhe(f) }, 'Ver ficha completa')));
         })));
@@ -2308,10 +2318,12 @@ function listarEquipamentos(f) {
 }
 
 function rotaSolicitacao(tipo, justificativa, categoria) {
-  if (categoria === 'bonificacao' || categoria === 'amostra') return ['supervisor','coordenador','gestao_adm_vendas'];
+  if (categoria === 'amostra') return ['supervisor','coordenador','gestao_adm_vendas'];
+  if (categoria === 'bonificacao') return ['supervisor','coordenador','gestao_adm_vendas','financeiro'];
   if (tipo === 'manutencao') return ['manutencao'];
-  if (justificativa === 'Relacionamento') return ['supervisor','coordenador','financeiro','diretoria'];
-  return ['supervisor','coordenador','manutencao','diretoria'];
+  if (tipo === 'troca' && justificativa === 'Relacionamento') return ['supervisor','coordenador','gestao_adm_vendas','diretoria'];
+  if (tipo === 'troca' && justificativa === 'Equipamento Danificado') return ['supervisor','coordenador','gestao_adm_vendas','manutencao','diretoria'];
+  return ['supervisor','coordenador','gestao_adm_vendas','diretoria'];
 }
 
 function StepperGenerico({ aprovacoes }) {
@@ -2325,7 +2337,7 @@ function StepperGenerico({ aprovacoes }) {
         (icones[ap.status] || '○') + ' ' + (ROLE_LABELS[ap.etapa] || ap.etapa)))));
 }
 
-const JUSTIFICATIVAS = ['Relacionamento', 'Equipamento Antigo', 'Equipamento Danificado'];
+const JUSTIFICATIVAS = ['Relacionamento', 'Equipamento Danificado'];
 const EQUIPAMENTOS_PADRAO = [
   'Forno a Gás - 5 Esteiras',
   'Forno a Gás - 8 Esteiras',
@@ -2386,8 +2398,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     if (['adm_vendas','gestao_adm_vendas','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Troca de Equipamento']);
   } else {
     if (['vendedor','supervisor','coordenador','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Equipamento']);
-    if (['supervisor','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
-    if (['tecnico','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Envio de Amostra']);
+    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
+    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Kit / Amostra']);
   }
 
   const clienteSel = (clientes || []).find(c => c.id === clienteId);
@@ -2447,17 +2459,6 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
     setSalvando(true);
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
-    if (!error && (categoria === 'bonificacao' || categoria === 'amostra')) {
-      const { data: jaCriadas } = await sb.from('solicitacao_aprovacoes')
-        .select('id').eq('solicitacao_id', nova.id).limit(1);
-      if (!jaCriadas || !jaCriadas.length) {
-        const etapas = ['supervisor','coordenador','gestao_adm_vendas'];
-        await sb.from('solicitacao_aprovacoes').insert(etapas.map((etapa, i) => ({
-          solicitacao_id: nova.id, etapa, ordem: i + 1,
-          status: i === 0 ? 'pendente' : 'aguardando'
-        })));
-      }
-    }
     setSalvando(false);
     if (error) return toast(error.message, 'error');
     toast('Solicitação enviada!', 'success');
@@ -3320,7 +3321,7 @@ function PaginaEntregasEquipamentos({profile}) {
   const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
   const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
   const [fCidade,setFCidade]=useState(''),[fCliente,setFCliente]=useState(''),[fStatus,setFStatus]=useState('');
-  const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[erro,setErro]=useState('');
+  const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[dataProgramacao,setDataProgramacao]=useState(''),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[erro,setErro]=useState('');
   const mapMontagemRef=useRef(null),mapRotaRef=useRef(null);
 
   useEffect(()=>{carregar();},[]);
@@ -3441,7 +3442,7 @@ function PaginaEntregasEquipamentos({profile}) {
   }
 
   async function abrirDemanda(e){
-    setDetalheDemanda(e);setComodatoItens([]);setComodatoRegistro(null);
+    setDetalheDemanda(e);setDataProgramacao(e.data_prevista||'');setComodatoItens([]);setComodatoRegistro(null);
     if(e.tipo_demanda!=='entrega'||!e.ficha_id)return;
     const [a,b]=await Promise.all([
       sb.from('comodato_equipamentos').select('*').eq('entrega_id',e.id).order('ordem'),
@@ -3451,6 +3452,15 @@ function PaginaEntregasEquipamentos({profile}) {
     setComodatoItens(a.data||[]);setComodatoRegistro(b.data||null);
   }
   function setComodatoItem(id,k,v){setComodatoItens(xs=>xs.map(x=>x.id===id?{...x,[k]:v}:x));}
+  async function salvarProgramacaoDemanda(){
+    if(!detalheDemanda)return;
+    if(!dataProgramacao)return toast('Informe a data prevista para a entrega.','error');
+    const {error}=await sb.from('entregas_equipamentos').update({data_prevista:dataProgramacao}).eq('id',detalheDemanda.id);
+    if(error)return toast(error.message,'error');
+    setDetalheDemanda(x=>({...x,data_prevista:dataProgramacao}));
+    setEntregas(xs=>(xs||[]).map(x=>x.id===detalheDemanda.id?{...x,data_prevista:dataProgramacao}:x));
+    toast('Entrega programada pela Manutenção.','success');
+  }
   async function salvarComodatoItens(){
     if(!comodatoItens.length)return toast('Nenhum equipamento cadastrado para o comodato.','error'),false;
     if(comodatoItens.some(x=>!String(x.descricao||'').trim()||!String(x.condicao||'').trim()))return toast('Preencha descrição e condição de todos os equipamentos.','error'),false;
@@ -3549,6 +3559,11 @@ function PaginaEntregasEquipamentos({profile}) {
         linhaInfo('Status',detalheDemanda.status),
         linhaInfo('Endereço de entrega',endereco(detalheDemanda)),
         linhaInfo('Data prevista',detalheDemanda.data_prevista?fmtData(detalheDemanda.data_prevista):'Não agendada')),
+      h('div',{className:'card',style:{marginTop:14}},
+        h('div',{className:'section-title'},'Programação da Manutenção'),
+        h('div',{className:'form-grid'},
+          h(Campo,{label:'Data prevista para entrega',obrigatorio:true},h(Input,{type:'date',value:dataProgramacao,onChange:e=>setDataProgramacao(e.target.value)}))),
+        h('button',{className:'btn btn-secondary btn-sm',onClick:salvarProgramacaoDemanda},'Salvar programação')),
       detalheDemanda.tipo_demanda==='troca'
         ? h('div',{className:'form-grid',style:{marginTop:14}},
             h('div',{className:'card',style:{margin:0}},h('div',{className:'section-title'},'Equipamento a coletar'),linhaInfo('Equipamento',detalheDemanda.equipamento_coleta||'—'),linhaInfo('Patrimônio',detalheDemanda.patrimonio_coleta||'—')),
