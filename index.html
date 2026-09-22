@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=IcZFHbqcGfdgVSjcOCm-aCMoZ4WSBGawWzw1co2ZElCJ2FQtRWeYqQ44yIRhlcGx8Rde_dLTpDj_pNH0yV-x0Ci8_5-4zDlYoSosGGQA09f6hp9soroQRQdGaoPl8Ckk7EACcu7OtdB82RIMN8GTdFEKHhn6LUlml_gfauLDKyATTR-OK58WQpKyy-J09Krnm9mkwmbX9cYGWT1udjA2qLv57JP9sVppH2S3m2ObLmCq45wdFNdaINLGdLQLeHamcoQAnKviuzX5ejYuRN3kjU14pkRkftr6VS1aTNo5qNMoQ3eiYvTUh29ft5C2CLpQb0E3sMv_uxPI3oy5etK8IjAuBoDHIUyrTqF0_rJvnY0" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=wbdOIlsfS49nlr9SwF_weLuCGWgXWD0j1kj54Jw1mPs0qc_mIScKg9iVfCUdOm8dD59Ynvuxjvc4UwNC7XSzsPwDqu8M1DyMKxFQS28WXxaBRUkUUD41vAMICb1cLl_kAfFxzJhYWlsiiEB754GG8BbbTewaDosydTMp4Vdd_qBqQZiPu3a8Zjz41UYTL-0I7GdsONBxU3ZPX0eHvanMXQhou5Cao_vq6eQzN7afRp0oTiJzkrao4fhgiB17NufbieMTjZFPXOtNo4QuSqglRft8CbOfcgZnqQ4SkLA7qXb3QuEmHRYm-cruWVqWcuaW6OA2fE0_dv0773v3bYVPscx9sPZrNgrOrK5fNyvhjWoreHp3gNoq9tT9v-0l4OLX" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1750,7 +1750,6 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   // A aprovação não pode desaparecer se uma consulta auxiliar de rota/cliente/equipamento falhar.
   const [filaProgSupervisor,setFilaProgSupervisor]=useState(null);
   const [detalhesFilaProg,setDetalhesFilaProg]=useState({rotas:{},demandas:{},refs:{}});
-  const [contratoPosAprovacao,setContratoPosAprovacao]=useState(null);
 
 
 
@@ -2003,6 +2002,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     const a=aprovacao||decisaoProg;if(!a)return;
     const st=status||a.status;
     let obs=String(observacao!=null?observacao:obsProg||'').trim();
+
     if(st==='reprovado'&&!obs){
       const digitada=window.prompt('Informe o motivo da reprovação:','');
       if(digitada===null)return;
@@ -2010,13 +2010,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       if(!obs)return toast('A observação é obrigatória para reprovar a programação.','error');
     }
 
-    const d=(detalhesFilaProg.demandas||{})[a.entrega_id]||null;
-    const ref=d
-      ? ((d.cliente_id&&(detalhesFilaProg.refs||{})['c:'+d.cliente_id]) ||
-         (d.ficha_id&&(detalhesFilaProg.refs||{})['f:'+d.ficha_id]) || {})
-      : {};
-    const rota=(detalhesFilaProg.rotas||{})[a.rota_id]||null;
-
+    // IMPORTANTE:
+    // Esta aprovação é somente da DATA/PROGRAMAÇÃO pelo Supervisor.
+    // A demanda operacional continua "roteirizada" e permanece na tela da Manutenção.
     const rr=await sb.rpc('decidir_programacao_rota',{
       p_aprovacao_id:a.id,
       p_status:st,
@@ -2024,31 +2020,20 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     });
     if(rr.error)return toast(rr.error.message,'error');
 
-    // Ao aprovar a data, a demanda deixa de estar apenas roteirizada e passa a programada.
-    if(st==='aprovado'&&a.entrega_id){
-      const up=await sb.from('entregas_equipamentos')
-        .update({
-          status:'programada',
-          data_prevista:(rota&&rota.data_rota)||(d&&d.data_prevista)||null,
-          programada_em:new Date().toISOString()
-        })
-        .eq('id',a.entrega_id);
-      if(up.error)console.warn('Aprovação gravada, mas não foi possível atualizar a demanda para programada:',up.error);
-    }
-
-    setDecisaoProg(null);setObsProg('');
+    setDecisaoProg(null);
+    setObsProg('');
 
     if(st==='aprovado'){
-      // Mantém os dados em memória para liberar os documentos mesmo após a aprovação sair da fila pendente.
-      setContratoPosAprovacao({aprovacao:a,demanda:d,ref,rota});
-      toast('Programação aprovada. Contrato de comodato liberado para PDF e Word.','success');
+      toast('Programação aprovada. A rota permanece na Manutenção e o contrato foi liberado para impressão.','success');
     }else{
-      toast('Programação reprovada. A rota permanece pendente para revisão da Manutenção.','info');
+      toast('Programação reprovada. A rota permanece na Manutenção para revisão.','info');
     }
 
     await carregarProgramacoesRota();
     await carregarFilaSupervisorDireta();
+    if(etapa==='manutencao')await carregar();
   }
+
   function renderPendenciasSupervisorDireto(){
     if(etapa!=='supervisor')return null;
     const aps=(filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente');
@@ -2125,8 +2110,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
               h('div',{className:'rota-aprovacao-linha'},
                 h('span',{className:'badge '+badgeAprov(st)},labelAprov(st)),
-                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'aprovado'});setObsProg('');}},'Aprovar'),
-                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...minha,status:'reprovado'});setObsProg('');}},'Reprovar')),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>decidirProgramacao(minha,'aprovado','')},'Aprovar'),
+                modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>decidirProgramacao(minha,'reprovado','')},'Reprovar'),
+                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&
+                  h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarComodatoFila(d);}},'Baixar PDF'),
+                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&
+                  h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarWordComodatoFila(d,d._ref||{});}},'Baixar Word')),
               aps.filter(a=>a.status==='reprovado'&&a.observacao).map(a=>h('div',{className:'rota-obs-negada',key:'obs_'+a.id},'Reprovado: '+a.observacao))
             );
           })
@@ -2565,20 +2554,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
 
-    contratoPosAprovacao && h(Modal,{
-      titulo:'Programação aprovada',
-      sub:((contratoPosAprovacao.rota&&contratoPosAprovacao.rota.codigo)||'Rota')+' — contrato de comodato liberado',
-      largo:false,
-      onClose:()=>setContratoPosAprovacao(null),
-      acoes:[h('button',{key:'fechar',className:'btn btn-secondary',onClick:()=>setContratoPosAprovacao(null)},'Fechar')]
-    },
-      h('div',{className:'page-sub',style:{marginBottom:14}},'A programação foi aprovada e a demanda foi alterada para Programada. Agora você pode gerar o contrato já preenchido.'),
-      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-        h('button',{className:'btn btn-primary',onClick:()=>baixarComodatoFila(contratoPosAprovacao.demanda)},'Baixar PDF'),
-        h('button',{className:'btn btn-secondary',onClick:()=>baixarWordComodatoFila(contratoPosAprovacao.demanda,contratoPosAprovacao.ref)},'Baixar Word'))
-    ),
-
-    etapa==='manutencao' && h('div',null,
+        etapa==='manutencao' && h('div',null,
       demandaAberta && h(Modal,{
         titulo:(tipoOperacional(demandaAberta)==='troca'?'Programar troca':tipoOperacional(demandaAberta)==='retirada'?'Programar retirada':'Programar envio'),
         sub:((demandaAberta._ref&&demandaAberta._ref.codigo_totvs)?demandaAberta._ref.codigo_totvs+' — ':'')+((demandaAberta._ref&&demandaAberta._ref.razao_social)||'Cliente'),
@@ -2648,8 +2624,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                     h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
                       d.status==='pendente'&&subManut!=='manutencao'&&h('button',{className:'btn btn-primary btn-sm',onClick:e=>{e.stopPropagation();abrirDemandaFila(d);}},'Programar / Liberar para rota'),
                       subManut==='manutencao'&&d.status==='pendente'&&h('button',{className:'btn btn-primary btn-sm',onClick:e=>{e.stopPropagation();programarManutencao(d);}},'Programar no Alvo'),
-                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&
-                        h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarComodatoFila(d);}},tipoOperacional(d)==='troca'?'Baixar Comodato da Troca':'Baixar PDF do Comodato'),
+                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&statusAprovDemanda(d.id)==='aprovado'&&
+                        h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarComodatoFila(d);}},'Baixar PDF do Comodato'),
+                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&statusAprovDemanda(d.id)==='aprovado'&&
+                        h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarWordComodatoFila(d,d._ref||{});}},'Baixar Word'),
                       ((subManut==='manutencao'&&d.status==='programada')||(subManut!=='manutencao'&&d.status==='roteirizada'))&&
                         h('button',{className:'btn btn-success btn-sm',onClick:e=>{e.stopPropagation();concluirDemanda(d);}},subManut==='manutencao'?'Concluir manutenção':subManut==='troca'?'Concluir troca':subManut==='retirada'?'Concluir retirada':'Concluir entrega')));
                 }))
