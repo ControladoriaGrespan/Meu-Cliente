@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=PqlRTw8vaeRsS56kWr8ufr7gHg0QsLwVLCuuAoQ-XqBjQQ9t37q5DQoEVBZ_j-jiQBK0CJH4W32QGx_osHPlMWS4BOS76OAZLddHlnlE2wDYNWzdB3U3ti6cB8j_pFQpVUixCewFHYcazRTkqtjVuWET-mk5dBClW-95WvxLYr49R9Q7DtaN8In3-ECaJ2X8_IOmmFmlJaponVtO1iCbt5iPwgYuIRzwK9cq7yvgc1S0aUgaRXgyffnbUqzvG-t22-YFTeon_e3DNzIjfPFZ9_tcgrAXxAYmzYKHoSCNYTCg8PVaCFZAY6iUKZYHnSP-2ACuUf2b-FF5HjEhF9sGgXd1mzM1kgUXDjLsCcMHew6-wOg0wKyDVClcVDVyR1ws" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v83-codigo-totvs-clientes';
-console.info('[Meu Cliente] BUILD v83-codigo-totvs-clientes');
+window.__MEU_CLIENTE_BUILD__='v84-importador-xlsx-clientes-robusto';
+console.info('[Meu Cliente] BUILD v84-importador-xlsx-clientes-robusto');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5154,32 +5154,84 @@ function lerArquivo(file) {
   });
 }
 
-function parseArquivo(conteudo, nome) {
-  if (nome.match(/\.xlsx?$/i)) {
-    const wb = XLSX.read(conteudo, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const dados = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    if (dados.length < 2) return null;
-    const headers = dados[0].map(h => String(h).replace(/^\uFEFF/,'').replace(/\u00A0/g,' ').trim().toLowerCase());
-    const rows = dados.slice(1).filter(r => r.some(c => String(c).trim())).map(r => {
-      const obj = {};
-      headers.forEach((h, i) => obj[h] = String(r[i] || '').trim());
+function normalizarCabecalhoImportacao(v) {
+  return String(v == null ? '' : v)
+    .replace(/^\uFEFF/,'')
+    .replace(/\u00A0/g,' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g,'_')
+    .replace(/^_+|_+$/g,'');
+}
+
+function cabecalhoCanonicoImportacao(v) {
+  const h=normalizarCabecalhoImportacao(v);
+  const aliases={
+    'razao_social':'razao_social','razao':'razao_social','nome_razao_social':'razao_social',
+    'codigo_totvs':'codigo_totvs','cod_totvs':'codigo_totvs','codigo_cliente':'codigo_totvs',
+    'cnpj_cpf':'cnpj_cpf','cnpj':'cnpj_cpf','cpf':'cnpj_cpf',
+    'cidade':'cidade','estado':'estado','uf':'estado',
+    'telefone':'telefone','fone':'telefone','email':'email','e_mail':'email',
+    'condicao_pagamento':'condicao_pagamento','cond_pagamento':'condicao_pagamento',
+    'acordo_comercial':'acordo_comercial',
+    'codigo_vendedor':'codigo_vendedor','cod_vendedor':'codigo_vendedor'
+  };
+  return aliases[h] || h;
+}
+
+function montarPreviewImportacao(matriz) {
+  if(!Array.isArray(matriz) || !matriz.length) return null;
+
+  // Localiza a linha real de cabeçalho. Para Clientes, prioriza a linha
+  // que contenha razao_social; para os demais modelos usa a primeira
+  // linha com pelo menos duas colunas nomeadas.
+  let idxCab=-1;
+  for(let i=0;i<Math.min(matriz.length,25);i++){
+    const hs=(matriz[i]||[]).map(cabecalhoCanonicoImportacao);
+    if(hs.includes('razao_social')) { idxCab=i; break; }
+    if(idxCab<0 && hs.filter(Boolean).length>=2) idxCab=i;
+  }
+  if(idxCab<0) return null;
+
+  const headers=(matriz[idxCab]||[]).map(cabecalhoCanonicoImportacao);
+  const rows=matriz.slice(idxCab+1)
+    .filter(r=>(r||[]).some(c=>String(c == null ? '' : c).trim()!==''))
+    .map(r=>{
+      const obj={};
+      headers.forEach((hd,i)=>{
+        if(!hd) return;
+        const valor=(r && i<r.length) ? r[i] : '';
+        obj[hd]=String(valor == null ? '' : valor).replace(/\u00A0/g,' ').trim();
+      });
       return obj;
     });
-    return { headers, rows };
+
+  return {headers:headers.filter(Boolean),rows};
+}
+
+function parseArquivo(conteudo, nomeArquivo) {
+  const ext = nomeArquivo.toLowerCase().split('.').pop();
+  if (['xlsx', 'xls'].includes(ext)) {
+    const wb = XLSX.read(conteudo, { type: 'array', cellDates: false, raw: false });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const dados = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+      defval: '',
+      raw: false,
+      blankrows: false
+    });
+    return montarPreviewImportacao(dados);
   }
-  // CSV / TSV
-  const linhas = conteudo.trim().split('\n').filter(l => l.trim());
-  if (linhas.length < 2) return null;
-  const sep = linhas[0].includes('\t') ? '\t' : linhas[0].includes(';') ? ';' : ',';
-  const headers = linhas[0].split(sep).map(h => h.replace(/^\uFEFF/,'').replace(/\u00A0/g,' ').trim().toLowerCase().replace(/"/g, ''));
-  const rows = linhas.slice(1).map(l => {
-    const cols = l.split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = cols[i] || '');
-    return obj;
-  });
-  return { headers, rows };
+
+  const texto=String(conteudo == null ? '' : conteudo).replace(/^\uFEFF/,'');
+  const linhas=texto.split(/\r?\n/).filter(l=>l.trim());
+  if(linhas.length<2) return null;
+  const sep=linhas[0].includes('\t')?'\t':linhas[0].includes(';')?';':',';
+
+  // Mantém o comportamento atual para CSV simples, mas passa toda a
+  // matriz pelo mesmo normalizador usado no Excel.
+  const matriz=linhas.map(l=>l.split(sep).map(c=>c.trim().replace(/^"|"$/g,'')));
+  return montarPreviewImportacao(matriz);
 }
 
 const MODELOS = {
@@ -5372,8 +5424,8 @@ function PaginaImportacao({ profile }) {
 
   // ---------- CLIENTES ----------
   async function importarClientes(rows) {
-    const temColuna = rows.some(r => Object.prototype.hasOwnProperty.call(r,'razao_social'));
-    if (!temColuna) return toast('A coluna "razao_social" não foi encontrada no arquivo.', 'error');
+    const temColuna = preview && (preview.headers||[]).includes('razao_social');
+    if (!temColuna) return toast('Não encontrei a coluna razao_social. Cabeçalhos lidos: '+((preview&&preview.headers)||[]).join(', '), 'error');
 
     const linhasSemRazao=[];
     const rowsValidas=rows.filter((r,i)=>{
@@ -5508,7 +5560,11 @@ function PaginaImportacao({ profile }) {
       h('div', { className: 'section-title', style: { padding: '12px 14px', margin: 0, borderBottom: '1px solid var(--border)', borderRadius: 0 } },
         '3. Pré-visualização'),
       h('div', { style: { padding: '8px 14px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' } },
-        'Colunas detectadas: ' + preview.headers.join(', ')),
+        'Colunas detectadas: ' + preview.headers.join(', '),
+        aba==='clientes' && h('span',{
+          className:'badge '+(preview.headers.includes('razao_social')?'badge-green':'badge-red'),
+          style:{marginLeft:10}
+        },preview.headers.includes('razao_social')?'✓ razão social reconhecida':'✗ razão social não reconhecida')),
       h('div', { className: 'table-wrap', style: { maxHeight: 360 } },
         h('table', null,
           h('thead', null, h('tr', null,
