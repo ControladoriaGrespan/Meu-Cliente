@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=IlHauBR0I5VdXg6v9CQf6bIEIok4nPPszDU9Rf_WanCozWt55iPRkFPGJnVumOyiXXFaBpxQPtsjRsf3haBSvz6b3N8JQZzWSSSUhnPEdfG5HFjn5--kQuykvEDr_3f-blhstf0lqvEV6Q-dFbmglhM5oOk7lOcL8pOQumD83M44-2TVV4STcOJlHKV3q3Pz6VfJDgfBA0iRaliw8TW_edSNBQaXtDj8zWp-WIiTnWIzRb-m07LYUIiwsWWEbrJ8haSDUZkDxVsxdQI4Fse_k5wZyuPSrrZAQBe_Vg2PWNzoi6-VhwNHx86Yg1uA3o78b-cRwaROHAD-bb1krLzRCaHb196xKbvZuEIzRf4akc4" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=OC0nyTDUsy0Qw4x73kU0hfGiCvR5NI9gREEaMOPcZ6N5aQ7jxnfgMFBBuYMgdlGpR9AbIUkWucij_uQr7pvH8onClDNLSBmJMpDdmk9oyAA58GtSByUPVHudzz6jAuQlQqqR8efL4A-vpGf1suG55_PvbMTxFqkP4BAv1Ox9AKx3nZHQ4YK2jCfPeV1VtHPGBz1Du9rLUvgLo9d6XiKFZ5dATLvakJ9ezcmw8ACwvqxNVSz7HGCuEKl4Yr2mKq68FGPqX72ZmZ32qyDkOWb1vQNb64lswZqW9pHIKbOHeN8ywn0j3q4bm4WwvvinW26VgBY5LSTUdLxea4Y5Y-0aKdaQEpdpzamEkBDA-ZNtyOXlP-KRExEzXfWKz7LFISLG" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v88-nome-fantasia-clientes';
-console.info('[Meu Cliente] BUILD v88-nome-fantasia-clientes');
+window.__MEU_CLIENTE_BUILD__='v89-match-clientes-normalizado-clientes';
+console.info('[Meu Cliente] BUILD v89-match-clientes-normalizado-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5483,76 +5483,142 @@ function PaginaImportacao({ profile }) {
       r.razao_social=nome; r.nome_fantasia=fantasia;
       return true;
     });
-    if(!rowsValidas.length) return toast('Nenhuma linha possui razão social preenchida.','error');
+    if(!rowsValidas.length) return toast('Nenhuma linha válida para importar.','error');
+
     setImportando(true);
-    iniciarProgresso(rowsValidas.length,'Carregando vendedores...');
+    iniciarProgresso(rowsValidas.length,'Carregando base para conciliação...');
 
-    // O código de vendedor identifica a atuação comercial do usuário e não
-    // necessariamente o papel de acesso. Supervisor/Coordenador/etc. também
-    // podem possuir codigo_vendedor e ser responsáveis por clientes.
-    const { data: vendedores, error: errVend } = await sb.from('usuarios')
-      .select('id, nome, codigo_vendedor, papel')
-      .eq('ativo', true)
-      .not('codigo_vendedor', 'is', null)
-      .limit(10000);
+    const [rv, rc] = await Promise.all([
+      sb.from('usuarios')
+        .select('id,nome,codigo_vendedor,papel')
+        .eq('ativo',true)
+        .not('codigo_vendedor','is',null)
+        .limit(10000),
+      sb.from('clientes')
+        .select('id,codigo_totvs,cnpj_cpf,razao_social,nome_fantasia')
+        .limit(10000)
+    ]);
 
-    if (errVend) {
-      setImportando(false); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
-      return toast('Não foi possível carregar os vendedores: ' + errVend.message, 'error');
+    if(rv.error || rc.error){
+      setImportando(false);
+      setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
+      return toast('Não foi possível carregar a base para conciliação: '+((rv.error||rc.error).message),'error');
     }
 
-    const normCod = v => String(v || '').trim().replace(/^0+/, '') || '0';
-    const vendedorMap = {};
-    const codigosDuplicados = new Set();
-    (vendedores || []).forEach(v => {
-      if (!v.codigo_vendedor) return;
+    // Normalizações usadas SOMENTE para localizar o registro existente.
+    // Ex.: 000007 = 7; CNPJ com/sem pontuação = mesmo documento.
+    const normCod = v => {
+      const x=String(v==null?'':v).trim();
+      if(!x) return '';
+      const soNum=x.replace(/\D/g,'');
+      if(soNum && soNum.length===x.replace(/\s/g,'').length) return soNum.replace(/^0+/,'') || '0';
+      return x.toUpperCase();
+    };
+    const normDoc = v => String(v==null?'':v).replace(/\D/g,'');
+    const normNome = v => String(v==null?'':v)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/\s+/g,' ').trim().toUpperCase();
+
+    const vendedorMap={}, codigosDuplicados=new Set();
+    (rv.data||[]).forEach(v=>{
       const cod=normCod(v.codigo_vendedor);
-      if (vendedorMap[cod] && vendedorMap[cod].id !== v.id) codigosDuplicados.add(cod);
-      else vendedorMap[cod] = v;
+      if(!cod) return;
+      if(vendedorMap[cod] && vendedorMap[cod].id!==v.id) codigosDuplicados.add(cod);
+      else vendedorMap[cod]=v;
     });
 
-    let ok = 0, atualizados=0, erros = linhasSemRazao.length+linhasSemFantasia.length, msgs = [], processados=0;
-    atualizarProgresso(0,rowsValidas.length,'Importando clientes...');
+    // Índices locais: evita uma consulta por linha e, principalmente,
+    // evita criar cliente novo por diferença de máscara/zeros à esquerda.
+    const porCodigo={}, porDocumento={}, porNome={}, nomesDuplicados=new Set();
+    (rc.data||[]).forEach(c=>{
+      const cod=normCod(c.codigo_totvs);
+      const doc=normDoc(c.cnpj_cpf);
+      const nome=normNome(c.razao_social);
+      if(cod && !porCodigo[cod]) porCodigo[cod]=c;
+      if(doc && !porDocumento[doc]) porDocumento[doc]=c;
+      if(nome){
+        if(porNome[nome] && porNome[nome].id!==c.id) nomesDuplicados.add(nome);
+        else porNome[nome]=c;
+      }
+    });
+
+    let novos=0, atualizados=0, erros=linhasSemRazao.length+linhasSemFantasia.length;
+    let msgs=[], processados=0;
     if(linhasSemRazao.length) msgs.push('Sem razão social: linha(s) '+linhasSemRazao.slice(0,20).join(', ')+(linhasSemRazao.length>20?'...':''));
     if(linhasSemFantasia.length) msgs.push('Sem nome fantasia: linha(s) '+linhasSemFantasia.slice(0,20).join(', ')+(linhasSemFantasia.length>20?'...':''));
-    for (const r of rowsValidas) {
-      let vendedorId = null;
-      if (r.codigo_vendedor) {
-        const codVend=normCod(r.codigo_vendedor);
-        if (codigosDuplicados.has(codVend)) {
-          erros++;
-          msgs.push((r.codigo_totvs || r.razao_social) + ': código vendedor ' + r.codigo_vendedor + ' está cadastrado em mais de um usuário ativo');
-          processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
-          continue;
+
+    for(const r of rowsValidas){
+      let vendedorId=null;
+      if(r.codigo_vendedor){
+        const cv=normCod(r.codigo_vendedor);
+        if(codigosDuplicados.has(cv)){
+          erros++; msgs.push((r.codigo_totvs||r.razao_social)+': código vendedor '+r.codigo_vendedor+' está em mais de um usuário ativo');
+          processados++; atualizarProgresso(processados,rowsValidas.length,'Conciliando clientes...'); continue;
         }
-        const vend = vendedorMap[codVend];
-        if (!vend) {
-          erros++;
-          msgs.push((r.codigo_totvs || r.razao_social) + ': vendedor código ' + r.codigo_vendedor + ' não encontrado em usuário ativo');
-          processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
-          continue;
+        const vend=vendedorMap[cv];
+        if(!vend){
+          erros++; msgs.push((r.codigo_totvs||r.razao_social)+': vendedor código '+r.codigo_vendedor+' não encontrado em usuário ativo');
+          processados++; atualizarProgresso(processados,rowsValidas.length,'Conciliando clientes...'); continue;
         }
-        vendedorId = vend.id;
+        vendedorId=vend.id;
       }
 
+      const cod=normCod(r.codigo_totvs);
+      const doc=normDoc(r.cnpj_cpf);
+      const nome=normNome(r.razao_social);
+
+      // Ordem de match:
+      // 1) Código TOTVS normalizado
+      // 2) CNPJ/CPF normalizado
+      // 3) Razão Social exata normalizada, somente quando é única na base
+      let existente=(cod&&porCodigo[cod]) || (doc&&porDocumento[doc]) || null;
+      if(!existente && nome && !nomesDuplicados.has(nome)) existente=porNome[nome]||null;
+
       const payload={
-        razao_social:r.razao_social, nome_fantasia:r.nome_fantasia,
-        codigo_totvs:r.codigo_totvs||null, cnpj_cpf:r.cnpj_cpf||null,
+        razao_social:r.razao_social,
+        nome_fantasia:r.nome_fantasia,
+        codigo_totvs:String(r.codigo_totvs||'').trim()||null,
+        cnpj_cpf:String(r.cnpj_cpf||'').trim()||null,
         cidade:r.cidade||null, estado:r.estado||null, telefone:r.telefone||null, email:r.email||null,
         condicao_pagamento:r.condicao_pagamento||null, acordo_comercial:r.acordo_comercial||null,
         vendedor_id:vendedorId, origem:'totvs'
       };
-      let existente=null;
-      if(r.codigo_totvs){ const q=await sb.from('clientes').select('id').eq('codigo_totvs',r.codigo_totvs).maybeSingle(); if(q.error){erros++;msgs.push((r.codigo_totvs||r.razao_social)+': '+q.error.message);processados++;atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');continue;} existente=q.data; }
-      if(!existente && r.cnpj_cpf){ const doc=String(r.cnpj_cpf).replace(/\D/g,''); const q=await sb.from('clientes').select('id,cnpj_cpf').limit(10000); if(q.error){erros++;msgs.push((r.codigo_totvs||r.razao_social)+': '+q.error.message);processados++;atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');continue;} existente=(q.data||[]).find(c=>String(c.cnpj_cpf||'').replace(/\D/g,'')===doc)||null; }
-      const gravacao=existente ? await sb.from('clientes').update(payload).eq('id',existente.id) : await sb.from('clientes').insert(payload);
-      if(gravacao.error){ erros++; msgs.push((r.codigo_totvs||r.razao_social)+': '+gravacao.error.message); }
-      else if(existente) atualizados++; else ok++;
-      processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
+
+      let gravacao;
+      if(existente){
+        gravacao=await sb.from('clientes').update(payload).eq('id',existente.id);
+      }else{
+        gravacao=await sb.from('clientes').insert(payload).select('id,codigo_totvs,cnpj_cpf,razao_social').single();
+      }
+
+      if(gravacao.error){
+        erros++; msgs.push((r.codigo_totvs||r.razao_social)+': '+gravacao.error.message);
+      }else if(existente){
+        atualizados++;
+        // Mantém os índices atualizados durante a própria importação.
+        const atualizado={...existente,...payload};
+        if(cod) porCodigo[cod]=atualizado;
+        if(doc) porDocumento[doc]=atualizado;
+        if(nome && !nomesDuplicados.has(nome)) porNome[nome]=atualizado;
+      }else{
+        novos++;
+        const criado=gravacao.data||payload;
+        if(cod) porCodigo[cod]=criado;
+        if(doc) porDocumento[doc]=criado;
+        if(nome && !nomesDuplicados.has(nome)) porNome[nome]=criado;
+      }
+
+      processados++;
+      atualizarProgresso(processados,rowsValidas.length,'Conciliando clientes...');
     }
-    setImportando(false); finalizarProgresso(rowsValidas.length);
-    setResultado('✓ ' + ok + ' cliente(s) novo(s) · ↻ ' + atualizados + ' cliente(s) atualizado(s)' + (erros ? ' · ⚠ ' + erros + ' linha(s) ignorada(s)/com erro\n' + msgs.slice(0, 10).join('\n') : ''));
-    if (ok+atualizados > 0) toast((ok+atualizados) + ' cliente(s) processado(s)!', 'success');
+
+    setImportando(false);
+    finalizarProgresso(rowsValidas.length);
+    setResultado(
+      '↻ '+atualizados+' cliente(s) atualizado(s) · + '+novos+' cliente(s) novo(s)'+
+      (erros?' · ⚠ '+erros+' linha(s) ignorada(s)/com erro\n'+msgs.slice(0,15).join('\n'):'')
+    );
+    if(atualizados+novos>0) toast((atualizados+novos)+' cliente(s) conciliado(s)!','success');
   }
 
   function executar() {
