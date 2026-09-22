@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=_2BhA0mfQm-_ZUbQiLREJSaCT2JLewUBGs2avsYFPRgh4W8Hlsc7Lzs6jKBe3v4Iy7wQFuhjL5MaXlgzwgpRWqD1XFV5FUvvXXJM0hbYvNXunItfm1a1_f-Zlg9_tQcKkI6eGtKrvNtVBcuFUfUcLBklsRNGJzCigBB7-bkI6j4alQTCl8vVsnN9ge7Hyr3fUjaIXitcahoLZTKsHFoyqkqkNM_LIYJwvoD-nBEOUG7R1u3yUssvx5Rr1RdMPOMD8UHi8wSGZQ8iz8lHDBaFv1jAERuU5KSqoLg0iTiYhAGw4oHo9HZ-KRSeIJOk0-1WrSgtA-EkHiLnP-uJ5Mtsun1ze-wYrlIVDqbymzMmJZUi21koiRuvDYOm98F7Xpff" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v90-import-atualiza-sem-apagar-clientes';
-console.info('[Meu Cliente] BUILD v90-import-atualiza-sem-apagar-clientes');
+window.__MEU_CLIENTE_BUILD__='v91-import-corrigido-clientes';
+console.info('[Meu Cliente] BUILD v91-import-corrigido-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5618,13 +5618,13 @@ function PaginaImportacao({ profile }) {
       }else if(existente){
         atualizados++;
         // Mantém os índices atualizados durante a própria importação.
-        const atualizado={...existente,...payload};
+        const atualizado={...existente,...payloadUpdate};
         if(cod) porCodigo[cod]=atualizado;
         if(doc) porDocumento[doc]=atualizado;
         if(nome && !nomesDuplicados.has(nome)) porNome[nome]=atualizado;
       }else{
         novos++;
-        const criado=gravacao.data||payload;
+        const criado=gravacao.data||payloadInsert;
         if(cod) porCodigo[cod]=criado;
         if(doc) porDocumento[doc]=criado;
         if(nome && !nomesDuplicados.has(nome)) porNome[nome]=criado;
