@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=im0PqMlivM7tiYuDAU2pi2n4o11z77uuOQs9FDY3tn-LNU1JmrSvPpY8AKKpPAI69JKN5UmgB01iHjSFMwgfGQ3h6b2HvcvoQtzO5z8ooOjPs4zwNwFp3r0wZLdL-n0MV5ITTQIHDjxWRo-Pwc1HQt_05ddDNxq1r9JNqCH4go_Et37Hgo7ja1UJB6G0IeotMrVl7g-UYzGy7eyAAecRSQjzSfcuJLwKilcKXwTydRLKv_GcaMkWYowo_QwLg7HKLZj4npL_kPDhSWhkk-jkGjH4qgQzwl5rjIXaDPrjTq9OZmqtprFjVzIgKwenYnLTNg5hYkDlU8koIjmUBcDcNfI5d4jXObZTYanPtLVaEZzENvpY5v0o71Tr-7ipm9Ff" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -2780,9 +2780,11 @@ async function vendedoresVisiveis(profile) {
   if (profile.papel === 'adm_vendas') {
     const {data:carteira}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
     const supIds=(carteira||[]).map(x=>x.supervisor_id);
-    if(!supIds.length)return [];
+    // Sem Supervisor vinculado = carteira irrestrita.
+    if(!supIds.length)return null;
     const {data}=await sb.from('usuarios').select('id').eq('papel','vendedor').in('supervisor_id',supIds).eq('ativo',true);
-    return (data||[]).map(x=>x.id);
+    // Inclui também os próprios Supervisores, pois eles podem possuir clientes diretamente.
+    return [...supIds,...(data||[]).map(x=>x.id)];
   }
 
   // Gestão Adm. Vendas, Diretoria, Financeiro e Admin mantêm visão ampla
@@ -3323,7 +3325,7 @@ function PaginaConfiguracaoModulos({onUsuarios}){
           h('tbody',null,...linhasUsuarios)))),
     h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Carteira — Administração de Vendas'),
-      h('div',{className:'page-sub',style:{marginBottom:12}},'Cada Adm. de Vendas pode responder por um ou mais Supervisores.'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Sem Supervisor marcado: acesso a todas as carteiras. Ao marcar um ou mais Supervisores, o Adm. de Vendas passa a visualizar somente as carteiras selecionadas.'),
       ...(blocosCarteira.length?blocosCarteira:[h('div',{key:'vazio',className:'empty-state'},'Nenhum Adm. de Vendas cadastrado.')]))
   );
 }
@@ -3397,7 +3399,11 @@ function DashboardComercialV38({profile,visao,modulo}) {
       if(supIds.length){
         const {data:ss}=await sb.from('usuarios').select('id,nome').in('id',supIds).eq('ativo',true).order('nome');
         setSupervisores(ss||[]);
-      } else setSupervisores([]);
+      } else {
+        // Nenhum vínculo = acesso a todas as carteiras de Supervisores.
+        const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true).order('nome');
+        setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
+      }
     } else if(['gestao_adm_vendas','diretoria','admin'].includes(visao)){
       const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true).order('nome');
       setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
@@ -3579,8 +3585,8 @@ function PaginaDashboard({ profile, visao, ehPreview, modulo }) {
         if(visao==='adm_vendas'){
           const {data:cart}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
           const sid=(cart||[]).map(x=>x.supervisor_id);
-          if(!sid.length){setSupervisoresDash([]);return;}
-          qs=qs.in('id',sid);
+          // Sem vínculo = todos os Supervisores; com vínculo = somente selecionados.
+          if(sid.length) qs=qs.in('id',sid);
         }
         const {data:sups}=await qs;
         const supRows=[];
@@ -5910,6 +5916,7 @@ function App() {
   const [contador, setContador] = useState(0);
   const [modulo,setModulo]=useState(null);
   const [modulosUsuario,setModulosUsuario]=useState([]);
+  const [semModulos,setSemModulos]=useState(null);
 
   useEffect(() => {
     const fn=()=>{setModulo('administracao');setVisao('admin');setPagina('config_modulos');};
@@ -5949,8 +5956,17 @@ function App() {
       setSemPerfil('USUARIO_INATIVO'); setSessionReady(true); return;
     }
     const {data:acessos}=await sb.from('usuario_modulos').select('modulo,ativo').eq('usuario_id',perfil.id).eq('ativo',true);
-    const ms=(acessos||[]).map(x=>x.modulo);
-    setModulosUsuario(ms.length?ms:modulosPadrao(perfil.papel));
+    const ms=(acessos||[]).map(x=>x.modulo).filter(m=>MODULOS[m]);
+    if(!ms.length){
+      let adminContato=null;
+      const {data:contato}=await sb.rpc('contato_administrador_sistema');
+      if(Array.isArray(contato) && contato.length) adminContato=contato[0];
+      else if(contato && !Array.isArray(contato)) adminContato=contato;
+      setSemModulos({usuario:perfil.nome||session.user.email||'Usuário',papel:ROLE_LABELS[perfil.papel]||perfil.papel,admin:adminContato});
+      await sb.auth.signOut();
+      setProfile(null);setVisao(null);setModulo(null);setModulosUsuario([]);setSessionReady(true);return;
+    }
+    setSemModulos(null);setModulosUsuario(ms);
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
   }
@@ -5978,10 +5994,26 @@ function App() {
 
   async function logout() {
     await sb.auth.signOut();
-    setProfile(null); setVisao(null); setSemPerfil(null); setModulo(null); setModulosUsuario([]);
+    setProfile(null); setVisao(null); setSemPerfil(null); setSemModulos(null); setModulo(null); setModulosUsuario([]);
   }
 
   if (!sessionReady) return h('div', { className: 'login-container' }, h('div', { style: { color: 'var(--text-muted)' } }, 'Carregando...'));
+
+  if (semModulos) {
+    const tel=String((semModulos.admin&&semModulos.admin.telefone)||'').replace(/\D/g,'');
+    const telWhats=tel && !tel.startsWith('55') ? '55'+tel : tel;
+    const msg='Olá! Preciso de ajuda com meu acesso ao Meu Cliente - Grespan. O usuário '+semModulos.usuario+' ('+semModulos.papel+') está ativo, porém não possui nenhum módulo liberado. Poderia verificar e liberar os módulos necessários, por favor?';
+    return h('div',{className:'login-container'},
+      h('div',{className:'login-card',style:{textAlign:'center'}},
+        h('div',{className:'page-title',style:{marginBottom:10}},'Acesso aos módulos não liberado'),
+        h('div',{className:'page-sub',style:{marginBottom:16}},'Seu usuário está ativo, mas ainda não possui nenhum módulo de acesso liberado. Entre em contato com o Administrador do Sistema.'),
+        semModulos.admin && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--border)',borderRadius:8,textAlign:'left'}},
+          h('div',{style:{fontWeight:700}},semModulos.admin.nome||'Administrador do Sistema'),
+          h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:4}},semModulos.admin.telefone||'Telefone não cadastrado')),
+        telWhats && h('a',{className:'btn btn-primary',href:'https://wa.me/'+telWhats+'?text='+encodeURIComponent(msg),target:'_blank',rel:'noopener noreferrer',style:{width:'100%',display:'block',textDecoration:'none',marginBottom:10}},'Falar com o Administrador pelo WhatsApp'),
+        !telWhats && h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:12}},'O administrador ainda não possui telefone cadastrado para contato pelo WhatsApp.'),
+        h('button',{className:'btn btn-secondary',style:{width:'100%'},onClick:()=>setSemModulos(null)},'Voltar ao login')));
+  }
 
   if (semPerfil === 'USUARIO_INATIVO') return h('div', { className: 'login-container' },
     h('div', { className: 'login-card' },
