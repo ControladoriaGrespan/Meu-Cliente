@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=OC0nyTDUsy0Qw4x73kU0hfGiCvR5NI9gREEaMOPcZ6N5aQ7jxnfgMFBBuYMgdlGpR9AbIUkWucij_uQr7pvH8onClDNLSBmJMpDdmk9oyAA58GtSByUPVHudzz6jAuQlQqqR8efL4A-vpGf1suG55_PvbMTxFqkP4BAv1Ox9AKx3nZHQ4YK2jCfPeV1VtHPGBz1Du9rLUvgLo9d6XiKFZ5dATLvakJ9ezcmw8ACwvqxNVSz7HGCuEKl4Yr2mKq68FGPqX72ZmZ32qyDkOWb1vQNb64lswZqW9pHIKbOHeN8ywn0j3q4bm4WwvvinW26VgBY5LSTUdLxea4Y5Y-0aKdaQEpdpzamEkBDA-ZNtyOXlP-KRExEzXfWKz7LFISLG" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=_2BhA0mfQm-_ZUbQiLREJSaCT2JLewUBGs2avsYFPRgh4W8Hlsc7Lzs6jKBe3v4Iy7wQFuhjL5MaXlgzwgpRWqD1XFV5FUvvXXJM0hbYvNXunItfm1a1_f-Zlg9_tQcKkI6eGtKrvNtVBcuFUfUcLBklsRNGJzCigBB7-bkI6j4alQTCl8vVsnN9ge7Hyr3fUjaIXitcahoLZTKsHFoyqkqkNM_LIYJwvoD-nBEOUG7R1u3yUssvx5Rr1RdMPOMD8UHi8wSGZQ8iz8lHDBaFv1jAERuU5KSqoLg0iTiYhAGw4oHo9HZ-KRSeIJOk0-1WrSgtA-EkHiLnP-uJ5Mtsun1ze-wYrlIVDqbymzMmJZUi21koiRuvDYOm98F7Xpff" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v89-match-clientes-normalizado-clientes';
-console.info('[Meu Cliente] BUILD v89-match-clientes-normalizado-clientes');
+window.__MEU_CLIENTE_BUILD__='v90-import-atualiza-sem-apagar-clientes';
+console.info('[Meu Cliente] BUILD v90-import-atualiza-sem-apagar-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5574,21 +5574,43 @@ function PaginaImportacao({ profile }) {
       let existente=(cod&&porCodigo[cod]) || (doc&&porDocumento[doc]) || null;
       if(!existente && nome && !nomesDuplicados.has(nome)) existente=porNome[nome]||null;
 
-      const payload={
+      // IMPORTANTE: em UPDATE, campos vazios na planilha NÃO podem apagar dados já existentes.
+      // Ex.: uma planilha apenas com Código + Razão Social + Nome Fantasia deve atualizar somente
+      // esses campos e preservar CNPJ/CPF, Cidade, Estado, vendedor, telefone etc.
+      const valorPreenchido = v => v !== undefined && v !== null && String(v).trim() !== '';
+      const payloadInsert={
         razao_social:r.razao_social,
-        nome_fantasia:r.nome_fantasia,
-        codigo_totvs:String(r.codigo_totvs||'').trim()||null,
-        cnpj_cpf:String(r.cnpj_cpf||'').trim()||null,
-        cidade:r.cidade||null, estado:r.estado||null, telefone:r.telefone||null, email:r.email||null,
-        condicao_pagamento:r.condicao_pagamento||null, acordo_comercial:r.acordo_comercial||null,
-        vendedor_id:vendedorId, origem:'totvs'
+        nome_fantasia:valorPreenchido(r.nome_fantasia)?String(r.nome_fantasia).trim():null,
+        codigo_totvs:valorPreenchido(r.codigo_totvs)?String(r.codigo_totvs).trim():null,
+        cnpj_cpf:valorPreenchido(r.cnpj_cpf)?String(r.cnpj_cpf).trim():null,
+        cidade:valorPreenchido(r.cidade)?String(r.cidade).trim():null,
+        estado:valorPreenchido(r.estado)?String(r.estado).trim():null,
+        telefone:valorPreenchido(r.telefone)?String(r.telefone).trim():null,
+        email:valorPreenchido(r.email)?String(r.email).trim():null,
+        condicao_pagamento:valorPreenchido(r.condicao_pagamento)?r.condicao_pagamento:null,
+        acordo_comercial:valorPreenchido(r.acordo_comercial)?String(r.acordo_comercial).trim():null,
+        vendedor_id:vendedorId,
+        origem:'totvs'
       };
+
+      const payloadUpdate={origem:'totvs'};
+      if(valorPreenchido(r.razao_social)) payloadUpdate.razao_social=String(r.razao_social).trim();
+      if(valorPreenchido(r.nome_fantasia)) payloadUpdate.nome_fantasia=String(r.nome_fantasia).trim();
+      if(valorPreenchido(r.codigo_totvs)) payloadUpdate.codigo_totvs=String(r.codigo_totvs).trim();
+      if(valorPreenchido(r.cnpj_cpf)) payloadUpdate.cnpj_cpf=String(r.cnpj_cpf).trim();
+      if(valorPreenchido(r.cidade)) payloadUpdate.cidade=String(r.cidade).trim();
+      if(valorPreenchido(r.estado)) payloadUpdate.estado=String(r.estado).trim();
+      if(valorPreenchido(r.telefone)) payloadUpdate.telefone=String(r.telefone).trim();
+      if(valorPreenchido(r.email)) payloadUpdate.email=String(r.email).trim();
+      if(valorPreenchido(r.condicao_pagamento)) payloadUpdate.condicao_pagamento=r.condicao_pagamento;
+      if(valorPreenchido(r.acordo_comercial)) payloadUpdate.acordo_comercial=String(r.acordo_comercial).trim();
+      if(vendedorId) payloadUpdate.vendedor_id=vendedorId;
 
       let gravacao;
       if(existente){
-        gravacao=await sb.from('clientes').update(payload).eq('id',existente.id);
+        gravacao=await sb.from('clientes').update(payloadUpdate).eq('id',existente.id);
       }else{
-        gravacao=await sb.from('clientes').insert(payload).select('id,codigo_totvs,cnpj_cpf,razao_social').single();
+        gravacao=await sb.from('clientes').insert(payloadInsert).select('id,codigo_totvs,cnpj_cpf,razao_social').single();
       }
 
       if(gravacao.error){
