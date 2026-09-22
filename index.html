@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=IcZFHbqcGfdgVSjcOCm-aCMoZ4WSBGawWzw1co2ZElCJ2FQtRWeYqQ44yIRhlcGx8Rde_dLTpDj_pNH0yV-x0Ci8_5-4zDlYoSosGGQA09f6hp9soroQRQdGaoPl8Ckk7EACcu7OtdB82RIMN8GTdFEKHhn6LUlml_gfauLDKyATTR-OK58WQpKyy-J09Krnm9mkwmbX9cYGWT1udjA2qLv57JP9sVppH2S3m2ObLmCq45wdFNdaINLGdLQLeHamcoQAnKviuzX5ejYuRN3kjU14pkRkftr6VS1aTNo5qNMoQ3eiYvTUh29ft5C2CLpQb0E3sMv_uxPI3oy5etK8IjAuBoDHIUyrTqF0_rJvnY0" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1750,6 +1750,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   // A aprovação não pode desaparecer se uma consulta auxiliar de rota/cliente/equipamento falhar.
   const [filaProgSupervisor,setFilaProgSupervisor]=useState(null);
   const [detalhesFilaProg,setDetalhesFilaProg]=useState({rotas:{},demandas:{},refs:{}});
+  const [contratoPosAprovacao,setContratoPosAprovacao]=useState(null);
 
 
 
@@ -1998,13 +1999,53 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       toast('Programação enviada para Pendências dos supervisores e WhatsApp aberto.','success');
     }
   }
-  async function decidirProgramacao(){
-    const a=decisaoProg;if(!a)return;
-    if(a.status==='reprovado'&&!obsProg.trim())return toast('A observação é obrigatória para reprovar a programação.','error');
-    const {error}=await sb.rpc('decidir_programacao_rota',{p_aprovacao_id:a.id,p_status:a.status,p_observacao:obsProg.trim()||null});
-    if(error)return toast(error.message,'error');
+  async function decidirProgramacao(aprovacao,status,observacao){
+    const a=aprovacao||decisaoProg;if(!a)return;
+    const st=status||a.status;
+    let obs=String(observacao!=null?observacao:obsProg||'').trim();
+    if(st==='reprovado'&&!obs){
+      const digitada=window.prompt('Informe o motivo da reprovação:','');
+      if(digitada===null)return;
+      obs=String(digitada||'').trim();
+      if(!obs)return toast('A observação é obrigatória para reprovar a programação.','error');
+    }
+
+    const d=(detalhesFilaProg.demandas||{})[a.entrega_id]||null;
+    const ref=d
+      ? ((d.cliente_id&&(detalhesFilaProg.refs||{})['c:'+d.cliente_id]) ||
+         (d.ficha_id&&(detalhesFilaProg.refs||{})['f:'+d.ficha_id]) || {})
+      : {};
+    const rota=(detalhesFilaProg.rotas||{})[a.rota_id]||null;
+
+    const rr=await sb.rpc('decidir_programacao_rota',{
+      p_aprovacao_id:a.id,
+      p_status:st,
+      p_observacao:obs||null
+    });
+    if(rr.error)return toast(rr.error.message,'error');
+
+    // Ao aprovar a data, a demanda deixa de estar apenas roteirizada e passa a programada.
+    if(st==='aprovado'&&a.entrega_id){
+      const up=await sb.from('entregas_equipamentos')
+        .update({
+          status:'programada',
+          data_prevista:(rota&&rota.data_rota)||(d&&d.data_prevista)||null,
+          programada_em:new Date().toISOString()
+        })
+        .eq('id',a.entrega_id);
+      if(up.error)console.warn('Aprovação gravada, mas não foi possível atualizar a demanda para programada:',up.error);
+    }
+
     setDecisaoProg(null);setObsProg('');
-    toast(a.status==='aprovado'?'Programação aprovada.':'Programação reprovada. A rota permanece pendente para revisão da Manutenção.',a.status==='aprovado'?'success':'info');
+
+    if(st==='aprovado'){
+      // Mantém os dados em memória para liberar os documentos mesmo após a aprovação sair da fila pendente.
+      setContratoPosAprovacao({aprovacao:a,demanda:d,ref,rota});
+      toast('Programação aprovada. Contrato de comodato liberado para PDF e Word.','success');
+    }else{
+      toast('Programação reprovada. A rota permanece pendente para revisão da Manutenção.','info');
+    }
+
     await carregarProgramacoesRota();
     await carregarFilaSupervisorDireta();
   }
@@ -2041,8 +2082,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           !d&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
             'A programação está pendente para sua aprovação. Os detalhes operacionais não puderam ser carregados, mas a decisão continua disponível.'),
           h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-            h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...a,status:'aprovado'});setObsProg('');}},'✓ Aprovar'),
-            h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...a,status:'reprovado'});setObsProg('');}},'✗ Reprovar'))
+            h('button',{className:'btn btn-success btn-sm',onClick:()=>decidirProgramacao(a,'aprovado','')},'✓ Aprovar'),
+            h('button',{className:'btn btn-danger btn-sm',onClick:()=>decidirProgramacao(a,'reprovado','')},'✗ Reprovar'))
         );
       })
     );
@@ -2371,9 +2412,6 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     return `${d.getDate()} de ${m[d.getMonth()]} de ${d.getFullYear()}`;
   }
   async function baixarComodatoFila(dem){
-    if(dem.tipo_demanda==='troca'){
-      return toast('O documento de troca será gerado com a relação de retirada e entrega no detalhe da demanda.','info');
-    }
     if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
     try{
       const [qi,qc,qf]=await Promise.all([
@@ -2453,6 +2491,71 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }catch(e){console.error(e);toast('Não foi possível gerar o contrato de comodato: '+(e.message||e),'error');}
   }
 
+
+  async function baixarWordComodatoFila(dem,refExtra){
+    if(!dem)return toast('Demanda não localizada para gerar o contrato.','error');
+    try{
+      const [qi,qc,qf]=await Promise.all([
+        sb.from('comodato_equipamentos').select('*').eq('entrega_id',dem.id).order('ordem'),
+        sb.from('contratos_comodato').select('*').eq('entrega_id',dem.id).maybeSingle(),
+        dem.ficha_id?sb.from('fichas_clientes').select('*').eq('id',dem.ficha_id).maybeSingle():Promise.resolve({data:null,error:null})
+      ]);
+      if(qi.error)throw qi.error;if(qc.error)throw qc.error;if(qf.error)throw qf.error;
+      let itens=qi.data||[];
+      // Se a troca ainda não tiver itens individualizados, usa o resumo operacional para não bloquear o documento.
+      if(!itens.length && dem.equipamento_resumo){
+        itens=[{quantidade:1,descricao:dem.equipamento_resumo,patrimonio:'—',condicao:'—'}];
+      }
+      if(!itens.length)throw new Error('Nenhum equipamento localizado para o comodato.');
+
+      let ct=qc.data||null;
+      if(!ct){
+        const rc=await sb.from('contratos_comodato').insert({
+          entrega_id:dem.id,ficha_id:dem.ficha_id||null,cliente_id:dem.cliente_id||null,criado_por:profile.id
+        }).select().single();
+        if(rc.error)throw rc.error;ct=rc.data;
+      }
+
+      const f=qf.data||refExtra||dem._ref||{};
+      const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const endereco=[f.rua,f.numero,f.bairro,f.cidade,f.estado,f.cep].filter(Boolean).join(', ');
+      const linhas=itens.map(it=>`<tr><td>${esc(it.quantidade||1)}</td><td>${esc(it.descricao||'')}</td><td>${esc(it.patrimonio||'—')}</td><td>${esc(it.condicao||'—')}</td></tr>`).join('');
+      const corpo=`<!doctype html><html><head><meta charset="utf-8"><style>
+        body{font-family:Arial,sans-serif;font-size:11pt;line-height:1.35;color:#111}
+        h1{text-align:center;font-size:14pt} h2{font-size:11pt;margin-top:18px}
+        .top{text-align:right;font-size:10pt}.grespan{font-size:18pt;font-weight:bold;color:#b51e23}
+        table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #777;padding:6px}th{background:#eee}
+        .assin{margin-top:45px;width:100%}.assin td{border:0;text-align:center;width:50%}
+      </style></head><body>
+      <div class="grespan">GRESPAN</div><div class="top">Contrato nº ${esc(ct.numero||'—')}<br>Acordo Comercial nº ${esc(f.acordo_comercial_numero||f.codigo||'—')}</div>
+      <h1>INSTRUMENTO PARTICULAR DE CONTRATO DE COMODATO</h1>
+      <p>Pelo presente instrumento particular, de um lado, <b>${esc(f.razao_social||'—')}</b>${f.nome_fantasia?' — Fantasia '+esc(f.nome_fantasia):''}, inscrita no CNPJ sob nº ${esc(f.cnpj_cpf||'—')}, sediada em ${esc(endereco||'—')}, doravante denominada COMODATÁRIA e, de outro lado, <b>GRESPAN PAES CONGELADOS LTDA</b>, CNPJ nº 10.809.214/0001-67, Av. República, 7000, Marília/SP, doravante denominada COMODANTE.</p>
+      <h2>I – DO OBJETO</h2><p>A COMODANTE transfere, a título de comodato, o direito de uso e gozo dos bens abaixo relacionados:</p>
+      <table><thead><tr><th>QTDE</th><th>DESCRIÇÃO</th><th>PATRIMÔNIO</th><th>CONDIÇÃO</th></tr></thead><tbody>${linhas}</tbody></table>
+      <h2>II – DO PRAZO</h2>
+      <p>2. O prazo de vigência deste contrato será por tempo indeterminado, iniciando-se na data de assinatura, podendo ser rescindido a qualquer tempo, mediante prévia e expressa notificação de qualquer das partes.</p>
+      <p>3. A COMODATÁRIA deverá restituir os bens nas mesmas condições em que os recebeu, ressalvado o desgaste normal de uso.</p>
+      <p>4. Os danos advindos do mau uso ou negligência serão suportados pela COMODATÁRIA.</p>
+      <p>5. É vedado subcomodatar, locar, ceder ou transferir os bens sem autorização prévia da COMODANTE.</p>
+      <h2>III – DAS OBRIGAÇÕES</h2>
+      <p>8. A COMODATÁRIA deverá comunicar imediatamente qualquer turbação ou esbulho da posse do bem.</p>
+      <p>9. A COMODATÁRIA deverá permitir a inspeção dos equipamentos sempre que solicitado pela COMODANTE.</p>
+      <p>10. Qualquer tolerância das partes constituirá mera liberalidade, não caracterizando novação.</p>
+      <h2>VI – DA RESCISÃO</h2>
+      <p>11. O contrato poderá ser rescindido nas hipóteses previstas neste instrumento e no Acordo Comercial.</p>
+      <p>12. Em caso de rescisão, a COMODATÁRIA disponibilizará os equipamentos para retirada pela COMODANTE no prazo máximo de 15 dias.</p>
+      <h2>V – DA MULTA</h2><p>Pelo descumprimento, a parte infratora pagará multa não compensatória correspondente a 20% do total dos bens comodatados, sem prejuízo das perdas e danos.</p>
+      <h2>VI – DA SUCESSÃO</h2><p>O presente contrato obriga as partes, seus herdeiros e sucessores. Fica eleito o foro da Comarca de Marília/SP.</p>
+      <p style="text-align:right;margin-top:30px">Marília-SP, ${esc(dataExtensoComodato())}.</p>
+      <table class="assin"><tr><td>_________________________________<br>Comodante</td><td>_________________________________<br>Comodatária</td></tr></table>
+      </body></html>`;
+      const blob=new Blob(['\ufeff',corpo],{type:'application/msword'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='Contrato de Comodato GRESPAN x '+String(f.razao_social||'CLIENTE').replace(/[\\/:*?"<>|]/g,'-')+'.doc';
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+    }catch(e){console.error(e);toast('Não foi possível gerar o Word do comodato: '+(e.message||e),'error');}
+  }
+
   if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null) || (etapa==='supervisor'&&filaProgSupervisor===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
   const totalProgSupervisor = etapa==='supervisor'
     ? (filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente').length
@@ -2461,6 +2564,19 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+
+    contratoPosAprovacao && h(Modal,{
+      titulo:'Programação aprovada',
+      sub:((contratoPosAprovacao.rota&&contratoPosAprovacao.rota.codigo)||'Rota')+' — contrato de comodato liberado',
+      largo:false,
+      onClose:()=>setContratoPosAprovacao(null),
+      acoes:[h('button',{key:'fechar',className:'btn btn-secondary',onClick:()=>setContratoPosAprovacao(null)},'Fechar')]
+    },
+      h('div',{className:'page-sub',style:{marginBottom:14}},'A programação foi aprovada e a demanda foi alterada para Programada. Agora você pode gerar o contrato já preenchido.'),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+        h('button',{className:'btn btn-primary',onClick:()=>baixarComodatoFila(contratoPosAprovacao.demanda)},'Baixar PDF'),
+        h('button',{className:'btn btn-secondary',onClick:()=>baixarWordComodatoFila(contratoPosAprovacao.demanda,contratoPosAprovacao.ref)},'Baixar Word'))
+    ),
 
     etapa==='manutencao' && h('div',null,
       demandaAberta && h(Modal,{
