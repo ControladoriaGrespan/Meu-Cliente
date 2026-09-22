@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=7pCAcLpPCLZSYpeIih-pBvo6E6zzFvKNe5xZDK3AosC_olKYY5EcIfxf7X7L-i77tTPYUz4lBoFDjFwnlCJsnHrmvTW_UqYOcKjL_Wi8L8aICSAF5tN3budDnLApKXLYnGyFrK_JEy3Pd8yKH1SKWEwHMlz8vvESDEzx3VCJ1eMOZViJN5yl7i3-H4_vG9I8KpAlg1uHm0j_CO-2ju-jqrWIMMddzkZReP7iKFEaS-PucTOLIezy_wLgeYh3GSyer3__TZf9dky42ScBZ4PjQGuu3gNTEGQ2wdinCBp1MdyRWMxql5r6rHrsoqE_tbo4fWz6JpRf0_ZHfwfC5I8feYt4q7YDw_5CKeQbg6769bfGFM0IvE8p1T7Zy0fLdGz_" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=IlHauBR0I5VdXg6v9CQf6bIEIok4nPPszDU9Rf_WanCozWt55iPRkFPGJnVumOyiXXFaBpxQPtsjRsf3haBSvz6b3N8JQZzWSSSUhnPEdfG5HFjn5--kQuykvEDr_3f-blhstf0lqvEV6Q-dFbmglhM5oOk7lOcL8pOQumD83M44-2TVV4STcOJlHKV3q3Pz6VfJDgfBA0iRaliw8TW_edSNBQaXtDj8zWp-WIiTnWIzRb-m07LYUIiwsWWEbrJ8haSDUZkDxVsxdQI4Fse_k5wZyuPSrrZAQBe_Vg2PWNzoi6-VhwNHx86Yg1uA3o78b-cRwaROHAD-bb1krLzRCaHb196xKbvZuEIzRf4akc4" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v86-deteccao-automatica-importacao';
-console.info('[Meu Cliente] BUILD v86-deteccao-automatica-importacao');
+window.__MEU_CLIENTE_BUILD__='v88-nome-fantasia-clientes';
+console.info('[Meu Cliente] BUILD v88-nome-fantasia-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1028,7 +1028,7 @@ function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, 
 // PAGINA: EMISSAO DE FICHAS
 // =====================================================================
 const FORM_VAZIO = {
-  razao_social: '', cnpj_cpf: '', representante_nome: '', representante_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
+  razao_social: '', nome_fantasia: '', cnpj_cpf: '', representante_nome: '', representante_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
   entrega_rua: '', entrega_numero: '', entrega_bairro: '', entrega_cidade: '', entrega_estado: '', entrega_cep: '',
   telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '', contrato: '',
   verba_introducao: '', verba_manutencao_cliente: '', verba_negociacao_cliente: '', duracao_verba: '', tecnico_panificacao: '', senioridade_tecnico: '',
@@ -1085,7 +1085,7 @@ function PaginaEmissao({ profile, onSaved }) {
 
   async function salvar() {
     const obrig = [
-      ['razao_social','Razão Social'], ['cnpj_cpf','CNPJ'], ['rua','Rua'], ['numero','Número'],
+      ['razao_social','Razão Social'], ['nome_fantasia','Nome Fantasia'], ['cnpj_cpf','CNPJ'], ['rua','Rua'], ['numero','Número'],
       ['bairro','Bairro'], ['cidade','Cidade'], ['estado','Estado'], ['cep','CEP'],
       ['telefone','Telefone'], ['email','E-mail'], ['numero_checkouts','Número de Checkouts'], ['numero_lojas','Número de Lojas'], ['preco_kg','Preço Kg'],
       ['prazo_pagamento','Prazo Pagamento'], ['consumo_previsto','Consumo Previsto'],
@@ -1104,7 +1104,7 @@ function PaginaEmissao({ profile, onSaved }) {
 
     const { data: nova, error } = await sb.from('fichas_clientes').insert({
       vendedor_id: profile.id,
-      razao_social: f.razao_social.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
+      razao_social: f.razao_social.trim(), nome_fantasia: f.nome_fantasia.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
       entrega_rua:f.entrega_rua.trim(), entrega_numero:f.entrega_numero.trim(), entrega_bairro:f.entrega_bairro.trim(), entrega_cidade:f.entrega_cidade.trim(), entrega_estado:f.entrega_estado.toUpperCase(), entrega_cep:f.entrega_cep, contrato:f.contrato==='Sim',
@@ -1161,6 +1161,7 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'section-title' }, 'Dados Básicos'),
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Razão Social', obrigatorio: true }, h(Input, { value: f.razao_social, onChange: e => set('razao_social', e.target.value) })),
+        h(Campo, { label: 'Nome Fantasia', obrigatorio: true }, h(Input, { value: f.nome_fantasia, onChange: e => set('nome_fantasia', e.target.value) })),
         h(Campo, { label: 'CNPJ', obrigatorio: true }, h(Input, { value: f.cnpj_cpf, inputMode: 'numeric', placeholder: '00.000.000/0000-00', onChange: e => set('cnpj_cpf', mascaraCnpj(e.target.value)) })),
         h(Campo,{label:'Representante Legal',obrigatorio:true},h(Input,{value:f.representante_nome,onChange:e=>set('representante_nome',e.target.value)})),
         h(Campo,{label:'CPF do Representante',obrigatorio:true},h(Input,{value:f.representante_cpf,inputMode:'numeric',placeholder:'000.000.000-00',onChange:e=>set('representante_cpf',mascaraCpf(e.target.value))})),
@@ -2834,6 +2835,7 @@ function PaginaClientes({ profile }) {
     if (!t) return clientes;
     return clientes.filter(c =>
       (c.razao_social || '').toLowerCase().includes(t) ||
+      (c.nome_fantasia || '').toLowerCase().includes(t) ||
       (c.cnpj_cpf || '').includes(t) ||
       (c.codigo_totvs || '').toLowerCase().includes(t) ||
       (c.cidade || '').toLowerCase().includes(t) ||
@@ -2856,7 +2858,7 @@ function PaginaClientes({ profile }) {
       h('input', {
         className: 'form-input',
         style: { maxWidth: 300 },
-        placeholder: 'Buscar cliente, CNPJ, código ou vendedor...',
+        placeholder: 'Buscar razão social, fantasia, CNPJ, código ou vendedor...',
         value: busca,
         onChange: e => setBusca(e.target.value)
       })),
@@ -2867,7 +2869,7 @@ function PaginaClientes({ profile }) {
           h('div', { className: 'table-wrap' },
             h('table', null,
               h('thead', null, h('tr', null,
-                ['Cód. TOTVS','Cliente','CNPJ','Cidade','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', podeEditar ? '' : null]
+                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', podeEditar ? '' : null]
                   .filter(c => c !== null).map((c, i) => h('th', { key: i }, c)))),
               h('tbody', null,
                 filtrados.map(c => {
@@ -2884,7 +2886,8 @@ function PaginaClientes({ profile }) {
                             onChange: e => setEditandoTotvs(prev => ({ ...prev, [c.id]: e.target.value }))
                           })
                         : h('span', { className: 'mono' }, c.codigo_totvs || '—')),
-                    h('td', { className: 'strong' }, identificacaoCliente(c)),
+                    h('td', { className: 'strong' }, c.razao_social || '—'),
+                    h('td', null, c.nome_fantasia || '—'),
                     h('td', { className: 'mono' }, c.cnpj_cpf || '—'),
                     h('td', null, (c.cidade || '—') + (c.estado ? '/' + c.estado : '')),
                     h('td', { className: 'mono' }, (c.usuarios && c.usuarios.codigo_vendedor) || '—'),
@@ -4476,6 +4479,7 @@ function PaginaRotas() {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
   const [clientes, setClientes] = useState([]);
+  const [usuariosComerciais,setUsuariosComerciais]=useState([]);
   const [modalNova, setModalNova] = useState(false);
   const [novaRota, setNovaRota] = useState({ nome: '', dia_semana: '' });
   const [modalClientes, setModalClientes] = useState(null); // rota selecionada
@@ -4484,12 +4488,32 @@ function PaginaRotas() {
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
-    const [rr, rc] = await Promise.all([
-      sb.from('rotas').select('*, cliente_rotas(id, cliente_id, clientes(razao_social, cnpj_cpf, codigo_totvs))').order('dia_semana').order('nome'),
-      sb.from('clientes').select('id, razao_social, cnpj_cpf, codigo_totvs').eq('ativo', true).order('razao_social').limit(10000)
+    const [rr, rc, ru] = await Promise.all([
+      sb.from('rotas').select('*, cliente_rotas(id, cliente_id, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id))').order('dia_semana').order('nome'),
+      sb.from('clientes').select('id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id').eq('ativo', true).order('razao_social').limit(10000),
+      sb.from('usuarios').select('id,nome,papel,supervisor_id,ativo').eq('ativo',true).limit(10000)
     ]);
     setRotas(rr.data || []);
     setClientes(rc.data || []);
+    setUsuariosComerciais(ru.data || []);
+  }
+
+  function usuarioComercial(id){ return (usuariosComerciais||[]).find(u=>u.id===id)||null; }
+  function vendedorCliente(c){ return c ? usuarioComercial(c.vendedor_id) : null; }
+  function supervisorCliente(c){
+    const v=vendedorCliente(c);
+    if(!v) return null;
+    if(v.papel==='supervisor') return v;
+    return v.supervisor_id ? usuarioComercial(v.supervisor_id) : null;
+  }
+  function rotuloClienteRota(c){
+    const cod=(c&&c.codigo_totvs)||'SEM CÓDIGO';
+    const nome=(c&&c.razao_social)||'—';
+    const fantasia=(c&&c.nome_fantasia)||'—';
+    const cidade=(c&&c.cidade)||'—';
+    const vend=vendedorCliente(c);
+    const sup=supervisorCliente(c);
+    return cod+' — '+nome+' — '+fantasia+' — '+cidade+' — '+(vend?vend.nome:'—')+' — '+(sup?sup.nome:'—');
   }
 
   async function criarRota() {
@@ -4502,7 +4526,7 @@ function PaginaRotas() {
 
   async function abrirClientes(rota) {
     const { data } = await sb.from('cliente_rotas')
-      .select('id, cliente_id, ordem_entrega, clientes(razao_social, cnpj_cpf, codigo_totvs)')
+      .select('id, cliente_id, ordem_entrega, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id)')
       .eq('rota_id', rota.id).order('ordem_entrega');
     setVinculados(data || []);
     setModalClientes(rota);
@@ -4551,26 +4575,37 @@ function PaginaRotas() {
       h('div', { style: { display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' } },
         h('div', { style: { flex: 1, minWidth: 200 } },
           h(SearchSelect, {
-            value: clienteAdd, placeholder: 'Buscar cliente por código ou nome...',
+            value: clienteAdd, placeholder: 'Buscar por código, razão social, fantasia, cidade, vendedor ou supervisor...',
             onChange: v => setClienteAdd(v),
             items: clientes.filter(c => !vinculados.some(v => v.cliente_id === c.id))
               .map(c => {
                 const cod = c.codigo_totvs || '';
                 const codSemZeros = cod.replace(/^0+/, '');
-                return { value: c.id, label: (cod ? cod + ' — ' : '') + c.razao_social, search: cod + ' ' + codSemZeros + ' ' + c.razao_social + ' ' + (c.cnpj_cpf || ''), code: cod };
+                const vend=vendedorCliente(c), sup=supervisorCliente(c);
+                return {
+                  value:c.id,
+                  label:rotuloClienteRota(c),
+                  search:[cod,codSemZeros,c.razao_social,c.nome_fantasia,c.cnpj_cpf,c.cidade,vend&&vend.nome,sup&&sup.nome].filter(Boolean).join(' '),
+                  code:cod
+                };
               })
           })),
         h('button', { className: 'btn btn-primary btn-sm', disabled: !clienteAdd, onClick: addCliente }, '+ Adicionar')),
       vinculados.length === 0
         ? h(Empty, { icon: '\u263A', texto: 'Nenhum cliente nesta rota.' })
         : h('table', null,
-            h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'Código'), h('th', null, 'Cliente'), h('th', null, 'CNPJ'), h('th', null, ''))),
+            h('thead', null, h('tr', null,
+              h('th', null, '#'), h('th', null, 'Código'), h('th', null, 'Razão Social'), h('th', null, 'Nome Fantasia'),
+              h('th', null, 'Cidade'), h('th', null, 'Vendedor'), h('th', null, 'Supervisor'), h('th', null, ''))),
             h('tbody', null,
               vinculados.map((v, i) => h('tr', { key: v.id },
                 h('td', { className: 'mono' }, i + 1),
                 h('td', { className: 'mono' }, v.clientes && v.clientes.codigo_totvs),
-                h('td', { className: 'strong' }, identificacaoCliente(v.clientes)),
-                h('td', { className: 'mono' }, v.clientes && v.clientes.cnpj_cpf),
+                h('td', { className: 'strong' }, v.clientes && v.clientes.razao_social),
+                h('td', null, (v.clientes&&v.clientes.nome_fantasia)||'—'),
+                h('td', null, (v.clientes&&v.clientes.cidade)||'—'),
+                h('td', null, (vendedorCliente(v.clientes)||{}).nome||'—'),
+                h('td', null, (supervisorCliente(v.clientes)||{}).nome||'—'),
                 h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeCliente(v.id) }, 'Remover'))))))),
 
     h('div', { className: 'page-head' },
@@ -5168,6 +5203,7 @@ function cabecalhoCanonicoImportacao(v) {
   const h=normalizarCabecalhoImportacao(v);
   const aliases={
     'razao_social':'razao_social','razao':'razao_social','nome_razao_social':'razao_social',
+    'nome_fantasia':'nome_fantasia','fantasia':'nome_fantasia','nome_comercial':'nome_fantasia',
     'codigo_totvs':'codigo_totvs','cod_totvs':'codigo_totvs','codigo_cliente':'codigo_totvs',
     'cnpj_cpf':'cnpj_cpf','cnpj':'cnpj_cpf','cpf':'cnpj_cpf',
     'cidade':'cidade','estado':'estado','uf':'estado',
@@ -5254,12 +5290,12 @@ const MODELOS = {
     dica: 'Identifica o cliente por cnpj_cpf OU codigo_totvs (preencha pelo menos um). Identifica o produto por codigo_produto (deve existir na tabela de produtos). Data aceita DD/MM/AAAA ou AAAA-MM-DD. Linhas do mesmo cliente + mesma data viram um único pedido com vários itens. tipo_item aceita venda ou bonificacao; bonificação pode ter valor_unitario 0.',
   },
   clientes: {
-    headers: ['codigo_totvs', 'razao_social', 'cnpj_cpf', 'cidade', 'estado', 'telefone', 'email', 'condicao_pagamento', 'acordo_comercial', 'codigo_vendedor'],
+    headers: ['codigo_totvs', 'razao_social', 'nome_fantasia', 'cnpj_cpf', 'cidade', 'estado', 'telefone', 'email', 'condicao_pagamento', 'acordo_comercial', 'codigo_vendedor'],
     exemplos: [
-      ['001234', 'Padaria Bom Pão', '12345678000199', 'Marília', 'SP', '(14) 99999-9999', 'contato@bompao.com.br', '28 dias', 'NENHUM', '0012'],
-      ['001235', 'Supermercado Central', '98765432000188', 'Rio Preto', 'SP', '(17) 99888-7777', '', 'À vista', '5 PCT BONIFICADOS/MÊS', '0015'],
+      ['001234', 'Padaria Bom Pão LTDA', 'Padaria Bom Pão', '12345678000199', 'Marília', 'SP', '(14) 99999-9999', 'contato@bompao.com.br', '28 dias', 'NENHUM', '0012'],
+      ['001235', 'Supermercado Central LTDA', 'Supermercado Central', '98765432000188', 'Rio Preto', 'SP', '(17) 99888-7777', '', 'À vista', '5 PCT BONIFICADOS/MÊS', '0015'],
     ],
-    dica: 'Coluna obrigatória: razao_social. codigo_vendedor é opcional e vincula o cliente ao usuário vendedor cadastrado com o mesmo código. Se o código informado não existir, a linha é ignorada para evitar cliente vinculado incorretamente. Origem será marcada como "totvs".',
+    dica: 'Colunas obrigatórias: razao_social e nome_fantasia. Para clientes existentes, o importador atualiza pelo codigo_totvs e, como alternativa, pelo CNPJ/CPF.  codigo_vendedor é opcional e vincula o cliente ao usuário vendedor cadastrado com o mesmo código. Se o código informado não existir, a linha é ignorada para evitar cliente vinculado incorretamente. Origem será marcada como "totvs".',
   },
 };
 
@@ -5438,11 +5474,13 @@ function PaginaImportacao({ profile }) {
     const temColuna = preview && (preview.headers||[]).includes('razao_social');
     if (!temColuna) return toast('Não encontrei a coluna razao_social. Cabeçalhos lidos: '+((preview&&preview.headers)||[]).join(', '), 'error');
 
-    const linhasSemRazao=[];
+    const linhasSemRazao=[], linhasSemFantasia=[];
     const rowsValidas=rows.filter((r,i)=>{
       const nome=String(r.razao_social||'').replace(/\u00A0/g,' ').trim();
+      const fantasia=String(r.nome_fantasia||'').replace(/\u00A0/g,' ').trim();
       if(!nome){ linhasSemRazao.push(i+2); return false; }
-      r.razao_social=nome;
+      if(!fantasia){ linhasSemFantasia.push(i+2); return false; }
+      r.razao_social=nome; r.nome_fantasia=fantasia;
       return true;
     });
     if(!rowsValidas.length) return toast('Nenhuma linha possui razão social preenchida.','error');
@@ -5473,9 +5511,10 @@ function PaginaImportacao({ profile }) {
       else vendedorMap[cod] = v;
     });
 
-    let ok = 0, erros = linhasSemRazao.length, msgs = [], processados=0;
+    let ok = 0, atualizados=0, erros = linhasSemRazao.length+linhasSemFantasia.length, msgs = [], processados=0;
     atualizarProgresso(0,rowsValidas.length,'Importando clientes...');
     if(linhasSemRazao.length) msgs.push('Sem razão social: linha(s) '+linhasSemRazao.slice(0,20).join(', ')+(linhasSemRazao.length>20?'...':''));
+    if(linhasSemFantasia.length) msgs.push('Sem nome fantasia: linha(s) '+linhasSemFantasia.slice(0,20).join(', ')+(linhasSemFantasia.length>20?'...':''));
     for (const r of rowsValidas) {
       let vendedorId = null;
       if (r.codigo_vendedor) {
@@ -5496,22 +5535,24 @@ function PaginaImportacao({ profile }) {
         vendedorId = vend.id;
       }
 
-      const { error } = await sb.from('clientes').insert({
-        razao_social: r.razao_social,
-        codigo_totvs: r.codigo_totvs || null, cnpj_cpf: r.cnpj_cpf || null,
-        cidade: r.cidade || null, estado: r.estado || null,
-        telefone: r.telefone || null, email: r.email || null,
-        condicao_pagamento: r.condicao_pagamento || null,
-        acordo_comercial: r.acordo_comercial || null,
-        vendedor_id: vendedorId,
-        origem: 'totvs',
-      });
-      if (error) { erros++; msgs.push((r.codigo_totvs || r.razao_social) + ': ' + error.message); } else ok++;
+      const payload={
+        razao_social:r.razao_social, nome_fantasia:r.nome_fantasia,
+        codigo_totvs:r.codigo_totvs||null, cnpj_cpf:r.cnpj_cpf||null,
+        cidade:r.cidade||null, estado:r.estado||null, telefone:r.telefone||null, email:r.email||null,
+        condicao_pagamento:r.condicao_pagamento||null, acordo_comercial:r.acordo_comercial||null,
+        vendedor_id:vendedorId, origem:'totvs'
+      };
+      let existente=null;
+      if(r.codigo_totvs){ const q=await sb.from('clientes').select('id').eq('codigo_totvs',r.codigo_totvs).maybeSingle(); if(q.error){erros++;msgs.push((r.codigo_totvs||r.razao_social)+': '+q.error.message);processados++;atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');continue;} existente=q.data; }
+      if(!existente && r.cnpj_cpf){ const doc=String(r.cnpj_cpf).replace(/\D/g,''); const q=await sb.from('clientes').select('id,cnpj_cpf').limit(10000); if(q.error){erros++;msgs.push((r.codigo_totvs||r.razao_social)+': '+q.error.message);processados++;atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');continue;} existente=(q.data||[]).find(c=>String(c.cnpj_cpf||'').replace(/\D/g,'')===doc)||null; }
+      const gravacao=existente ? await sb.from('clientes').update(payload).eq('id',existente.id) : await sb.from('clientes').insert(payload);
+      if(gravacao.error){ erros++; msgs.push((r.codigo_totvs||r.razao_social)+': '+gravacao.error.message); }
+      else if(existente) atualizados++; else ok++;
       processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
     }
     setImportando(false); finalizarProgresso(rowsValidas.length);
-    setResultado('✓ ' + ok + ' cliente(s) importado(s)' + (erros ? ' · ⚠ ' + erros + ' linha(s) ignorada(s)/com erro\n' + msgs.slice(0, 10).join('\n') : ''));
-    if (ok > 0) toast(ok + ' cliente(s) importado(s)!', 'success');
+    setResultado('✓ ' + ok + ' cliente(s) novo(s) · ↻ ' + atualizados + ' cliente(s) atualizado(s)' + (erros ? ' · ⚠ ' + erros + ' linha(s) ignorada(s)/com erro\n' + msgs.slice(0, 10).join('\n') : ''));
+    if (ok+atualizados > 0) toast((ok+atualizados) + ' cliente(s) processado(s)!', 'success');
   }
 
   function executar() {
