@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pzZIFJ_KVWYs1W9Kx3_zEgPRPKjsIOJY2a8pvKIjTRHYYKNxZ6HYZYd5cPMu2y3sZThFLxs_0lLlvMs9yd0oZZsT58GPS_dcCWCq86GWfI63PpUjU3MtTiyZoB2xJNHZAKJzU8xU-iJLALyoZQHZqG6d9weQ0O3mrITOBJezIKhOl-mwoq589cHPS2aAqgXe8cj4IGqfS2-s2_cDs0lb8j2I3HUYfvOitZCkbH479OPQIVHzzZv8it6dVEgVarX9vgz9hMTrsxfcTK5C0YCPc_mYDg2RuObqZYHHHOv248SLh3Dxv4hFdMQk_OTG6wVhtXIpj8FKpye5TL2ZCXMKP3ppyMvUCSBrtNrMQMpZWFF6EIDZgg9ibg0R0dOZ91-A" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3031,6 +3031,11 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('');
   const novaLinhaEquip = () => ({ equipamento:'', quantidade:1, patrimonio:'' });
+  function alterarLinhaEquip(setter, idx, campo, valor) {
+    setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x));
+  }
+  function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
+  function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
   const [equipamentosSolicitados, setEquipamentosSolicitados] = useState([novaLinhaEquip()]);
   const [equipamentosEntrega, setEquipamentosEntrega] = useState([novaLinhaEquip()]);
   const [justificativa, setJustificativa] = useState('');
@@ -3107,10 +3112,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       if (!linhas.length) return toast('Inclua pelo menos um equipamento e quantidade.', 'error');
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
       if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
-      const primeiro = linhas[0], primeiraEntrega = entregas[0];
+      const primeiro = linhas[0];
+      // Mantém somente os campos legados que realmente existem em solicitacoes.
+      // Todos os equipamentos (inclusive os de entrega) são persistidos em solicitacao_equipamentos.
       payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
-        equipamento_entrega: tipo === 'troca' && primeiraEntrega ? primeiraEntrega.equipamento : null,
-        patrimonio_entrega: tipo === 'troca' && primeiraEntrega ? ((primeiraEntrega.patrimonio || '').trim() || null) : null,
         justificativa: tipo === 'troca' ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
