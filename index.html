@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=oQGn79149XgTciTVF2STJS5oxh5xBYiuQF8fqpA8VMuhmXj6jCIigH3JPECo8pE1Lgf-MFSJ3gO3QBXwe7NBADm23TMte9qhojk_nCLNb6XNdMupOUKbl9zcOVMNxO4jzPmvIjVAu7vAsR4aOJNpGdAkSBy0Ku6zvFN0d8PHpyS_tFTYUYWBa-9PYvcEOzO_fBQKtZsb_qnp4jL00fCRw-qgSDDFBwgTqM2ozIctI5eAEouuwsTqRHTeRssTIuVHbSCzL9htAUCR0WH2SjByEA85tk1-bQUtgjbKoP7GmrME-Rig-tPkj-eNC5d6rvvkyHkDpezmGR6RhLUfzV0dN5xT25cbNeMgXYZBAqxb5K58cz0PK9RWvWkcCyFq0EMe" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -640,7 +640,7 @@ function menuForModulo(modulo, papel) {
       {id:'dashboard',label:'Dashboard',icon:'◳'},{id:'emissao',label:'Cadastro de Ficha',icon:'+'},
       {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
       {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
-    return itens.filter(x=>x.id!=='emissao'||['vendedor','supervisor','coordenador','admin'].includes(papel));
+    return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin');
   }
   if(modulo==='administracao_vendas') return [
     {id:'dashboard',label:'Dashboard',icon:'◳'},
@@ -1044,28 +1044,6 @@ function PaginaEmissao({ profile, onSaved }) {
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   const [destinatarios, setDestinatarios] = useState([]);
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
-  const [responsaveisComerciais, setResponsaveisComerciais] = useState([]);
-  const [vendedorFichaId, setVendedorFichaId] = useState(profile.id);
-
-  useEffect(() => {
-    (async () => {
-      if (!['supervisor','coordenador'].includes(profile.papel)) {
-        setResponsaveisComerciais([profile]); setVendedorFichaId(profile.id); return;
-      }
-      let lista = [profile];
-      if (profile.papel === 'supervisor') {
-        const {data:v}=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','vendedor').eq('supervisor_id',profile.id).eq('ativo',true).order('nome');
-        lista = lista.concat(v || []);
-      } else {
-        const {data:sups}=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','supervisor').eq('coordenador_id',profile.id).eq('ativo',true).order('nome');
-        const supIds=(sups||[]).map(x=>x.id);
-        let v=[];
-        if(supIds.length){ const rv=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','vendedor').in('supervisor_id',supIds).eq('ativo',true).order('nome'); v=rv.data||[]; }
-        lista = lista.concat(sups || [], v);
-      }
-      setResponsaveisComerciais(lista); setVendedorFichaId(profile.id);
-    })();
-  }, [profile.id, profile.papel]);
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
@@ -1106,12 +1084,6 @@ function PaginaEmissao({ profile, onSaved }) {
       ? prev.freezer_tipos.filter(x => x !== tipo) : [...prev.freezer_tipos, tipo] }));
   }
 
-  function alterarLinhaEquip(setter, idx, campo, valor) {
-    setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x));
-  }
-  function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
-  function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
-
   async function salvar() {
     const obrig = [
       ['razao_social','Razão Social'], ['nome_fantasia','Nome Fantasia'], ['cnpj_cpf','CNPJ'], ['rua','Rua'], ['numero','Número'],
@@ -1132,7 +1104,7 @@ function PaginaEmissao({ profile, onSaved }) {
     const num = v => v === '' || v === null ? null : Number(v);
 
     const { data: nova, error } = await sb.from('fichas_clientes').insert({
-      vendedor_id: vendedorFichaId || profile.id,
+      vendedor_id: profile.id,
       razao_social: f.razao_social.trim(), nome_fantasia: f.nome_fantasia.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
@@ -1169,7 +1141,6 @@ function PaginaEmissao({ profile, onSaved }) {
     setDestinatarios(varios);
     toast('Ficha enviada para aprovação!', 'success');
     setF(FORM_VAZIO);
-    setVendedorFichaId(profile.id);
     setMesmoEnderecoEntrega(false);
     if (!varios.length) onSaved();
   }
@@ -1186,14 +1157,6 @@ function PaginaEmissao({ profile, onSaved }) {
         destinatarios.map(d => h('button', { key: d.id, className: 'btn btn-secondary btn-sm',
           onClick: () => abrirWhats(d.telefone, d._msg) }, 'Enviar para ' + d.nome)),
         h('button', { className: 'btn btn-primary btn-sm', onClick: () => { setDestinatarios([]); onSaved(); } }, 'Concluir'))),
-
-    ['supervisor','coordenador'].includes(profile.papel) && h('div', { className: 'card' },
-      h('div', { className: 'section-title' }, 'Responsável Comercial'),
-      h('div', { className: 'page-sub', style:{marginBottom:10} }, 'Por padrão a ficha fica em seu nome. Se necessário, selecione outro responsável ativo da sua hierarquia.'),
-      h(Campo, { label: 'Responsável pela ficha', obrigatorio: true },
-        h('select', { className:'form-select', value:vendedorFichaId, onChange:e=>setVendedorFichaId(e.target.value) },
-          responsaveisComerciais.map(u=>h('option',{key:u.id,value:u.id},(u.id===profile.id?'Eu mesmo — ':'')+u.nome+' · '+(ROLE_LABELS[u.papel]||u.papel))))),
-    ),
 
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Dados Básicos'),
@@ -1795,7 +1758,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     try{
       let qa=sb.from('rota_programacao_aprovacoes').select('*');
-      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id).not('enviado_em','is',null);
+      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id).eq('status','pendente');
       const ra=await qa;
       if(ra.error)throw ra.error;
       const aps=(ra.data||[]).filter(Boolean);
@@ -2364,7 +2327,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
   const totalProgSupervisor = etapa==='supervisor'
-    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(profile.id)&&a.enviado_em&&a.status==='pendente').length
+    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(profile.id)&&a.status==='pendente').length
     : 0;
   const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
 
@@ -2585,8 +2548,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [sub, setSub] = useState('equipamento');
 
   const ehVendedor = visao === 'vendedor';
-  const podeBonificacao = modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao);
-  const podeAmostra = modulo === 'vendas' && ['vendedor','supervisor','coordenador','tecnico','admin'].includes(visao);
+  const podeBonificacao = modulo === 'vendas' && ['supervisor','admin'].includes(visao);
+  const podeAmostra = modulo === 'vendas' && ['tecnico','admin'].includes(visao);
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
@@ -2786,11 +2749,9 @@ async function vendedoresVisiveis(profile) {
   if (profile.papel === 'adm_vendas') {
     const {data:carteira}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
     const supIds=(carteira||[]).map(x=>x.supervisor_id);
-    // Sem Supervisor vinculado = carteira irrestrita.
-    if(!supIds.length)return null;
+    if(!supIds.length)return [];
     const {data}=await sb.from('usuarios').select('id').eq('papel','vendedor').in('supervisor_id',supIds).eq('ativo',true);
-    // Inclui também os próprios Supervisores, pois eles podem possuir clientes diretamente.
-    return [...supIds,...(data||[]).map(x=>x.id)];
+    return (data||[]).map(x=>x.id);
   }
 
   // Gestão Adm. Vendas, Diretoria, Financeiro e Admin mantêm visão ampla
@@ -3030,14 +2991,11 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [clienteId, setClienteId] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('');
-  const novaLinhaEquip = () => ({ equipamento:'', quantidade:1, patrimonio:'' });
-  function alterarLinhaEquip(setter, idx, campo, valor) {
-    setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x));
-  }
-  function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
-  function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
-  const [equipamentosSolicitados, setEquipamentosSolicitados] = useState([novaLinhaEquip()]);
-  const [equipamentosEntrega, setEquipamentosEntrega] = useState([novaLinhaEquip()]);
+  const [equipamento, setEquipamento] = useState('');
+  const [equipamentoManual, setEquipamentoManual] = useState('');
+  const [patrimonio, setPatrimonio] = useState('');
+  const [equipamentoEntrega,setEquipamentoEntrega]=useState('');
+  const [patrimonioEntrega,setPatrimonioEntrega]=useState('');
   const [justificativa, setJustificativa] = useState('');
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
@@ -3069,18 +3027,18 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     if (['adm_vendas','gestao_adm_vendas','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Troca de Equipamento']);
   } else {
     if (['vendedor','supervisor','coordenador','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Equipamento']);
-    if (['vendedor','supervisor','coordenador','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
-    if (['vendedor','supervisor','coordenador','tecnico','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Kit / Amostra']);
+    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
+    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Kit / Amostra']);
   }
 
   const clienteSel = (clientes || []).find(c => c.id === clienteId);
   const equipamentos = clienteSel ? listarEquipamentos(clienteSel.fichas_clientes) : [];
   const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria) : [];
 
-  useEffect(() => { setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]); }, [clienteId]);
+  useEffect(() => { setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega(''); }, [clienteId]);
   useEffect(() => {
     setTipo(modulo === 'administracao_vendas' && categoria === 'equipamento' ? 'troca' : '');
-    setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]);
+    setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega('');
     setJustificativa(''); setProdutoId(''); setQuantidade(''); setModalidadeBonificacao(''); setTipoAmostra('');
   }, [categoria]);
 
@@ -3107,15 +3065,13 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
     if (categoria === 'equipamento') {
       if (!tipo) return toast('Selecione o tipo de solicitação.', 'error');
-      const linhas = equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0);
-      const entregas = tipo === 'troca' ? equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0) : [];
-      if (!linhas.length) return toast('Inclua pelo menos um equipamento e quantidade.', 'error');
+      const eqFinal = equipamento;
+      if (!eqFinal) return toast('Selecione o equipamento.', 'error');
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
-      if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
-      const primeiro = linhas[0];
-      // Mantém somente os campos legados que realmente existem em solicitacoes.
-      // Todos os equipamentos (inclusive os de entrega) são persistidos em solicitacao_equipamentos.
-      payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
+      if (tipo === 'troca' && !equipamentoEntrega) return toast('Informe qual equipamento será entregue ao cliente.', 'error');
+      payload = { ...payload, tipo, equipamento: eqFinal, patrimonio: patrimonio.trim() || null,
+        equipamento_entrega: tipo === 'troca' ? equipamentoEntrega : null,
+        patrimonio_entrega: tipo === 'troca' ? (patrimonioEntrega.trim() || null) : null,
         justificativa: tipo === 'troca' ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
@@ -3134,17 +3090,6 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
     setSalvando(false);
     if (error) return toast(error.message, 'error');
-    if (categoria === 'equipamento') {
-      const detalhes = [];
-      equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
-        solicitacao_id:nova.id, movimento: tipo === 'troca' ? 'coletar' : 'equipamento', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
-      }));
-      if (tipo === 'troca') equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
-        solicitacao_id:nova.id, movimento:'entregar', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
-      }));
-      const { error: erroItens } = await sb.from('solicitacao_equipamentos').insert(detalhes);
-      if (erroItens) return toast('Solicitação criada, mas houve erro ao gravar os equipamentos: ' + erroItens.message, 'error');
-    }
     toast('Solicitação enviada!', 'success');
     onCriada(categoria);
   }
@@ -3180,26 +3125,21 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
                 h('option', { value: 'aumento' }, 'Aumento de equipamento'),
                 h('option', { value: 'troca' }, 'Troca de equipamento'),
                 h('option', { value: 'manutencao' }, 'Manutenção de equipamento'))),
-        h('div',{style:{gridColumn:'1 / -1'}},
-          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},tipo === 'troca' ? 'Equipamentos a coletar *' : 'Equipamentos *'),
-          equipamentosSolicitados.map((ln,i)=>h('div',{key:'eq_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
-            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'equipamento',e.target.value)},
-              h('option',{value:''},'Selecione o equipamento...'),
-              equipamentos.length > 0 && h('optgroup',{label:'Equipamentos já registrados no cliente'},equipamentos.map(eq=>h('option',{key:'cad_'+i+'_'+eq,value:eq},eq))),
-              h('optgroup',{label:'Lista padrão de equipamentos'},EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'pad_'+i+'_'+eq,value:eq},eq)))),
-            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'quantidade',e.target.value)}),
-            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'patrimonio',e.target.value)}),
-            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosSolicitados.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosSolicitados,i)},'×'))),
-          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosSolicitados)},'+ Equipamento')),
-        tipo === 'troca' && h('div',{style:{gridColumn:'1 / -1'}},
-          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},'Equipamentos a entregar *'),
-          equipamentosEntrega.map((ln,i)=>h('div',{key:'ent_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
-            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'equipamento',e.target.value)},
-              h('option',{value:''},'Selecione o equipamento...'),EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'entopt_'+i+'_'+eq,value:eq},eq))),
-            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'quantidade',e.target.value)}),
-            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'patrimonio',e.target.value)}),
-            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosEntrega.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosEntrega,i)},'×'))),
-          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosEntrega)},'+ Equipamento a entregar')),
+        h(Campo, { label: tipo === 'troca' ? 'Equipamento a coletar' : 'Equipamento', obrigatorio: true },
+          h('select', { className: 'form-select', value: equipamento, onChange: e => setEquipamento(e.target.value) },
+            h('option', { value: '' }, 'Selecione...'),
+            equipamentos.length > 0 && h('optgroup', { label: 'Equipamentos já registrados no cliente' },
+              equipamentos.map(eq => h('option', { key: 'cad_' + eq, value: eq }, eq))),
+            h('optgroup', { label: 'Lista padrão de equipamentos' },
+              EQUIPAMENTOS_PADRAO.map(eq => h('option', { key: 'pad_' + eq, value: eq }, eq))))),
+        h(Campo, { label: tipo === 'troca' ? 'Patrimônio a coletar' : 'Patrimônio' },
+          h(Input, { value: patrimonio, placeholder: 'Número do patrimônio, se houver', onChange: e => setPatrimonio(e.target.value) })),
+        tipo === 'troca' && h(Campo,{label:'Equipamento a entregar',obrigatorio:true},
+          h('select',{className:'form-select',value:equipamentoEntrega,onChange:e=>setEquipamentoEntrega(e.target.value)},
+            h('option',{value:''},'Selecione...'),
+            EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'ent_'+eq,value:eq},eq)))),
+        tipo === 'troca' && h(Campo,{label:'Patrimônio a entregar'},
+          h(Input,{value:patrimonioEntrega,placeholder:'Se já estiver definido',onChange:e=>setPatrimonioEntrega(e.target.value)})),
         h(Campo, { label: 'Justificativa', obrigatorio: tipo === 'troca' },
           h('select', { className: 'form-select', value: justificativa, disabled: tipo !== 'troca', onChange: e => setJustificativa(e.target.value) },
             h('option', { value: '' }, tipo === 'troca' ? 'Selecione...' : 'Somente para troca'),
@@ -3352,7 +3292,7 @@ function PaginaConfiguracaoModulos({onUsuarios}){
           h('tbody',null,...linhasUsuarios)))),
     h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Carteira — Administração de Vendas'),
-      h('div',{className:'page-sub',style:{marginBottom:12}},'Sem Supervisor marcado: acesso a todas as carteiras. Ao marcar um ou mais Supervisores, o Adm. de Vendas passa a visualizar somente as carteiras selecionadas.'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Cada Adm. de Vendas pode responder por um ou mais Supervisores.'),
       ...(blocosCarteira.length?blocosCarteira:[h('div',{key:'vazio',className:'empty-state'},'Nenhum Adm. de Vendas cadastrado.')]))
   );
 }
@@ -3426,11 +3366,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
       if(supIds.length){
         const {data:ss}=await sb.from('usuarios').select('id,nome').in('id',supIds).eq('ativo',true).order('nome');
         setSupervisores(ss||[]);
-      } else {
-        // Nenhum vínculo = acesso a todas as carteiras de Supervisores.
-        const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true).order('nome');
-        setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
-      }
+      } else setSupervisores([]);
     } else if(['gestao_adm_vendas','diretoria','admin'].includes(visao)){
       const {data:ss}=await sb.from('usuarios').select('id,nome').eq('papel','supervisor').eq('ativo',true).order('nome');
       setSupervisores(ss||[]); supIds=(ss||[]).map(x=>x.id);
@@ -3612,8 +3548,8 @@ function PaginaDashboard({ profile, visao, ehPreview, modulo }) {
         if(visao==='adm_vendas'){
           const {data:cart}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
           const sid=(cart||[]).map(x=>x.supervisor_id);
-          // Sem vínculo = todos os Supervisores; com vínculo = somente selecionados.
-          if(sid.length) qs=qs.in('id',sid);
+          if(!sid.length){setSupervisoresDash([]);return;}
+          qs=qs.in('id',sid);
         }
         const {data:sups}=await qs;
         const supRows=[];
@@ -5216,7 +5152,7 @@ function PaginaPedidos({ profile }) {
                               onChange: v => setItem(i, 'produto_id', v),
                               items: produtos.map(pr => ({
                                 value: pr.id,
-                                label: pr.codigo + ' — ' + pr.descricao,
+                                label: pr.codigo,
                                 search: pr.codigo + ' ' + pr.descricao,
                                 code: pr.codigo
                               }))
@@ -5943,7 +5879,6 @@ function App() {
   const [contador, setContador] = useState(0);
   const [modulo,setModulo]=useState(null);
   const [modulosUsuario,setModulosUsuario]=useState([]);
-  const [semModulos,setSemModulos]=useState(null);
 
   useEffect(() => {
     const fn=()=>{setModulo('administracao');setVisao('admin');setPagina('config_modulos');};
@@ -5977,23 +5912,9 @@ function App() {
     if (!session) { setProfile(null); setSessionReady(true); return; }
     const { data: perfil } = await sb.from('usuarios').select('*').eq('id', session.user.id).single();
     if (!perfil) { setSemPerfil(session.user.id); setSessionReady(true); return; }
-    if (perfil.ativo === false) {
-      await sb.auth.signOut();
-      setProfile(null); setVisao(null); setModulo(null); setModulosUsuario([]);
-      setSemPerfil('USUARIO_INATIVO'); setSessionReady(true); return;
-    }
     const {data:acessos}=await sb.from('usuario_modulos').select('modulo,ativo').eq('usuario_id',perfil.id).eq('ativo',true);
-    const ms=(acessos||[]).map(x=>x.modulo).filter(m=>MODULOS[m]);
-    if(!ms.length){
-      let adminContato=null;
-      const {data:contato}=await sb.rpc('contato_administrador_sistema');
-      if(Array.isArray(contato) && contato.length) adminContato=contato[0];
-      else if(contato && !Array.isArray(contato)) adminContato=contato;
-      setSemModulos({usuario:perfil.nome||session.user.email||'Usuário',papel:ROLE_LABELS[perfil.papel]||perfil.papel,admin:adminContato});
-      await sb.auth.signOut();
-      setProfile(null);setVisao(null);setModulo(null);setModulosUsuario([]);setSessionReady(true);return;
-    }
-    setSemModulos(null);setModulosUsuario(ms);
+    const ms=(acessos||[]).map(x=>x.modulo);
+    setModulosUsuario(ms.length?ms:modulosPadrao(perfil.papel));
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
   }
@@ -6021,32 +5942,10 @@ function App() {
 
   async function logout() {
     await sb.auth.signOut();
-    setProfile(null); setVisao(null); setSemPerfil(null); setSemModulos(null); setModulo(null); setModulosUsuario([]);
+    setProfile(null); setVisao(null); setSemPerfil(null); setModulo(null); setModulosUsuario([]);
   }
 
   if (!sessionReady) return h('div', { className: 'login-container' }, h('div', { style: { color: 'var(--text-muted)' } }, 'Carregando...'));
-
-  if (semModulos) {
-    const tel=String((semModulos.admin&&semModulos.admin.telefone)||'').replace(/\D/g,'');
-    const telWhats=tel && !tel.startsWith('55') ? '55'+tel : tel;
-    const msg='Olá! Preciso de ajuda com meu acesso ao Meu Cliente - Grespan. O usuário '+semModulos.usuario+' ('+semModulos.papel+') está ativo, porém não possui nenhum módulo liberado. Poderia verificar e liberar os módulos necessários, por favor?';
-    return h('div',{className:'login-container'},
-      h('div',{className:'login-card',style:{textAlign:'center'}},
-        h('div',{className:'page-title',style:{marginBottom:10}},'Acesso aos módulos não liberado'),
-        h('div',{className:'page-sub',style:{marginBottom:16}},'Seu usuário está ativo, mas ainda não possui nenhum módulo de acesso liberado. Entre em contato com o Administrador do Sistema.'),
-        semModulos.admin && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--border)',borderRadius:8,textAlign:'left'}},
-          h('div',{style:{fontWeight:700}},semModulos.admin.nome||'Administrador do Sistema'),
-          h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:4}},semModulos.admin.telefone||'Telefone não cadastrado')),
-        telWhats && h('a',{className:'btn btn-primary',href:'https://wa.me/'+telWhats+'?text='+encodeURIComponent(msg),target:'_blank',rel:'noopener noreferrer',style:{width:'100%',display:'block',textDecoration:'none',marginBottom:10}},'Falar com o Administrador pelo WhatsApp'),
-        !telWhats && h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:12}},'O administrador ainda não possui telefone cadastrado para contato pelo WhatsApp.'),
-        h('button',{className:'btn btn-secondary',style:{width:'100%'},onClick:()=>setSemModulos(null)},'Voltar ao login')));
-  }
-
-  if (semPerfil === 'USUARIO_INATIVO') return h('div', { className: 'login-container' },
-    h('div', { className: 'login-card' },
-      h('div', { className: 'page-title', style:{marginBottom:10} }, 'Acesso bloqueado'),
-      h('div', { className: 'page-sub', style:{marginBottom:18} }, 'Seu usuário está inativo. Procure um administrador do sistema para reativar o acesso.'),
-      h('button', { className:'btn btn-primary', style:{width:'100%'}, onClick:()=>{setSemPerfil(null);setSessionReady(true);} }, 'Voltar ao login')));
 
   if (semPerfil) return h('div', { className: 'login-container' },
     h('div', { className: 'login-card', style: { textAlign: 'center' } },
