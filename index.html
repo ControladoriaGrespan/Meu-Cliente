@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=xyYX-OfQVSCkbrluzZqY6CTa-sNqQE6_TA453HbAm4mRrU1AABTrbK8Ip-u92vXxhCDHPK08NBmy15g2G9TC_IteIq5vQEeCKyh7S7kMzAePJMH0Bas8msKD12RYDwhqgCi1wQCwSMx1Aec-ikrAxyNZtZR_7BDwtZhvung_y0miQoQy-hW8_zyl7olQuVBPAnqS7LuzCDXnQ1YV2tLCf1GM29RiZNrK6ntGUkt1jCk2O1KdvneRaG_3hm3IClldVStbBSHSxDu_vhnlBhDO-Hve1CB_C64jZOkeRr-mlQ3Q-6df8d3nzMcstr1jeVHmFe6XD_mD7XjYyLvnEDcz4u9pqhGDnHH-5aOWbn3uziAkp7Mf_lnikQudA84RNuIg" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v81-importacao-clientes-razao-social';
-console.info('[Meu Cliente] BUILD v81-importacao-clientes-razao-social');
+window.__MEU_CLIENTE_BUILD__='v83-codigo-totvs-clientes';
+console.info('[Meu Cliente] BUILD v83-codigo-totvs-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2761,7 +2761,7 @@ function PaginaClientes({ profile }) {
   const [clientes, setClientes] = useState(null);
   const [busca, setBusca] = useState('');
   const [editandoTotvs, setEditandoTotvs] = useState({});
-  const podeEditar = ['admin','financeiro'].includes(profile.papel);
+  const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
   useEffect(() => { carregar(); }, []);
 
@@ -2807,12 +2807,14 @@ function PaginaClientes({ profile }) {
   }
 
   async function salvarTotvs(c) {
-    const valor = editandoTotvs[c.id];
-    const { error } = await sb.from('clientes')
-      .update({ codigo_totvs: (valor || '').trim() || null })
-      .eq('id', c.id);
-    if (error) return toast(error.message, 'error');
-    toast('Código TOTVS salvo.', 'success');
+    const valor = String(editandoTotvs[c.id] == null ? (c.codigo_totvs || '') : editandoTotvs[c.id]).trim();
+    if (!valor) return toast('Informe o código TOTVS do cliente.', 'error');
+    const { error } = await sb.rpc('atualizar_codigo_totvs_cliente', {
+      p_cliente_id: c.id,
+      p_codigo_totvs: valor
+    });
+    if (error) return toast('Não foi possível salvar o código TOTVS: ' + error.message, 'error');
+    toast('Código TOTVS salvo com sucesso.', 'success');
     carregar();
   }
 
@@ -2849,7 +2851,8 @@ function PaginaClientes({ profile }) {
       h('div', null,
         h('div', { className: 'page-title' }, 'Clientes'),
         h('div', { className: 'page-sub' },
-          `${filtrados.length} cliente(s)` + (semCodigo ? ` · ${semCodigo} sem código TOTVS` : ''))),
+          `${filtrados.length} cliente(s)` + (semCodigo ? ` · ${semCodigo} sem código TOTVS` : '') +
+          (podeEditar ? ' · Código TOTVS editável pelo Adm. de Vendas após o cadastro no TOTVS' : ''))),
       h('input', {
         className: 'form-input',
         style: { maxWidth: 300 },
@@ -5215,12 +5218,16 @@ function PaginaImportacao({ profile }) {
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState('');
   const [nomeArquivo, setNomeArquivo] = useState('');
+  const [progresso,setProgresso]=useState({ativo:false,percentual:0,processados:0,total:0,etapa:''});
+  const iniciarProgresso=(total,etapa='Preparando importação...')=>setProgresso({ativo:true,percentual:0,processados:0,total:total||0,etapa});
+  const atualizarProgresso=(processados,total,etapa='Importando...')=>{ const pct=total?Math.min(100,Math.round((processados/total)*100)):100; setProgresso({ativo:true,percentual:pct,processados,total,etapa}); };
+  const finalizarProgresso=(total,etapa='Importação concluída')=>setProgresso({ativo:false,percentual:100,processados:total||0,total:total||0,etapa});
 
   async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
     setNomeArquivo(file.name);
-    setPreview(null); setResultado('');
+    setPreview(null); setResultado(''); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
     try {
       const conteudo = await lerArquivo(file);
       const parsed = parseArquivo(conteudo, file.name);
@@ -5241,7 +5248,8 @@ function PaginaImportacao({ profile }) {
     const obrig = rows.every(r => r.codigo && r.descricao);
     if (!obrig) return toast('As colunas "codigo" e "descricao" são obrigatórias.', 'error');
     setImportando(true);
-    let ok = 0, erros = 0, msgs = [];
+    iniciarProgresso(rows.length,'Importando produtos...');
+    let ok = 0, erros = 0, msgs = [], processados=0;
     for (const r of rows) {
       const { error } = await sb.from('produtos').upsert({
         codigo: r.codigo,
@@ -5251,8 +5259,9 @@ function PaginaImportacao({ profile }) {
         ativo: true,
       }, { onConflict: 'codigo' });
       if (error) { erros++; msgs.push(r.codigo + ': ' + error.message); } else ok++;
+      processados++; atualizarProgresso(processados,rows.length,'Importando produtos...');
     }
-    setImportando(false);
+    setImportando(false); finalizarProgresso(rows.length);
     setResultado('✓ ' + ok + ' produto(s) importado(s)' + (erros ? ' · ✗ ' + erros + ' erro(s)\n' + msgs.slice(0, 5).join('\n') : ''));
     if (ok > 0) toast(ok + ' produto(s) importado(s)!', 'success');
   }
@@ -5260,6 +5269,7 @@ function PaginaImportacao({ profile }) {
   // ---------- PEDIDOS ----------
   async function importarPedidos(rows) {
     setImportando(true);
+    iniciarProgresso(rows.length,'Preparando pedidos...');
     const { data: clientes } = await sb.from('clientes').select('id, cnpj_cpf, codigo_totvs').limit(10000);
     const { data: produtos } = await sb.from('produtos').select('id, codigo').limit(10000);
     // normaliza codigo para match flexivel:
@@ -5295,11 +5305,11 @@ function PaginaImportacao({ profile }) {
     const nCli = Object.keys(cliMap).length;
     const nProd = Object.keys(prodMap).length;
     if (nCli === 0) {
-      setImportando(false);
+      setImportando(false); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
       return toast('Nenhum cliente encontrado no banco. Importe os clientes antes dos pedidos.', 'error');
     }
     if (nProd === 0) {
-      setImportando(false);
+      setImportando(false); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
       return toast('Nenhum produto encontrado no banco. Importe os produtos antes dos pedidos.', 'error');
     }
     toast('Match: ' + (clientes || []).length + ' clientes (' + nCli + ' chaves) e ' + (produtos || []).length + ' produtos (' + nProd + ' chaves) carregados do banco.', 'info');
@@ -5337,19 +5347,22 @@ function PaginaImportacao({ profile }) {
       });
     });
 
-    let okPed = 0, errPed = 0;
-    for (const g of Object.values(grupos)) {
+    const gruposLista=Object.values(grupos);
+    let okPed = 0, errPed = 0, processadosPed=0;
+    atualizarProgresso(0,gruposLista.length,'Importando pedidos...');
+    for (const g of gruposLista) {
       const rotaId = g.rota ? rotaMap[g.rota.toLowerCase().trim()] : null;
       const { data: pedido, error } = await sb.from('pedidos').insert({
         cliente_id: g.cliId, rota_id: rotaId, criado_por: profile.id,
         data_pedido: g.data, observacoes: g.obs || null, origem: 'totvs',
       }).select().single();
-      if (error) { errPed++; continue; }
+      if (error) { errPed++; processadosPed++; atualizarProgresso(processadosPed,gruposLista.length,'Importando pedidos...'); continue; }
       const itensOk = g.itens.filter(it => it.quantidade > 0 && (it.tipo_item === 'bonificacao' || it.valor_unitario > 0));
       if (itensOk.length) await sb.from('pedido_itens').insert(itensOk.map(it => ({ pedido_id: pedido.id, ...it, valor_unitario: it.tipo_item === 'bonificacao' ? 0 : it.valor_unitario })));
       okPed++;
+      processadosPed++; atualizarProgresso(processadosPed,gruposLista.length,'Importando pedidos...');
     }
-    setImportando(false);
+    setImportando(false); finalizarProgresso(gruposLista.length);
     let msg = '✓ ' + okPed + ' pedido(s) criado(s)';
     if (errPed) msg += ' · ✗ ' + errPed + ' erro(s)';
     if (linhaErros.length) msg += '\n\nLinhas ignoradas:\n' + linhaErros.slice(0, 10).join('\n');
@@ -5371,6 +5384,7 @@ function PaginaImportacao({ profile }) {
     });
     if(!rowsValidas.length) return toast('Nenhuma linha possui razão social preenchida.','error');
     setImportando(true);
+    iniciarProgresso(rowsValidas.length,'Carregando vendedores...');
 
     const { data: vendedores, error: errVend } = await sb.from('usuarios')
       .select('id, nome, codigo_vendedor, papel')
@@ -5379,7 +5393,7 @@ function PaginaImportacao({ profile }) {
       .limit(10000);
 
     if (errVend) {
-      setImportando(false);
+      setImportando(false); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''});
       return toast('Não foi possível carregar os vendedores: ' + errVend.message, 'error');
     }
 
@@ -5389,7 +5403,8 @@ function PaginaImportacao({ profile }) {
       if (v.codigo_vendedor) vendedorMap[normCod(v.codigo_vendedor)] = v;
     });
 
-    let ok = 0, erros = linhasSemRazao.length, msgs = [];
+    let ok = 0, erros = linhasSemRazao.length, msgs = [], processados=0;
+    atualizarProgresso(0,rowsValidas.length,'Importando clientes...');
     if(linhasSemRazao.length) msgs.push('Sem razão social: linha(s) '+linhasSemRazao.slice(0,20).join(', ')+(linhasSemRazao.length>20?'...':''));
     for (const r of rowsValidas) {
       let vendedorId = null;
@@ -5398,6 +5413,7 @@ function PaginaImportacao({ profile }) {
         if (!vend) {
           erros++;
           msgs.push((r.codigo_totvs || r.razao_social) + ': vendedor código ' + r.codigo_vendedor + ' não encontrado');
+          processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
           continue;
         }
         vendedorId = vend.id;
@@ -5414,8 +5430,9 @@ function PaginaImportacao({ profile }) {
         origem: 'totvs',
       });
       if (error) { erros++; msgs.push((r.codigo_totvs || r.razao_social) + ': ' + error.message); } else ok++;
+      processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
     }
-    setImportando(false);
+    setImportando(false); finalizarProgresso(rowsValidas.length);
     setResultado('✓ ' + ok + ' cliente(s) importado(s)' + (erros ? ' · ⚠ ' + erros + ' linha(s) ignorada(s)/com erro\n' + msgs.slice(0, 10).join('\n') : ''));
     if (ok > 0) toast(ok + ' cliente(s) importado(s)!', 'success');
   }
@@ -5442,7 +5459,7 @@ function PaginaImportacao({ profile }) {
 
     h('div', { style: { display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 18 } },
       abas_.map(a => h('button', {
-        key: a.id, onClick: () => { setAba(a.id); setPreview(null); setResultado(''); setNomeArquivo(''); },
+        key: a.id, onClick: () => { setAba(a.id); setPreview(null); setResultado(''); setNomeArquivo(''); setProgresso({ativo:false,percentual:0,processados:0,total:0,etapa:''}); },
         style: {
           padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
           background: 'none', border: 'none', fontFamily: 'inherit',
@@ -5476,7 +5493,15 @@ function PaginaImportacao({ profile }) {
       preview && h('div', { style: { marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' } },
         h('span', { className: 'badge badge-green' }, preview.rows.length + ' linha(s) carregada(s)'),
         h('button', { className: 'btn btn-primary', onClick: executar, disabled: importando },
-          importando ? 'Importando...' : 'Importar ' + preview.rows.length + ' registro(s)'))),
+          importando ? 'Importando... ' + progresso.percentual + '%' : 'Importar ' + preview.rows.length + ' registro(s)')),
+      (importando || progresso.percentual===100) && h('div',{style:{marginTop:14}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',gap:12,fontSize:12,marginBottom:6}},
+          h('span',{style:{color:'var(--text-secondary)',fontWeight:600}},progresso.etapa||'Importando...'),
+          h('span',{style:{color:'var(--accent)',fontWeight:700}},progresso.percentual+'%')),
+        h('div',{style:{height:10,background:'#e5e7eb',borderRadius:999,overflow:'hidden',border:'1px solid var(--border)'}},
+          h('div',{style:{height:'100%',width:progresso.percentual+'%',background:'var(--accent)',transition:'width .18s ease',borderRadius:999}})),
+        h('div',{style:{fontSize:11,color:'var(--text-muted)',marginTop:5}},
+          progresso.total ? progresso.processados+' de '+progresso.total+' processado(s)' : 'Preparando dados...'))),
 
     // preview
     preview && h('div', { className: 'card', style: { padding: 0 } },
