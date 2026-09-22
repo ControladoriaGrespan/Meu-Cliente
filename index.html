@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=rU2o1s53HsPKEgBTXf9eI_p4KPIO-PO3VG56rlYtAYvzYOuEHwPbET6W8eKZ9SKoN6Yp4pRMxfg5V4aPMMW2aPpnUV3_zT2uQsNnEWKiViUP96BYbCs5dBBM6Qq61joGZv6Hlc2MFq_KVG365dpLB2S4-j6JXnpe6MdubOjvXIvasiHTSviq2sbb-dE9AOmyBAx8xJkU--lEtNnqNS2zKBOGU0H1IRI8NxNvrsdGOZREYPLvaKx8yEivN6f95h5lGVcxZpcOSbv_ObZA80eFN6tMCTpQ2zMdr9-_adFMNFpmTR6B-wdIgNg4ZPeZ9Ol3VIiORifc_lAw-Wpik_diC7gTqYD8k09-Gt7_cQBfgFX4fsoNJNYbKBE2DdjehVmw" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=7pCAcLpPCLZSYpeIih-pBvo6E6zzFvKNe5xZDK3AosC_olKYY5EcIfxf7X7L-i77tTPYUz4lBoFDjFwnlCJsnHrmvTW_UqYOcKjL_Wi8L8aICSAF5tN3budDnLApKXLYnGyFrK_JEy3Pd8yKH1SKWEwHMlz8vvESDEzx3VCJ1eMOZViJN5yl7i3-H4_vG9I8KpAlg1uHm0j_CO-2ju-jqrWIMMddzkZReP7iKFEaS-PucTOLIezy_wLgeYh3GSyer3__TZf9dky42ScBZ4PjQGuu3gNTEGQ2wdinCBp1MdyRWMxql5r6rHrsoqE_tbo4fWz6JpRf0_ZHfwfC5I8feYt4q7YDw_5CKeQbg6769bfGFM0IvE8p1T7Zy0fLdGz_" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v85-codigo-vendedor-independente-papel';
-console.info('[Meu Cliente] BUILD v85-codigo-vendedor-independente-papel');
+window.__MEU_CLIENTE_BUILD__='v86-deteccao-automatica-importacao';
+console.info('[Meu Cliente] BUILD v86-deteccao-automatica-importacao');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5287,7 +5287,18 @@ function PaginaImportacao({ profile }) {
         toast('Arquivo vazio ou formato não reconhecido.', 'error');
         return;
       }
-      setPreview(parsed);
+      const hs=new Set(parsed.headers||[]);
+      let tipoDetectado=null;
+      if(hs.has('razao_social')) tipoDetectado='clientes';
+      else if(hs.has('codigo') && hs.has('descricao')) tipoDetectado='produtos';
+      else if((hs.has('pedido') || hs.has('numero_pedido') || hs.has('pedido_numero')) &&
+              (hs.has('produto') || hs.has('codigo_produto') || hs.has('produto_codigo'))) tipoDetectado='pedidos';
+
+      if(tipoDetectado && tipoDetectado!==aba){
+        setAba(tipoDetectado);
+        toast('Arquivo reconhecido automaticamente como '+({clientes:'Clientes',produtos:'Produtos',pedidos:'Pedidos'}[tipoDetectado])+'.','info');
+      }
+      setPreview({...parsed,tipoDetectado:tipoDetectado||aba});
       toast(parsed.rows.length + ' linha(s) carregada(s) de ' + file.name, 'info');
     } catch (err) {
       toast('Erro ao ler arquivo: ' + err.message, 'error');
@@ -5505,9 +5516,10 @@ function PaginaImportacao({ profile }) {
 
   function executar() {
     if (!preview) return;
-    if (aba === 'produtos') importarProdutos(preview.rows);
-    else if (aba === 'pedidos') importarPedidos(preview.rows);
-    else if (aba === 'clientes') importarClientes(preview.rows);
+    const tipo=preview.tipoDetectado || aba;
+    if (tipo === 'produtos') importarProdutos(preview.rows);
+    else if (tipo === 'pedidos') importarPedidos(preview.rows);
+    else if (tipo === 'clientes') importarClientes(preview.rows);
   }
 
   const modelo = MODELOS[aba];
@@ -5558,6 +5570,8 @@ function PaginaImportacao({ profile }) {
         nomeArquivo && h('span', { style: { fontSize: 13, color: 'var(--text-muted)' } }, '📄 ' + nomeArquivo)),
       preview && h('div', { style: { marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' } },
         h('span', { className: 'badge badge-green' }, preview.rows.length + ' linha(s) carregada(s)'),
+        preview.tipoDetectado && h('span',{className:'badge badge-blue'},
+          'Arquivo: '+({clientes:'Clientes',produtos:'Produtos',pedidos:'Pedidos'}[preview.tipoDetectado]||preview.tipoDetectado)),
         h('button', { className: 'btn btn-primary', onClick: executar, disabled: importando },
           importando ? 'Importando... ' + progresso.percentual + '%' : 'Importar ' + preview.rows.length + ' registro(s)')),
       (importando || progresso.percentual===100) && h('div',{style:{marginTop:14}},
