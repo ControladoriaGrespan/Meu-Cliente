@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=xyYX-OfQVSCkbrluzZqY6CTa-sNqQE6_TA453HbAm4mRrU1AABTrbK8Ip-u92vXxhCDHPK08NBmy15g2G9TC_IteIq5vQEeCKyh7S7kMzAePJMH0Bas8msKD12RYDwhqgCi1wQCwSMx1Aec-ikrAxyNZtZR_7BDwtZhvung_y0miQoQy-hW8_zyl7olQuVBPAnqS7LuzCDXnQ1YV2tLCf1GM29RiZNrK6ntGUkt1jCk2O1KdvneRaG_3hm3IClldVStbBSHSxDu_vhnlBhDO-Hve1CB_C64jZOkeRr-mlQ3Q-6df8d3nzMcstr1jeVHmFe6XD_mD7XjYyLvnEDcz4u9pqhGDnHH-5aOWbn3uziAkp7Mf_lnikQudA84RNuIg" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v80-filtros-edicao-usuarios';
-console.info('[Meu Cliente] BUILD v80-filtros-edicao-usuarios');
+window.__MEU_CLIENTE_BUILD__='v81-importacao-clientes-razao-social';
+console.info('[Meu Cliente] BUILD v81-importacao-clientes-razao-social');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5157,7 +5157,7 @@ function parseArquivo(conteudo, nome) {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const dados = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (dados.length < 2) return null;
-    const headers = dados[0].map(h => String(h).trim().toLowerCase());
+    const headers = dados[0].map(h => String(h).replace(/^\uFEFF/,'').replace(/\u00A0/g,' ').trim().toLowerCase());
     const rows = dados.slice(1).filter(r => r.some(c => String(c).trim())).map(r => {
       const obj = {};
       headers.forEach((h, i) => obj[h] = String(r[i] || '').trim());
@@ -5169,7 +5169,7 @@ function parseArquivo(conteudo, nome) {
   const linhas = conteudo.trim().split('\n').filter(l => l.trim());
   if (linhas.length < 2) return null;
   const sep = linhas[0].includes('\t') ? '\t' : linhas[0].includes(';') ? ';' : ',';
-  const headers = linhas[0].split(sep).map(h => h.trim().toLowerCase().replace(/"/g, ''));
+  const headers = linhas[0].split(sep).map(h => h.replace(/^\uFEFF/,'').replace(/\u00A0/g,' ').trim().toLowerCase().replace(/"/g, ''));
   const rows = linhas.slice(1).map(l => {
     const cols = l.split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
     const obj = {};
@@ -5359,8 +5359,17 @@ function PaginaImportacao({ profile }) {
 
   // ---------- CLIENTES ----------
   async function importarClientes(rows) {
-    const obrig = rows.every(r => r.razao_social);
-    if (!obrig) return toast('A coluna "razao_social" é obrigatória.', 'error');
+    const temColuna = rows.some(r => Object.prototype.hasOwnProperty.call(r,'razao_social'));
+    if (!temColuna) return toast('A coluna "razao_social" não foi encontrada no arquivo.', 'error');
+
+    const linhasSemRazao=[];
+    const rowsValidas=rows.filter((r,i)=>{
+      const nome=String(r.razao_social||'').replace(/\u00A0/g,' ').trim();
+      if(!nome){ linhasSemRazao.push(i+2); return false; }
+      r.razao_social=nome;
+      return true;
+    });
+    if(!rowsValidas.length) return toast('Nenhuma linha possui razão social preenchida.','error');
     setImportando(true);
 
     const { data: vendedores, error: errVend } = await sb.from('usuarios')
@@ -5380,8 +5389,9 @@ function PaginaImportacao({ profile }) {
       if (v.codigo_vendedor) vendedorMap[normCod(v.codigo_vendedor)] = v;
     });
 
-    let ok = 0, erros = 0, msgs = [];
-    for (const r of rows) {
+    let ok = 0, erros = linhasSemRazao.length, msgs = [];
+    if(linhasSemRazao.length) msgs.push('Sem razão social: linha(s) '+linhasSemRazao.slice(0,20).join(', ')+(linhasSemRazao.length>20?'...':''));
+    for (const r of rowsValidas) {
       let vendedorId = null;
       if (r.codigo_vendedor) {
         const vend = vendedorMap[normCod(r.codigo_vendedor)];
@@ -5406,7 +5416,7 @@ function PaginaImportacao({ profile }) {
       if (error) { erros++; msgs.push((r.codigo_totvs || r.razao_social) + ': ' + error.message); } else ok++;
     }
     setImportando(false);
-    setResultado('✓ ' + ok + ' cliente(s) importado(s)' + (erros ? ' · ✗ ' + erros + ' erro(s)\n' + msgs.slice(0, 10).join('\n') : ''));
+    setResultado('✓ ' + ok + ' cliente(s) importado(s)' + (erros ? ' · ⚠ ' + erros + ' linha(s) ignorada(s)/com erro\n' + msgs.slice(0, 10).join('\n') : ''));
     if (ok > 0) toast(ok + ' cliente(s) importado(s)!', 'success');
   }
 
