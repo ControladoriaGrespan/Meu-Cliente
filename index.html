@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=yGth9lbwPJ_anB6hI1ztCSQQIICZTnMY3lYc8IOqUh1PTQlWoYsBusTkWLABIRjTN4T4sIzjcR6ERyabx6tKroRcoy3lzMrkbmpU4UBM1FHvnjniQjrNFE0Wm7Wx-5K0QeYFymSH_ubDH21ni-RcQ6OL88Ji6rIQx3O-ksPGA5MOyGFcnsSx9YH-y3ST-Ic2meXHmxsSv80ulw0UaVEOJI3nP95RmpsX_Gpq52vFT-gxAsn9_6Jmn1gFuEeaYccJSRZ2WvKFtm_lRT4k80o94Iu7oJBT0CrsIyKy7UF0cnA8Adna_bxWo0dq7h7eiQPv6Itvi1dyFi8TNAs0jdXmpv4cL38T_2yS-BkCEP4SXb4" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=-oEDbsDxfUqqyn4VnQfLAcevO2HtPA8LSj6214pVeHHNmaMXD6d7gnJZ5emV_ScxFOqZq7BwbHjvxdVLtDtHXla0hxJ-pZTjfMahCEajvoCqbVyd7M5aZ5RdYSvB5LaXkZkp7_LUKZMWdD9KbpQhsQ4u9sbOaTXCY23fM7rQqbZxe-YRlSP51CN0drc830OKQ8XgxvFNp4Y366FpFWw-x94Omxctiw81Q-h7y-m2zCQMk8Xq2XC9zT5RHPGYr03OQ0UtLjPPenxQUrXzJLMAnznTRaSUjxtFBzWvOfe137RXR7V_5GCW_qeoExN2WE25MRYtoqXLMVn3ZlT56WkFUthcaY2qwGH4R4hUG7lR6jw" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v92-amostras-acordo-clientes';
-console.info('[Meu Cliente] BUILD v92-amostras-acordo-clientes');
+window.__MEU_CLIENTE_BUILD__='v93-status-contato-pedidos-clientes';
+console.info('[Meu Cliente] BUILD v93-status-contato-pedidos-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1041,6 +1041,7 @@ function PaginaEmissao({ profile, onSaved }) {
   const toast = useToast();
   const [f, setF] = useState(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
+  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   const [destinatarios, setDestinatarios] = useState([]);
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
 
@@ -2661,6 +2662,7 @@ function PaginaMeuPerfil({ profile, onProfileUpdated }) {
   const [senha, setSenha] = useState('');
   const [senha2, setSenha2] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
 
   async function salvarDados() {
     if (!nome.trim()) return toast('Informe o nome.', 'error');
@@ -3001,6 +3003,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [modalidadeBonificacao, setModalidadeBonificacao] = useState('');
   const [tipoAmostra, setTipoAmostra] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
 
   useEffect(() => {
     (async () => {
@@ -3924,6 +3927,7 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
   const [risco,setRisco]=useState('');
   const [obs, setObs] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
 
   async function salvar() {
     const valor = moedaParaNumero(credito);
@@ -4678,6 +4682,7 @@ function PaginaPedidos({ profile }) {
   const [itens, setItens] = useState([]);
   const [obsPedido, setObsPedido] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   // modal +
   const [modalNovo, setModalNovo] = useState(false);
   const [novoRota, setNovoRota] = useState('');
@@ -4767,8 +4772,35 @@ function PaginaPedidos({ profile }) {
       .select('id, ordem_entrega, clientes(id, razao_social, cnpj_cpf, codigo_totvs, telefone, condicao_pagamento, acordo_comercial)')
       .eq('rota_id', rotaId).order('ordem_entrega');
     const cls = (crs || []).map(cr => cr.clientes).filter(Boolean);
+    const { data: acs, error: erroAcomp } = await sb.from('pedido_acompanhamento')
+      .select('cliente_id,status').eq('rota_id', rotaId).eq('data_pedido', dataStr);
+    if (erroAcomp) return toast('Não foi possível carregar o acompanhamento: ' + erroAcomp.message, 'error');
+    const mapaAcomp = {};
+    (acs || []).forEach(a => { mapaAcomp[a.cliente_id] = a.status; });
+    setAcompanhamentoMap(mapaAcomp);
     setLancando({ rota, data: dataStr, clientesRota: cls });
     setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
+  }
+
+  function statusCliente(clienteId) { return acompanhamentoMap[clienteId] || 'sem_contato'; }
+  function infoStatus(status) {
+    if (status === 'contato_enviado') return { label:'Contato Enviado', icon:'●', cor:'#d97706' };
+    if (status === 'pedido_fechado') return { label:'Pedido Fechado', icon:'✓', cor:'#059669' };
+    return { label:'Sem Contato', icon:'○', cor:'#64748b' };
+  }
+  async function alterarStatusCliente(clienteId, status) {
+    const anterior = statusCliente(clienteId);
+    setAcompanhamentoMap(prev => ({ ...prev, [clienteId]: status }));
+    const { error } = await sb.from('pedido_acompanhamento').upsert({
+      rota_id:lancando.rota.id, cliente_id:clienteId, data_pedido:lancando.data,
+      status, atualizado_por:profile.id, atualizado_em:new Date().toISOString()
+    }, { onConflict:'rota_id,cliente_id,data_pedido' });
+    if (error) {
+      setAcompanhamentoMap(prev => ({ ...prev, [clienteId]: anterior }));
+      toast('Erro ao atualizar status: ' + error.message, 'error');
+      return false;
+    }
+    return true;
   }
 
   async function selecionarCliente(cli) {
@@ -4986,6 +5018,8 @@ function PaginaPedidos({ profile }) {
       }
     }
 
+    await alterarStatusCliente(clienteAtivo.id, 'pedido_fechado');
+
     const idx = lancando.clientesRota.findIndex(c => c.id === clienteAtivo.id);
     if (idx >= 0 && idx < lancando.clientesRota.length - 1) {
       selecionarCliente(lancando.clientesRota[idx + 1]);
@@ -5014,18 +5048,26 @@ function PaginaPedidos({ profile }) {
       h('div', { className: 'page-head' },
         h('div', null,
           h('div', { className: 'page-title' }, lancando.rota.nome + ' — ' + new Date(lancando.data + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })),
-          h('div', { className: 'page-sub' }, cls.length + ' clientes na rota')),
+          h('div', { className: 'page-sub' }, cls.length + ' clientes na rota'),
+          h('div', { style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',fontSize:12} },
+            h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#f8fafc',color:'#64748b'}},'○ Sem contato: '+cls.filter(c=>statusCliente(c.id)==='sem_contato').length),
+            h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#fff7ed',color:'#d97706'}},'● Aguardando: '+cls.filter(c=>statusCliente(c.id)==='contato_enviado').length),
+            h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#ecfdf5',color:'#059669'}},'✓ Fechados: '+cls.filter(c=>statusCliente(c.id)==='pedido_fechado').length))),
         h('button', { className: 'btn btn-secondary', onClick: voltarCalendario }, '← Voltar ao calendário')),
 
       h('div', { style: { display: 'flex', gap: 16 } },
         // lista de clientes
         h('div', { className: 'card', style: { width: 250, flexShrink: 0, padding: 8, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } },
           h('div', { style: { fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', padding: '8px 6px' } }, 'Clientes'),
-          cls.map((c, i) => h('div', {
-            key: c.id, className: 'nav-item' + (clienteAtivo && clienteAtivo.id === c.id ? ' active' : ''),
-            onClick: () => selecionarCliente(c)
-          }, h('span', { className: 'nav-icon', style: { fontSize: 12 } }, i + 1),
-             h('span', { style: { fontSize: 13 } }, identificacaoCliente(c))))),
+          cls.map((c, i) => {
+            const st = infoStatus(statusCliente(c.id));
+            return h('div', {
+              key:c.id, className:'nav-item' + (clienteAtivo && clienteAtivo.id === c.id ? ' active' : ''),
+              onClick:()=>selecionarCliente(c), title:st.label
+            }, h('span',{className:'nav-icon',style:{fontSize:12}},i+1),
+               h('span',{style:{fontSize:13,flex:1}},identificacaoCliente(c)),
+               h('span',{style:{fontSize:16,fontWeight:800,color:st.cor,marginLeft:6}},st.icon));
+          })),
 
         // area de lancamento
         h('div', { style: { flex: 1, minWidth: 0 } },
@@ -5040,6 +5082,12 @@ function PaginaPedidos({ profile }) {
                     h('div', { style: { textAlign: 'right', fontSize: 13 } },
                       clienteAtivo.telefone && h('div', null, '\u260E ' + clienteAtivo.telefone),
                       clienteAtivo.condicao_pagamento && h('div', { style: { color: 'var(--text-muted)' } }, 'Pgto: ' + clienteAtivo.condicao_pagamento))),
+                  h('div',{style:{marginTop:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+                    h('span',{style:{fontSize:12,fontWeight:700,color:'var(--text-muted)'}},'Status do contato'),
+                    h('select',{className:'form-select',value:statusCliente(clienteAtivo.id),style:{width:200,fontWeight:700},onChange:e=>alterarStatusCliente(clienteAtivo.id,e.target.value)},
+                      h('option',{value:'sem_contato'},'○ Sem Contato'),
+                      h('option',{value:'contato_enviado'},'● Contato Enviado'),
+                      h('option',{value:'pedido_fechado'},'✓ Pedido Fechado'))),
                   clienteAtivo.acordo_comercial && h('div', {
                     style: { marginTop: 10, padding: '8px 12px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--warning)' }
                   }, '\uD83D\uDCCB Acordo: ' + clienteAtivo.acordo_comercial)),
