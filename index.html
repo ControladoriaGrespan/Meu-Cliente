@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=QGS1YcMrJ9nxN7N2kngEVJjutmIyU5eV2sg58pY5Q71xity_YsB4G-ayH7TEA3Ae6otuQiNC3Ne3ci_bkLqloNaRZwUJWr2eMhjcuDCeSAJzC1beAW9K9G6oDeYaKrBOsuu7KLPfpyrW79Ydy8_HTgHAxeVJm8KhHAFk7nR5RSM8ygvJuAVFuRx4dTLj3t9iCKqvP9XpefPPwNcUCxBaXwD-2bWHVEm29NARfx-45POcMpeMFhGf_c0pCVMSdLsu9Kdg5umAmRvAPsCppyk4mkFXG93oZry8HmQQqJdiNwSU9xROEXso4YHsQ6i0k1AbZSSliQcjTWi0I7F37owA7NC1jZR0r-_ff7ziF48GvvaTdlj3uJVdLKUmn0h11exy" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v77-pendencias-programacao-supervisor';
-console.info('[Meu Cliente] BUILD v77-pendencias-programacao-supervisor');
+window.__MEU_CLIENTE_BUILD__='v80-filtros-edicao-usuarios';
+console.info('[Meu Cliente] BUILD v80-filtros-edicao-usuarios');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -3223,8 +3223,8 @@ function PaginaConfiguracaoModulos({onUsuarios}){
     setCarts(prev=>{const z=new Set(prev[adm]||[]);a?z.add(sp):z.delete(sp);return {...prev,[adm]:Array.from(z)};});
   }
   if(!usuarios)return h('div',{className:'empty-state'},'Carregando...');
-  const sups=usuarios.filter(u=>u.papel==='supervisor');
-  const adms=usuarios.filter(u=>['adm_vendas','gestao_adm_vendas'].includes(u.papel));
+  const sups=usuarios.filter(u=>u.papel==='supervisor'&&u.ativo===true);
+  const adms=usuarios.filter(u=>['adm_vendas','gestao_adm_vendas'].includes(u.papel)&&u.ativo===true);
 
   const linhasUsuarios=usuarios.map(u=>{
     const checks=Object.keys(MODULOS).map(k=>
@@ -3328,7 +3328,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
       const {data:cart}=await sb.from('adm_vendas_supervisores').select('supervisor_id').eq('adm_vendas_id',profile.id);
       supIds=(cart||[]).map(x=>x.supervisor_id);
       if(supIds.length){
-        const {data:ss}=await sb.from('usuarios').select('id,nome').in('id',supIds).order('nome');
+        const {data:ss}=await sb.from('usuarios').select('id,nome').in('id',supIds).eq('ativo',true).order('nome');
         setSupervisores(ss||[]);
       } else setSupervisores([]);
     } else if(['gestao_adm_vendas','diretoria','admin'].includes(visao)){
@@ -3342,7 +3342,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
       if(supIds)q=q.in('supervisor_id',supIds);
       const {data:vv}=await q; setVendedores(vv||[]);
     } else {
-      const {data:vv}=await sb.from('usuarios').select('id,nome,supervisor_id').in('id',vendIds);
+      const {data:vv}=await sb.from('usuarios').select('id,nome,supervisor_id').in('id',vendIds).eq('ativo',true);
       setVendedores(vv||[]);
     }
     setLoading(false);
@@ -3663,6 +3663,9 @@ function PaginaAdmin({ profile }) {
   const [criando, setCriando] = useState(false);
   const [modalNovo, setModalNovo] = useState(false);
   const [edicoes, setEdicoes] = useState({});
+  const [fPapel,setFPapel]=useState('');
+  const [fSupervisor,setFSupervisor]=useState('');
+  const [fCoordenador,setFCoordenador]=useState('');
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
@@ -3671,8 +3674,8 @@ function PaginaAdmin({ profile }) {
     setEdicoes({});
   }
 
-  const supervisores = (usuarios || []).filter(u => u.papel === 'supervisor');
-  const coordenadores = (usuarios || []).filter(u => u.papel === 'coordenador');
+  const supervisores = (usuarios || []).filter(u => u.papel === 'supervisor' && u.ativo === true);
+  const coordenadores = (usuarios || []).filter(u => u.papel === 'coordenador' && u.ativo === true);
 
   function editar(id, campo, valor) {
     setEdicoes(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [campo]: valor } }));
@@ -3685,7 +3688,16 @@ function PaginaAdmin({ profile }) {
   async function salvarUsuario(u) {
     const e = edicoes[u.id];
     if (!e) return;
+    const supEscolhido=valorDe(u,'supervisor_id');
+    const coordEscolhido=valorDe(u,'coordenador_id');
+    if(supEscolhido && !supervisores.some(x=>x.id===supEscolhido))
+      return toast('O supervisor selecionado está inativo ou não está disponível.','error');
+    if(coordEscolhido && !coordenadores.some(x=>x.id===coordEscolhido))
+      return toast('O coordenador selecionado está inativo ou não está disponível.','error');
+    const nomeEditado=String(valorDe(u,'nome')||'').trim();
+    if(!nomeEditado) return toast('O nome do usuário é obrigatório.','error');
     const { error } = await sb.from('usuarios').update({
+      nome: nomeEditado,
       papel: valorDe(u, 'papel'),
       telefone: valorDe(u, 'telefone') || null,
       codigo_vendedor: valorDe(u, 'codigo_vendedor') || null,
@@ -3732,6 +3744,10 @@ function PaginaAdmin({ profile }) {
   async function criarUsuario() {
     if (!novo.nome.trim() || !novo.email.trim() || !novo.senha) return toast('Nome, e-mail e senha são obrigatórios.', 'error');
     if (novo.senha.length < 6) return toast('A senha precisa ter ao menos 6 caracteres.', 'error');
+    if(novo.supervisor_id && !supervisores.some(x=>x.id===novo.supervisor_id))
+      return toast('O supervisor selecionado está inativo ou não está disponível.','error');
+    if(novo.coordenador_id && !coordenadores.some(x=>x.id===novo.coordenador_id))
+      return toast('O coordenador selecionado está inativo ou não está disponível.','error');
     setCriando(true);
     const { data: auth, error: errAuth } = await sbSignup.auth.signUp({ email: novo.email.trim(), password: novo.senha });
     if (errAuth || !auth.user) { setCriando(false); return toast(errAuth ? errAuth.message : 'Falha ao criar login.', 'error'); }
@@ -3748,6 +3764,13 @@ function PaginaAdmin({ profile }) {
   }
 
   if (usuarios === null) return h('div', { className: 'empty-state' }, 'Carregando...');
+
+  const usuariosFiltrados=usuarios.filter(u=>{
+    if(fPapel && u.papel!==fPapel) return false;
+    if(fSupervisor && u.supervisor_id!==fSupervisor) return false;
+    if(fCoordenador && u.coordenador_id!==fCoordenador) return false;
+    return true;
+  });
 
   return h('div', null,
     modalNovo && h(Modal, {
@@ -3780,10 +3803,30 @@ function PaginaAdmin({ profile }) {
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Gestão de Usuários'),
-        h('div', { className: 'page-sub' }, usuarios.length + ' usuário(s) cadastrado(s) · papéis e hierarquia comercial')),
+        h('div', { className: 'page-sub' }, usuariosFiltrados.length + ' de ' + usuarios.length + ' usuário(s) · papéis e hierarquia comercial')),
       h('div',{style:{display:'flex',gap:8}},
         h('button', { className:'btn btn-secondary', onClick:()=>window.dispatchEvent(new CustomEvent('abrir-config-modulos')) }, 'Módulos e Carteiras'),
         h('button', { className: 'btn btn-primary', onClick: () => setModalNovo(true) }, '+ Novo usuário'))),
+
+    h('div',{className:'card',style:{marginBottom:12}},
+      h('div',{className:'section-title'},'Filtros'),
+      h('div',{className:'form-grid',style:{gridTemplateColumns:'repeat(3,minmax(180px,1fr))'}},
+        h(Campo,{label:'Papel'},
+          h('select',{className:'form-select',value:fPapel,onChange:e=>setFPapel(e.target.value)},
+            h('option',{value:''},'Todos os papéis'),
+            PAPEIS.map(p=>h('option',{key:p,value:p},ROLE_LABELS[p])))),
+        h(Campo,{label:'Supervisor'},
+          h('select',{className:'form-select',value:fSupervisor,onChange:e=>setFSupervisor(e.target.value)},
+            h('option',{value:''},'Todos os supervisores'),
+            supervisores.map(x=>h('option',{key:x.id,value:x.id},x.nome)))),
+        h(Campo,{label:'Coordenador'},
+          h('select',{className:'form-select',value:fCoordenador,onChange:e=>setFCoordenador(e.target.value)},
+            h('option',{value:''},'Todos os coordenadores'),
+            coordenadores.map(x=>h('option',{key:x.id,value:x.id},x.nome))))),
+      (fPapel||fSupervisor||fCoordenador)&&h('button',{
+        className:'btn btn-secondary btn-sm',
+        onClick:()=>{setFPapel('');setFSupervisor('');setFCoordenador('');}
+      },'Limpar filtros')),
 
     h('div', { className: 'card', style: { padding: 0 } },
       h('div', { className: 'table-wrap' },
@@ -3791,12 +3834,18 @@ function PaginaAdmin({ profile }) {
           h('thead', null, h('tr', null,
             ['Nome','Papel','Cód. Vendedor','Telefone','Supervisor','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
           h('tbody', null,
-            usuarios.map(u => {
+            usuariosFiltrados.map(u => {
               const alterado = !!edicoes[u.id];
               return h('tr', { key: u.id },
                 h('td', null,
-                  h('div', { className: 'strong' }, u.nome),
-                  h('div', { style: { fontSize: 11, color: 'var(--text-muted)' } }, u.email)),
+                  h('input',{
+                    className:'form-input sm',
+                    style:{minWidth:190,fontWeight:600},
+                    value:valorDe(u,'nome'),
+                    onChange:e=>editar(u.id,'nome',e.target.value),
+                    placeholder:'Nome do usuário'
+                  }),
+                  h('div', { style: { fontSize: 11, color: 'var(--text-muted)',marginTop:4 } }, u.email)),
                 h('td', null,
                   h('select', { className: 'form-select sm', style: { minWidth: 120 }, value: valorDe(u, 'papel'), onChange: e => editar(u.id, 'papel', e.target.value) },
                     PAPEIS.map(p => h('option', { key: p, value: p }, ROLE_LABELS[p])))),
