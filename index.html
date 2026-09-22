@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pzZIFJ_KVWYs1W9Kx3_zEgPRPKjsIOJY2a8pvKIjTRHYYKNxZ6HYZYd5cPMu2y3sZThFLxs_0lLlvMs9yd0oZZsT58GPS_dcCWCq86GWfI63PpUjU3MtTiyZoB2xJNHZAKJzU8xU-iJLALyoZQHZqG6d9weQ0O3mrITOBJezIKhOl-mwoq589cHPS2aAqgXe8cj4IGqfS2-s2_cDs0lb8j2I3HUYfvOitZCkbH479OPQIVHzzZv8it6dVEgVarX9vgz9hMTrsxfcTK5C0YCPc_mYDg2RuObqZYHHHOv248SLh3Dxv4hFdMQk_OTG6wVhtXIpj8FKpye5TL2ZCXMKP3ppyMvUCSBrtNrMQMpZWFF6EIDZgg9ibg0R0dOZ91-A" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1105,6 +1105,12 @@ function PaginaEmissao({ profile, onSaved }) {
     setF(prev => ({ ...prev, freezer_tipos: prev.freezer_tipos.includes(tipo)
       ? prev.freezer_tipos.filter(x => x !== tipo) : [...prev.freezer_tipos, tipo] }));
   }
+
+  function alterarLinhaEquip(setter, idx, campo, valor) {
+    setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x));
+  }
+  function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
+  function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
 
   async function salvar() {
     const obrig = [
@@ -3024,11 +3030,9 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [clienteId, setClienteId] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('');
-  const [equipamento, setEquipamento] = useState('');
-  const [equipamentoManual, setEquipamentoManual] = useState('');
-  const [patrimonio, setPatrimonio] = useState('');
-  const [equipamentoEntrega,setEquipamentoEntrega]=useState('');
-  const [patrimonioEntrega,setPatrimonioEntrega]=useState('');
+  const novaLinhaEquip = () => ({ equipamento:'', quantidade:1, patrimonio:'' });
+  const [equipamentosSolicitados, setEquipamentosSolicitados] = useState([novaLinhaEquip()]);
+  const [equipamentosEntrega, setEquipamentosEntrega] = useState([novaLinhaEquip()]);
   const [justificativa, setJustificativa] = useState('');
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
@@ -3068,10 +3072,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const equipamentos = clienteSel ? listarEquipamentos(clienteSel.fichas_clientes) : [];
   const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria) : [];
 
-  useEffect(() => { setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega(''); }, [clienteId]);
+  useEffect(() => { setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]); }, [clienteId]);
   useEffect(() => {
     setTipo(modulo === 'administracao_vendas' && categoria === 'equipamento' ? 'troca' : '');
-    setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega('');
+    setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]);
     setJustificativa(''); setProdutoId(''); setQuantidade(''); setModalidadeBonificacao(''); setTipoAmostra('');
   }, [categoria]);
 
@@ -3098,13 +3102,15 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
     if (categoria === 'equipamento') {
       if (!tipo) return toast('Selecione o tipo de solicitação.', 'error');
-      const eqFinal = equipamento;
-      if (!eqFinal) return toast('Selecione o equipamento.', 'error');
+      const linhas = equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0);
+      const entregas = tipo === 'troca' ? equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0) : [];
+      if (!linhas.length) return toast('Inclua pelo menos um equipamento e quantidade.', 'error');
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
-      if (tipo === 'troca' && !equipamentoEntrega) return toast('Informe qual equipamento será entregue ao cliente.', 'error');
-      payload = { ...payload, tipo, equipamento: eqFinal, patrimonio: patrimonio.trim() || null,
-        equipamento_entrega: tipo === 'troca' ? equipamentoEntrega : null,
-        patrimonio_entrega: tipo === 'troca' ? (patrimonioEntrega.trim() || null) : null,
+      if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
+      const primeiro = linhas[0], primeiraEntrega = entregas[0];
+      payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
+        equipamento_entrega: tipo === 'troca' && primeiraEntrega ? primeiraEntrega.equipamento : null,
+        patrimonio_entrega: tipo === 'troca' && primeiraEntrega ? ((primeiraEntrega.patrimonio || '').trim() || null) : null,
         justificativa: tipo === 'troca' ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
@@ -3123,6 +3129,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
     setSalvando(false);
     if (error) return toast(error.message, 'error');
+    if (categoria === 'equipamento') {
+      const detalhes = [];
+      equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
+        solicitacao_id:nova.id, movimento: tipo === 'troca' ? 'coletar' : 'equipamento', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+      }));
+      if (tipo === 'troca') equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
+        solicitacao_id:nova.id, movimento:'entregar', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+      }));
+      const { error: erroItens } = await sb.from('solicitacao_equipamentos').insert(detalhes);
+      if (erroItens) return toast('Solicitação criada, mas houve erro ao gravar os equipamentos: ' + erroItens.message, 'error');
+    }
     toast('Solicitação enviada!', 'success');
     onCriada(categoria);
   }
@@ -3158,21 +3175,26 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
                 h('option', { value: 'aumento' }, 'Aumento de equipamento'),
                 h('option', { value: 'troca' }, 'Troca de equipamento'),
                 h('option', { value: 'manutencao' }, 'Manutenção de equipamento'))),
-        h(Campo, { label: tipo === 'troca' ? 'Equipamento a coletar' : 'Equipamento', obrigatorio: true },
-          h('select', { className: 'form-select', value: equipamento, onChange: e => setEquipamento(e.target.value) },
-            h('option', { value: '' }, 'Selecione...'),
-            equipamentos.length > 0 && h('optgroup', { label: 'Equipamentos já registrados no cliente' },
-              equipamentos.map(eq => h('option', { key: 'cad_' + eq, value: eq }, eq))),
-            h('optgroup', { label: 'Lista padrão de equipamentos' },
-              EQUIPAMENTOS_PADRAO.map(eq => h('option', { key: 'pad_' + eq, value: eq }, eq))))),
-        h(Campo, { label: tipo === 'troca' ? 'Patrimônio a coletar' : 'Patrimônio' },
-          h(Input, { value: patrimonio, placeholder: 'Número do patrimônio, se houver', onChange: e => setPatrimonio(e.target.value) })),
-        tipo === 'troca' && h(Campo,{label:'Equipamento a entregar',obrigatorio:true},
-          h('select',{className:'form-select',value:equipamentoEntrega,onChange:e=>setEquipamentoEntrega(e.target.value)},
-            h('option',{value:''},'Selecione...'),
-            EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'ent_'+eq,value:eq},eq)))),
-        tipo === 'troca' && h(Campo,{label:'Patrimônio a entregar'},
-          h(Input,{value:patrimonioEntrega,placeholder:'Se já estiver definido',onChange:e=>setPatrimonioEntrega(e.target.value)})),
+        h('div',{style:{gridColumn:'1 / -1'}},
+          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},tipo === 'troca' ? 'Equipamentos a coletar *' : 'Equipamentos *'),
+          equipamentosSolicitados.map((ln,i)=>h('div',{key:'eq_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
+            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'equipamento',e.target.value)},
+              h('option',{value:''},'Selecione o equipamento...'),
+              equipamentos.length > 0 && h('optgroup',{label:'Equipamentos já registrados no cliente'},equipamentos.map(eq=>h('option',{key:'cad_'+i+'_'+eq,value:eq},eq))),
+              h('optgroup',{label:'Lista padrão de equipamentos'},EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'pad_'+i+'_'+eq,value:eq},eq)))),
+            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'quantidade',e.target.value)}),
+            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'patrimonio',e.target.value)}),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosSolicitados.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosSolicitados,i)},'×'))),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosSolicitados)},'+ Equipamento')),
+        tipo === 'troca' && h('div',{style:{gridColumn:'1 / -1'}},
+          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},'Equipamentos a entregar *'),
+          equipamentosEntrega.map((ln,i)=>h('div',{key:'ent_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
+            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'equipamento',e.target.value)},
+              h('option',{value:''},'Selecione o equipamento...'),EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'entopt_'+i+'_'+eq,value:eq},eq))),
+            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'quantidade',e.target.value)}),
+            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'patrimonio',e.target.value)}),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosEntrega.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosEntrega,i)},'×'))),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosEntrega)},'+ Equipamento a entregar')),
         h(Campo, { label: 'Justificativa', obrigatorio: tipo === 'troca' },
           h('select', { className: 'form-select', value: justificativa, disabled: tipo !== 'troca', onChange: e => setJustificativa(e.target.value) },
             h('option', { value: '' }, tipo === 'troca' ? 'Selecione...' : 'Somente para troca'),
@@ -5189,7 +5211,7 @@ function PaginaPedidos({ profile }) {
                               onChange: v => setItem(i, 'produto_id', v),
                               items: produtos.map(pr => ({
                                 value: pr.id,
-                                label: pr.codigo,
+                                label: pr.codigo + ' — ' + pr.descricao,
                                 search: pr.codigo + ' ' + pr.descricao,
                                 code: pr.codigo
                               }))
