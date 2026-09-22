@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=-oEDbsDxfUqqyn4VnQfLAcevO2HtPA8LSj6214pVeHHNmaMXD6d7gnJZ5emV_ScxFOqZq7BwbHjvxdVLtDtHXla0hxJ-pZTjfMahCEajvoCqbVyd7M5aZ5RdYSvB5LaXkZkp7_LUKZMWdD9KbpQhsQ4u9sbOaTXCY23fM7rQqbZxe-YRlSP51CN0drc830OKQ8XgxvFNp4Y366FpFWw-x94Omxctiw81Q-h7y-m2zCQMk8Xq2XC9zT5RHPGYr03OQ0UtLjPPenxQUrXzJLMAnznTRaSUjxtFBzWvOfe137RXR7V_5GCW_qeoExN2WE25MRYtoqXLMVn3ZlT56WkFUthcaY2qwGH4R4hUG7lR6jw" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=im0PqMlivM7tiYuDAU2pi2n4o11z77uuOQs9FDY3tn-LNU1JmrSvPpY8AKKpPAI69JKN5UmgB01iHjSFMwgfGQ3h6b2HvcvoQtzO5z8ooOjPs4zwNwFp3r0wZLdL-n0MV5ITTQIHDjxWRo-Pwc1HQt_05ddDNxq1r9JNqCH4go_Et37Hgo7ja1UJB6G0IeotMrVl7g-UYzGy7eyAAecRSQjzSfcuJLwKilcKXwTydRLKv_GcaMkWYowo_QwLg7HKLZj4npL_kPDhSWhkk-jkGjH4qgQzwl5rjIXaDPrjTq9OZmqtprFjVzIgKwenYnLTNg5hYkDlU8koIjmUBcDcNfI5d4jXObZTYanPtLVaEZzENvpY5v0o71Tr-7ipm9Ff" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -640,7 +640,7 @@ function menuForModulo(modulo, papel) {
       {id:'dashboard',label:'Dashboard',icon:'◳'},{id:'emissao',label:'Cadastro de Ficha',icon:'+'},
       {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
       {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
-    return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin');
+    return itens.filter(x=>x.id!=='emissao'||['vendedor','supervisor','coordenador','admin'].includes(papel));
   }
   if(modulo==='administracao_vendas') return [
     {id:'dashboard',label:'Dashboard',icon:'◳'},
@@ -1044,6 +1044,28 @@ function PaginaEmissao({ profile, onSaved }) {
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   const [destinatarios, setDestinatarios] = useState([]);
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
+  const [responsaveisComerciais, setResponsaveisComerciais] = useState([]);
+  const [vendedorFichaId, setVendedorFichaId] = useState(profile.id);
+
+  useEffect(() => {
+    (async () => {
+      if (!['supervisor','coordenador'].includes(profile.papel)) {
+        setResponsaveisComerciais([profile]); setVendedorFichaId(profile.id); return;
+      }
+      let lista = [profile];
+      if (profile.papel === 'supervisor') {
+        const {data:v}=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','vendedor').eq('supervisor_id',profile.id).eq('ativo',true).order('nome');
+        lista = lista.concat(v || []);
+      } else {
+        const {data:sups}=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','supervisor').eq('coordenador_id',profile.id).eq('ativo',true).order('nome');
+        const supIds=(sups||[]).map(x=>x.id);
+        let v=[];
+        if(supIds.length){ const rv=await sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').eq('papel','vendedor').in('supervisor_id',supIds).eq('ativo',true).order('nome'); v=rv.data||[]; }
+        lista = lista.concat(sups || [], v);
+      }
+      setResponsaveisComerciais(lista); setVendedorFichaId(profile.id);
+    })();
+  }, [profile.id, profile.papel]);
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
@@ -1104,7 +1126,7 @@ function PaginaEmissao({ profile, onSaved }) {
     const num = v => v === '' || v === null ? null : Number(v);
 
     const { data: nova, error } = await sb.from('fichas_clientes').insert({
-      vendedor_id: profile.id,
+      vendedor_id: vendedorFichaId || profile.id,
       razao_social: f.razao_social.trim(), nome_fantasia: f.nome_fantasia.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
@@ -1141,6 +1163,7 @@ function PaginaEmissao({ profile, onSaved }) {
     setDestinatarios(varios);
     toast('Ficha enviada para aprovação!', 'success');
     setF(FORM_VAZIO);
+    setVendedorFichaId(profile.id);
     setMesmoEnderecoEntrega(false);
     if (!varios.length) onSaved();
   }
@@ -1157,6 +1180,14 @@ function PaginaEmissao({ profile, onSaved }) {
         destinatarios.map(d => h('button', { key: d.id, className: 'btn btn-secondary btn-sm',
           onClick: () => abrirWhats(d.telefone, d._msg) }, 'Enviar para ' + d.nome)),
         h('button', { className: 'btn btn-primary btn-sm', onClick: () => { setDestinatarios([]); onSaved(); } }, 'Concluir'))),
+
+    ['supervisor','coordenador'].includes(profile.papel) && h('div', { className: 'card' },
+      h('div', { className: 'section-title' }, 'Responsável Comercial'),
+      h('div', { className: 'page-sub', style:{marginBottom:10} }, 'Por padrão a ficha fica em seu nome. Se necessário, selecione outro responsável ativo da sua hierarquia.'),
+      h(Campo, { label: 'Responsável pela ficha', obrigatorio: true },
+        h('select', { className:'form-select', value:vendedorFichaId, onChange:e=>setVendedorFichaId(e.target.value) },
+          responsaveisComerciais.map(u=>h('option',{key:u.id,value:u.id},(u.id===profile.id?'Eu mesmo — ':'')+u.nome+' · '+(ROLE_LABELS[u.papel]||u.papel))))),
+    ),
 
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Dados Básicos'),
@@ -2548,8 +2579,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [sub, setSub] = useState('equipamento');
 
   const ehVendedor = visao === 'vendedor';
-  const podeBonificacao = modulo === 'vendas' && ['supervisor','admin'].includes(visao);
-  const podeAmostra = modulo === 'vendas' && ['tecnico','admin'].includes(visao);
+  const podeBonificacao = modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao);
+  const podeAmostra = modulo === 'vendas' && ['vendedor','supervisor','coordenador','tecnico','admin'].includes(visao);
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
@@ -2759,14 +2790,14 @@ async function vendedoresVisiveis(profile) {
   return null;
 }
 
-function PaginaClientes({ profile }) {
+function PaginaClientes({ profile, modulo }) {
   const toast = useToast();
   const [clientes, setClientes] = useState(null);
   const [busca, setBusca] = useState('');
   const [editandoTotvs, setEditandoTotvs] = useState({});
   const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
-  const podeEditarAcordo = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
+  const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
   useEffect(() => { carregar(); }, []);
 
@@ -3027,8 +3058,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     if (['adm_vendas','gestao_adm_vendas','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Troca de Equipamento']);
   } else {
     if (['vendedor','supervisor','coordenador','admin'].includes(visao)) categoriasPermitidas.push(['equipamento','Equipamento']);
-    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
-    if (['vendedor','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Kit / Amostra']);
+    if (['vendedor','supervisor','coordenador','admin'].includes(visao)) categoriasPermitidas.push(['bonificacao','Bonificação']);
+    if (['vendedor','supervisor','coordenador','tecnico','admin'].includes(visao)) categoriasPermitidas.push(['amostra','Kit / Amostra']);
   }
 
   const clienteSel = (clientes || []).find(c => c.id === clienteId);
@@ -5912,6 +5943,11 @@ function App() {
     if (!session) { setProfile(null); setSessionReady(true); return; }
     const { data: perfil } = await sb.from('usuarios').select('*').eq('id', session.user.id).single();
     if (!perfil) { setSemPerfil(session.user.id); setSessionReady(true); return; }
+    if (perfil.ativo === false) {
+      await sb.auth.signOut();
+      setProfile(null); setVisao(null); setModulo(null); setModulosUsuario([]);
+      setSemPerfil('USUARIO_INATIVO'); setSessionReady(true); return;
+    }
     const {data:acessos}=await sb.from('usuario_modulos').select('modulo,ativo').eq('usuario_id',perfil.id).eq('ativo',true);
     const ms=(acessos||[]).map(x=>x.modulo);
     setModulosUsuario(ms.length?ms:modulosPadrao(perfil.papel));
@@ -5947,6 +5983,12 @@ function App() {
 
   if (!sessionReady) return h('div', { className: 'login-container' }, h('div', { style: { color: 'var(--text-muted)' } }, 'Carregando...'));
 
+  if (semPerfil === 'USUARIO_INATIVO') return h('div', { className: 'login-container' },
+    h('div', { className: 'login-card' },
+      h('div', { className: 'page-title', style:{marginBottom:10} }, 'Acesso bloqueado'),
+      h('div', { className: 'page-sub', style:{marginBottom:18} }, 'Seu usuário está inativo. Procure um administrador do sistema para reativar o acesso.'),
+      h('button', { className:'btn btn-primary', style:{width:'100%'}, onClick:()=>{setSemPerfil(null);setSessionReady(true);} }, 'Voltar ao login')));
+
   if (semPerfil) return h('div', { className: 'login-container' },
     h('div', { className: 'login-card', style: { textAlign: 'center' } },
       h('div', { className: 'login-logo', style: { display:'flex', flexDirection:'column', alignItems:'center', gap:8 } },
@@ -5979,7 +6021,7 @@ function App() {
   else if (paginaAtual === 'dashboard_admin') conteudo = h(PaginaDashboardAdmin,{profile});
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
   else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
-  else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile });
+  else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile, modulo });
   else if (paginaAtual === 'solicitacoes') conteudo = h(PaginaSolicitacoes, { profile, visao, modulo });
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
