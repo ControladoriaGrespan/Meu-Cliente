@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=oQGn79149XgTciTVF2STJS5oxh5xBYiuQF8fqpA8VMuhmXj6jCIigH3JPECo8pE1Lgf-MFSJ3gO3QBXwe7NBADm23TMte9qhojk_nCLNb6XNdMupOUKbl9zcOVMNxO4jzPmvIjVAu7vAsR4aOJNpGdAkSBy0Ku6zvFN0d8PHpyS_tFTYUYWBa-9PYvcEOzO_fBQKtZsb_qnp4jL00fCRw-qgSDDFBwgTqM2ozIctI5eAEouuwsTqRHTeRssTIuVHbSCzL9htAUCR0WH2SjByEA85tk1-bQUtgjbKoP7GmrME-Rig-tPkj-eNC5d6rvvkyHkDpezmGR6RhLUfzV0dN5xT25cbNeMgXYZBAqxb5K58cz0PK9RWvWkcCyFq0EMe" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1745,6 +1745,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [whatsRota,setWhatsRota]=useState(null);
   const [decisaoProg,setDecisaoProg]=useState(null);
   const [obsProg,setObsProg]=useState('');
+  const [authUidProg,setAuthUidProg]=useState(null);
 
 
   // v66 — funções da aprovação de rotas.
@@ -1757,9 +1758,22 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       return;
     }
     try{
-      let qa=sb.from('rota_programacao_aprovacoes').select('*');
-      if(etapa==='supervisor'&&!ehPreview)qa=qa.eq('supervisor_id',profile.id).eq('status','pendente');
-      const ra=await qa;
+      let ra;
+      if(etapa==='supervisor'&&!ehPreview){
+        // v103: usa o UID autenticado real, não depende do id carregado no profile.
+        const au=await sb.auth.getUser();
+        if(au.error)throw au.error;
+        const uid=au.data&&au.data.user&&au.data.user.id;
+        if(!uid)throw new Error('Usuário autenticado não identificado.');
+        setAuthUidProg(uid);
+        ra=await sb.from('rota_programacao_aprovacoes')
+          .select('*')
+          .eq('supervisor_id',uid)
+          .eq('status','pendente');
+      }else{
+        setAuthUidProg(profile&&profile.id?profile.id:null);
+        ra=await sb.from('rota_programacao_aprovacoes').select('*');
+      }
       if(ra.error)throw ra.error;
       const aps=(ra.data||[]).filter(Boolean);
       setAprovProg(aps);
@@ -1781,7 +1795,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       const ri=await sb.from('rota_equipamento_itens').select('*').in('rota_id',rotaIds).order('ordem');
       if(ri.error)throw ri.error;
       const its=(ri.data||[]).filter(Boolean);setItensProg(its);
-      const entIds=[...new Set(its.map(i=>i.entrega_id).filter(Boolean))];
+      const entIds=[...new Set([...its.map(i=>i.entrega_id),...aps.map(a=>a.entrega_id)].filter(Boolean))];
 
       let base=[];
       if(entIds.length){
@@ -1810,6 +1824,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }catch(e){
       console.error('Falha ao carregar programações de rota:',e);
       setRotasProg([]);setItensProg([]);setDemandasProg([]);setAprovProg([]);setUsuariosProg([]);
+      if(etapa==='supervisor') toast('Erro ao carregar programações de rota: '+(e&&e.message?e.message:String(e)),'error');
     }
   }
 
@@ -1920,6 +1935,38 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     toast(a.status==='aprovado'?'Programação aprovada.':'Programação reprovada. A rota permanece pendente para revisão da Manutenção.',a.status==='aprovado'?'success':'info');
     await carregarProgramacoesRota();
   }
+  function renderPendenciasSupervisorDireto(){
+    if(etapa!=='supervisor')return null;
+    const uid=authUidProg||profile.id;
+    const aps=(aprovProg||[]).filter(a=>a&&a.status==='pendente'&&String(a.supervisor_id)===String(uid));
+    if(!aps.length)return null;
+    return h('div',null,
+      h('div',{className:'section-title'},'Programações de entrega / retirada / troca'),
+      ...aps.map(a=>{
+        const d=demandaProgPorId(a.entrega_id);
+        const r=(rotasProg||[]).find(x=>x&&String(x.id)===String(a.rota_id));
+        const ref=(d&&d._ref)||{};
+        const nome=d?nomeDemandaProg(d):'Demanda '+String(a.entrega_id||'').slice(0,8);
+        const titulo=r?(r.codigo||r.nome||'Rota'):'Programação';
+        return h('div',{className:'card',key:'ap_dir_'+a.id},
+          h('div',{style:{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:10}},
+            h('div',null,
+              h('div',{style:{fontSize:16,fontWeight:700}},titulo+(r&&r.data_rota?' · '+fmtData(r.data_rota):'')),
+              h('div',{style:{fontSize:13,color:'var(--text-muted)',marginTop:3}},nome)),
+            h('span',{className:'badge badge-yellow'},'Aguardando aprovação')),
+          d&&h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
+          d&&h('div',{className:'info-grid',style:{marginTop:10}},
+            linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—'),
+            linhaInfo('Tipo',tipoOperacional(d)),
+            linhaInfo('Data prevista',fmtData(d.data_prevista||(r&&r.data_rota)))),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
+            h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...a,status:'aprovado'});setObsProg('');}},'Aprovar'),
+            h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...a,status:'reprovado'});setObsProg('');}},'Reprovar'))
+        );
+      })
+    );
+  }
+
   function renderRotasCascata(modoSupervisor=false){
     const rotaParam=new URLSearchParams(window.location.search).get('rota_aprovacao');
     const blocos=(rotasProg||[]).filter(r=>r&&r.id).map(r=>{
@@ -1927,7 +1974,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       let ds=its.map(i=>demandaProgPorId(i.entrega_id)).filter(Boolean);
       if(etapa==='manutencao'&&subManut!=='manutencao')ds=ds.filter(d=>tipoOperacional(d)===subManut&&d.status==='roteirizada');
       if(modoSupervisor){
-        const permitidas=new Set((aprovProg||[]).filter(a=>a&&String(a.rota_id)===String(r.id)&&String(a.supervisor_id)===String(profile.id)).map(a=>String(a.entrega_id)));
+        const permitidas=new Set((aprovProg||[]).filter(a=>a&&String(a.rota_id)===String(r.id)&&String(a.supervisor_id)===String(authUidProg||profile.id)).map(a=>String(a.entrega_id)));
         ds=ds.filter(d=>permitidas.has(String(d.id)));
       }
       if(!ds.length)return null;
@@ -1950,7 +1997,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           h('div',{className:'rota-cliente-nome'},g.nome),
           ...g.demandas.map(d=>{
             const aps=aprovDemanda(d.id);
-            const minha=modoSupervisor?aps.find(a=>String(a.supervisor_id)===String(profile.id)):null;
+            const minha=modoSupervisor?aps.find(a=>String(a.supervisor_id)===String(authUidProg||profile.id)):null;
             const st=modoSupervisor?(minha?minha.status:'pendente'):statusAprovDemanda(d.id);
             return h('div',{key:d.id,style:{marginBottom:12}},
               h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
@@ -2327,7 +2374,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
   const totalProgSupervisor = etapa==='supervisor'
-    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(profile.id)&&a.status==='pendente').length
+    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(authUidProg||profile.id)&&a.status==='pendente').length
     : 0;
   const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
 
@@ -2496,9 +2543,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
       })),
 
-    etapa==='supervisor' && totalProgSupervisor>0 && h('div',null,
-      h('div',{className:'section-title'},'Programações de entrega / retirada / troca'),
-      renderRotasCascata(true)),
+    etapa==='supervisor' && totalProgSupervisor>0 && renderPendenciasSupervisorDireto(),
 
     etapa!=='manutencao' && totalPend === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u2713', texto: 'Nenhuma pendência na sua fila.' }))
