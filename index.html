@@ -1746,7 +1746,79 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [decisaoProg,setDecisaoProg]=useState(null);
   const [obsProg,setObsProg]=useState('');
   const [authUidProg,setAuthUidProg]=useState(null);
+  // v104 — fila independente do Supervisor.
+  // A aprovação não pode desaparecer se uma consulta auxiliar de rota/cliente/equipamento falhar.
+  const [filaProgSupervisor,setFilaProgSupervisor]=useState(null);
+  const [detalhesFilaProg,setDetalhesFilaProg]=useState({rotas:{},demandas:{},refs:{}});
 
+
+
+  async function carregarFilaSupervisorDireta(){
+    if(etapa!=='supervisor'){
+      setFilaProgSupervisor([]);
+      return;
+    }
+    try{
+      // v105:
+      // - Supervisor real: carrega somente a própria fila.
+      // - Visualização de teste do Admin: carrega a fila pendente de TODOS os supervisores.
+      // A v104 zerava a fila quando ehPreview=true, exatamente o caso mostrado na tela.
+      const supervisorId=profile&&profile.id;
+      let q=sb.from('rota_programacao_aprovacoes')
+        .select('*')
+        .eq('status','pendente')
+        .order('criado_em',{ascending:false});
+
+      if(!ehPreview){
+        if(!supervisorId)throw new Error('Perfil do Supervisor sem ID.');
+        q=q.eq('supervisor_id',supervisorId);
+      }
+
+      const qa=await q;
+      if(qa.error)throw qa.error;
+
+      const fila=(qa.data||[]).filter(Boolean);
+      setFilaProgSupervisor(fila);
+
+      // Detalhes são opcionais. Qualquer falha aqui NÃO remove a pendência.
+      const rotas={}, demandas={}, refs={};
+      const rotaIds=[...new Set(fila.map(a=>a.rota_id).filter(Boolean))];
+      const entregaIds=[...new Set(fila.map(a=>a.entrega_id).filter(Boolean))];
+
+      if(rotaIds.length){
+        const rr=await sb.from('rotas_equipamentos').select('*').in('id',rotaIds);
+        if(!rr.error)(rr.data||[]).forEach(r=>{if(r&&r.id)rotas[r.id]=r;});
+        else console.warn('v104 detalhes rotas:',rr.error);
+      }
+
+      if(entregaIds.length){
+        const re=await sb.from('entregas_equipamentos').select('*').in('id',entregaIds);
+        if(!re.error){
+          (re.data||[]).forEach(d=>{if(d&&d.id)demandas[d.id]=d;});
+          const ds=Object.values(demandas);
+          const cids=[...new Set(ds.map(d=>d.cliente_id).filter(Boolean))];
+          const fids=[...new Set(ds.map(d=>d.ficha_id).filter(Boolean))];
+
+          if(cids.length){
+            const rc=await sb.from('clientes').select('*').in('id',cids);
+            if(!rc.error)(rc.data||[]).forEach(c=>{if(c&&c.id)refs['c:'+c.id]=c;});
+            else console.warn('v104 detalhes clientes:',rc.error);
+          }
+          if(fids.length){
+            const rf=await sb.from('fichas_clientes').select('*').in('id',fids);
+            if(!rf.error)(rf.data||[]).forEach(f=>{if(f&&f.id)refs['f:'+f.id]=f;});
+            else console.warn('v104 detalhes fichas:',rf.error);
+          }
+        }else console.warn('v104 detalhes demandas:',re.error);
+      }
+
+      setDetalhesFilaProg({rotas,demandas,refs});
+    }catch(e){
+      console.error('v104 fila supervisor:',e);
+      setFilaProgSupervisor([]);
+      toast('Não foi possível carregar a programação do Supervisor: '+(e&&e.message?e.message:String(e)),'error');
+    }
+  }
 
   // v66 — funções da aprovação de rotas.
   // Na v65 os estados e a interface chamavam estas funções, mas as definições
@@ -1934,34 +2006,43 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     setDecisaoProg(null);setObsProg('');
     toast(a.status==='aprovado'?'Programação aprovada.':'Programação reprovada. A rota permanece pendente para revisão da Manutenção.',a.status==='aprovado'?'success':'info');
     await carregarProgramacoesRota();
+    await carregarFilaSupervisorDireta();
   }
   function renderPendenciasSupervisorDireto(){
     if(etapa!=='supervisor')return null;
-    const uid=authUidProg||profile.id;
-    const aps=(aprovProg||[]).filter(a=>a&&a.status==='pendente'&&String(a.supervisor_id)===String(uid));
+    const aps=(filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente');
     if(!aps.length)return null;
+
     return h('div',null,
       h('div',{className:'section-title'},'Programações de entrega / retirada / troca'),
       ...aps.map(a=>{
-        const d=demandaProgPorId(a.entrega_id);
-        const r=(rotasProg||[]).find(x=>x&&String(x.id)===String(a.rota_id));
-        const ref=(d&&d._ref)||{};
-        const nome=d?nomeDemandaProg(d):'Demanda '+String(a.entrega_id||'').slice(0,8);
-        const titulo=r?(r.codigo||r.nome||'Rota'):'Programação';
-        return h('div',{className:'card',key:'ap_dir_'+a.id},
+        const r=(detalhesFilaProg.rotas||{})[a.rota_id]||null;
+        const d=(detalhesFilaProg.demandas||{})[a.entrega_id]||null;
+        const ref=d
+          ? ((d.cliente_id&&(detalhesFilaProg.refs||{})['c:'+d.cliente_id]) ||
+             (d.ficha_id&&(detalhesFilaProg.refs||{})['f:'+d.ficha_id]) || {})
+          : {};
+        const cliente=(ref.codigo_totvs?ref.codigo_totvs+' — ':'')+(ref.razao_social||'Cliente');
+        const titulo=r?(r.codigo||r.nome||'Rota'):'Programação de rota';
+        const data=(r&&r.data_rota)||(d&&d.data_prevista)||null;
+        const sup=(usuariosProg||[]).find(u=>u&&String(u.id)===String(a.supervisor_id));
+
+        return h('div',{className:'card',key:'fila_sup_'+a.id},
           h('div',{style:{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:10}},
             h('div',null,
-              h('div',{style:{fontSize:16,fontWeight:700}},titulo+(r&&r.data_rota?' · '+fmtData(r.data_rota):'')),
-              h('div',{style:{fontSize:13,color:'var(--text-muted)',marginTop:3}},nome)),
+              h('div',{style:{fontSize:16,fontWeight:700}},titulo+(data?' · '+fmtData(data):'')),
+              h('div',{style:{fontSize:13,color:'var(--text-muted)',marginTop:3}},cliente),
+              ehPreview&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:3}},'Supervisor: '+((sup&&sup.nome)||String(a.supervisor_id||'—').slice(0,8)))),
             h('span',{className:'badge badge-yellow'},'Aguardando aprovação')),
-          d&&h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
-          d&&h('div',{className:'info-grid',style:{marginTop:10}},
-            linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—'),
+          d&&h('div',{style:{marginBottom:10}},
             linhaInfo('Tipo',tipoOperacional(d)),
-            linhaInfo('Data prevista',fmtData(d.data_prevista||(r&&r.data_rota)))),
-          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
-            h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...a,status:'aprovado'});setObsProg('');}},'Aprovar'),
-            h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...a,status:'reprovado'});setObsProg('');}},'Reprovar'))
+            linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||d.equipamento_coleta||'—'),
+            linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—')),
+          !d&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
+            'A programação está pendente para sua aprovação. Os detalhes operacionais não puderam ser carregados, mas a decisão continua disponível.'),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+            h('button',{className:'btn btn-success btn-sm',onClick:()=>{setDecisaoProg({...a,status:'aprovado'});setObsProg('');}},'✓ Aprovar'),
+            h('button',{className:'btn btn-danger btn-sm',onClick:()=>{setDecisaoProg({...a,status:'reprovado'});setObsProg('');}},'✗ Reprovar'))
         );
       })
     );
@@ -2014,7 +2095,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     return blocos.length?h('div',null,...blocos):h('div',{className:'card'},h(Empty,{icon:'✓',texto:modoSupervisor?'Nenhuma programação de rota aguardando sua análise.':'Nenhuma rota neste status.'}));
   }
 
-  useEffect(() => { carregar(); carregarProgramacoesRota(); }, [visao]);
+  useEffect(() => { carregar(); carregarProgramacoesRota(); carregarFilaSupervisorDireta(); }, [visao, profile&&profile.id]);
   async function carregar() {
     setPendentes(null);
     setPendSolic(null);
@@ -2372,9 +2453,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }catch(e){console.error(e);toast('Não foi possível gerar o contrato de comodato: '+(e.message||e),'error');}
   }
 
-  if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
+  if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null) || (etapa==='supervisor'&&filaProgSupervisor===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
   const totalProgSupervisor = etapa==='supervisor'
-    ? (aprovProg||[]).filter(a=>a&&String(a.supervisor_id)===String(authUidProg||profile.id)&&a.status==='pendente').length
+    ? (filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente').length
     : 0;
   const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
 
