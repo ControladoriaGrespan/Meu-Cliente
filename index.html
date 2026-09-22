@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=PqlRTw8vaeRsS56kWr8ufr7gHg0QsLwVLCuuAoQ-XqBjQQ9t37q5DQoEVBZ_j-jiQBK0CJH4W32QGx_osHPlMWS4BOS76OAZLddHlnlE2wDYNWzdB3U3ti6cB8j_pFQpVUixCewFHYcazRTkqtjVuWET-mk5dBClW-95WvxLYr49R9Q7DtaN8In3-ECaJ2X8_IOmmFmlJaponVtO1iCbt5iPwgYuIRzwK9cq7yvgc1S0aUgaRXgyffnbUqzvG-t22-YFTeon_e3DNzIjfPFZ9_tcgrAXxAYmzYKHoSCNYTCg8PVaCFZAY6iUKZYHnSP-2ACuUf2b-FF5HjEhF9sGgXd1mzM1kgUXDjLsCcMHew6-wOg0wKyDVClcVDVyR1ws" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=rU2o1s53HsPKEgBTXf9eI_p4KPIO-PO3VG56rlYtAYvzYOuEHwPbET6W8eKZ9SKoN6Yp4pRMxfg5V4aPMMW2aPpnUV3_zT2uQsNnEWKiViUP96BYbCs5dBBM6Qq61joGZv6Hlc2MFq_KVG365dpLB2S4-j6JXnpe6MdubOjvXIvasiHTSviq2sbb-dE9AOmyBAx8xJkU--lEtNnqNS2zKBOGU0H1IRI8NxNvrsdGOZREYPLvaKx8yEivN6f95h5lGVcxZpcOSbv_ObZA80eFN6tMCTpQ2zMdr9-_adFMNFpmTR6B-wdIgNg4ZPeZ9Ol3VIiORifc_lAw-Wpik_diC7gTqYD8k09-Gt7_cQBfgFX4fsoNJNYbKBE2DdjehVmw" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v84-importador-xlsx-clientes-robusto';
-console.info('[Meu Cliente] BUILD v84-importador-xlsx-clientes-robusto');
+window.__MEU_CLIENTE_BUILD__='v85-codigo-vendedor-independente-papel';
+console.info('[Meu Cliente] BUILD v85-codigo-vendedor-independente-papel');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -5438,10 +5438,13 @@ function PaginaImportacao({ profile }) {
     setImportando(true);
     iniciarProgresso(rowsValidas.length,'Carregando vendedores...');
 
+    // O código de vendedor identifica a atuação comercial do usuário e não
+    // necessariamente o papel de acesso. Supervisor/Coordenador/etc. também
+    // podem possuir codigo_vendedor e ser responsáveis por clientes.
     const { data: vendedores, error: errVend } = await sb.from('usuarios')
       .select('id, nome, codigo_vendedor, papel')
-      .eq('papel', 'vendedor')
       .eq('ativo', true)
+      .not('codigo_vendedor', 'is', null)
       .limit(10000);
 
     if (errVend) {
@@ -5451,8 +5454,12 @@ function PaginaImportacao({ profile }) {
 
     const normCod = v => String(v || '').trim().replace(/^0+/, '') || '0';
     const vendedorMap = {};
+    const codigosDuplicados = new Set();
     (vendedores || []).forEach(v => {
-      if (v.codigo_vendedor) vendedorMap[normCod(v.codigo_vendedor)] = v;
+      if (!v.codigo_vendedor) return;
+      const cod=normCod(v.codigo_vendedor);
+      if (vendedorMap[cod] && vendedorMap[cod].id !== v.id) codigosDuplicados.add(cod);
+      else vendedorMap[cod] = v;
     });
 
     let ok = 0, erros = linhasSemRazao.length, msgs = [], processados=0;
@@ -5461,10 +5468,17 @@ function PaginaImportacao({ profile }) {
     for (const r of rowsValidas) {
       let vendedorId = null;
       if (r.codigo_vendedor) {
-        const vend = vendedorMap[normCod(r.codigo_vendedor)];
+        const codVend=normCod(r.codigo_vendedor);
+        if (codigosDuplicados.has(codVend)) {
+          erros++;
+          msgs.push((r.codigo_totvs || r.razao_social) + ': código vendedor ' + r.codigo_vendedor + ' está cadastrado em mais de um usuário ativo');
+          processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
+          continue;
+        }
+        const vend = vendedorMap[codVend];
         if (!vend) {
           erros++;
-          msgs.push((r.codigo_totvs || r.razao_social) + ': vendedor código ' + r.codigo_vendedor + ' não encontrado');
+          msgs.push((r.codigo_totvs || r.razao_social) + ': vendedor código ' + r.codigo_vendedor + ' não encontrado em usuário ativo');
           processados++; atualizarProgresso(processados,rowsValidas.length,'Importando clientes...');
           continue;
         }
