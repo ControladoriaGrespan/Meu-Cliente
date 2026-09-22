@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=yGth9lbwPJ_anB6hI1ztCSQQIICZTnMY3lYc8IOqUh1PTQlWoYsBusTkWLABIRjTN4T4sIzjcR6ERyabx6tKroRcoy3lzMrkbmpU4UBM1FHvnjniQjrNFE0Wm7Wx-5K0QeYFymSH_ubDH21ni-RcQ6OL88Ji6rIQx3O-ksPGA5MOyGFcnsSx9YH-y3ST-Ic2meXHmxsSv80ulw0UaVEOJI3nP95RmpsX_Gpq52vFT-gxAsn9_6Jmn1gFuEeaYccJSRZ2WvKFtm_lRT4k80o94Iu7oJBT0CrsIyKy7UF0cnA8Adna_bxWo0dq7h7eiQPv6Itvi1dyFi8TNAs0jdXmpv4cL38T_2yS-BkCEP4SXb4" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -524,8 +524,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v91-import-corrigido-clientes';
-console.info('[Meu Cliente] BUILD v91-import-corrigido-clientes');
+window.__MEU_CLIENTE_BUILD__='v92-amostras-acordo-clientes';
+console.info('[Meu Cliente] BUILD v92-amostras-acordo-clientes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2762,7 +2762,9 @@ function PaginaClientes({ profile }) {
   const [clientes, setClientes] = useState(null);
   const [busca, setBusca] = useState('');
   const [editandoTotvs, setEditandoTotvs] = useState({});
+  const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
+  const podeEditarAcordo = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
   useEffect(() => { carregar(); }, []);
 
@@ -2805,6 +2807,7 @@ function PaginaClientes({ profile }) {
       setClientes(data || []);
     }
     setEditandoTotvs({});
+    setEditandoAcordo({});
   }
 
   async function salvarTotvs(c) {
@@ -2816,6 +2819,14 @@ function PaginaClientes({ profile }) {
     });
     if (error) return toast('Não foi possível salvar o código TOTVS: ' + error.message, 'error');
     toast('Código TOTVS salvo com sucesso.', 'success');
+    carregar();
+  }
+
+  async function salvarAcordo(c) {
+    const valor = String(editandoAcordo[c.id] == null ? (c.acordo_comercial || '') : editandoAcordo[c.id]).trim();
+    const { error } = await sb.from('clientes').update({ acordo_comercial: valor || null }).eq('id', c.id);
+    if (error) return toast('Não foi possível salvar o Acordo: ' + error.message, 'error');
+    toast(valor ? 'Acordo atualizado com sucesso.' : 'Acordo removido com sucesso.', 'success');
     carregar();
   }
 
@@ -2869,7 +2880,7 @@ function PaginaClientes({ profile }) {
           h('div', { className: 'table-wrap' },
             h('table', null,
               h('thead', null, h('tr', null,
-                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', podeEditar ? '' : null]
+                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
                   .filter(c => c !== null).map((c, i) => h('th', { key: i }, c)))),
               h('tbody', null,
                 filtrados.map(c => {
@@ -2890,17 +2901,33 @@ function PaginaClientes({ profile }) {
                     h('td', null, c.nome_fantasia || '—'),
                     h('td', { className: 'mono' }, c.cnpj_cpf || '—'),
                     h('td', null, (c.cidade || '—') + (c.estado ? '/' + c.estado : '')),
+                    h('td', null,
+                      podeEditarAcordo
+                        ? h('input', {
+                            className: 'form-input sm',
+                            style: { minWidth: 150 },
+                            placeholder: 'Sem acordo',
+                            value: c.id in editandoAcordo ? editandoAcordo[c.id] : (c.acordo_comercial || ''),
+                            onChange: e => setEditandoAcordo(prev => ({ ...prev, [c.id]: e.target.value }))
+                          })
+                        : (c.acordo_comercial || '—')),
                     h('td', { className: 'mono' }, (c.usuarios && c.usuarios.codigo_vendedor) || '—'),
                     h('td', null, (c.usuarios && c.usuarios.nome) || '—'),
                     h('td', { className: 'mono' }, fmtMoeda(c.fichas_clientes && c.fichas_clientes.faturamento_previsto)),
                     h('td', null, h('span', { className: `badge ${c.origem === 'totvs' ? 'badge-blue' : 'badge-gray'}` }, c.origem || '—')),
                     h('td', null, h('span', { className: `badge ${st.cls}` }, st.txt)),
-                    podeEditar && h('td', null,
-                      h('button', {
-                        className: 'btn btn-primary btn-sm',
-                        disabled: !emEdicao,
-                        onClick: () => salvarTotvs(c)
-                      }, 'Salvar')));
+                    (podeEditar || podeEditarAcordo) && h('td', null,
+                      h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                        podeEditar && h('button', {
+                          className: 'btn btn-primary btn-sm',
+                          disabled: !emEdicao,
+                          onClick: () => salvarTotvs(c)
+                        }, 'Salvar código'),
+                        podeEditarAcordo && h('button', {
+                          className: 'btn btn-secondary btn-sm',
+                          disabled: !(c.id in editandoAcordo),
+                          onClick: () => salvarAcordo(c)
+                        }, 'Salvar acordo'))));
                 }))))));
 }
 
@@ -4646,6 +4673,8 @@ function PaginaPedidos({ profile }) {
   // causando ReferenceError e tela branca ao selecionar o cliente.
   const [bonificacoesAbertas, setBonificacoesAbertas] = useState([]);
   const [bonificacoesVinculadas, setBonificacoesVinculadas] = useState([]);
+  const [amostrasAbertas, setAmostrasAbertas] = useState([]);
+  const [amostrasVinculadas, setAmostrasVinculadas] = useState([]);
   const [itens, setItens] = useState([]);
   const [obsPedido, setObsPedido] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -4739,7 +4768,7 @@ function PaginaPedidos({ profile }) {
       .eq('rota_id', rotaId).order('ordem_entrega');
     const cls = (crs || []).map(cr => cr.clientes).filter(Boolean);
     setLancando({ rota, data: dataStr, clientesRota: cls });
-    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setItens([]); setObsPedido('');
+    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
   }
 
   async function selecionarCliente(cli) {
@@ -4755,6 +4784,18 @@ function PaginaPedidos({ profile }) {
     });
     setBonificacoesAbertas(aprovadas);
     setBonificacoesVinculadas([]);
+
+    const { data: amos } = await sb.from('solicitacoes')
+      .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(status)')
+      .eq('cliente_id', cli.id).eq('categoria', 'amostra')
+      .in('status_fluxo', ['aberta','aprovada'])
+      .order('created_at', { ascending: true });
+    const amostrasAprovadas = (amos || []).filter(a => {
+      const aps = a.solicitacao_aprovacoes || [];
+      return aps.length === 0 || aps.every(ap => ['aprovado','nao_aplica'].includes(ap.status));
+    });
+    setAmostrasAbertas(amostrasAprovadas);
+    setAmostrasVinculadas([]);
 
     // verifica se ja existe pedido para este cliente NESTA data
     const { data: pedidoHoje } = await sb.from('pedidos')
@@ -4874,6 +4915,11 @@ function PaginaPedidos({ profile }) {
     setBonificacoesVinculadas([...bonificacoesVinculadas, sol]);
   }
 
+  function vincularAmostra(sol) {
+    if (amostrasVinculadas.some(a => a.id === sol.id)) return;
+    setAmostrasVinculadas(prev => [...prev, sol]);
+  }
+
   async function salvarPedido() {
     const validos = itens.filter(it => it.produto_id && Number(it.quantidade) > 0 && ((it.tipo_item || 'venda') === 'bonificacao' || Number(it.valor_unitario) > 0));
     if (!validos.length) return toast('Adicione pelo menos um item.', 'error');
@@ -4920,6 +4966,21 @@ function PaginaPedidos({ profile }) {
 
         if (erroConclusaoBonificacao) {
           toast('Pedido salvo, mas não foi possível concluir a bonificação: ' + erroConclusaoBonificacao.message, 'error');
+          return;
+        }
+      }
+    }
+
+    if (amostrasVinculadas.length) {
+      for (const a of amostrasVinculadas) {
+        const { error: erroConclusaoAmostra } = await sb.from('solicitacoes').update({
+          status_fluxo: 'concluida',
+          pedido_id: pedidoId,
+          vinculada_em: new Date().toISOString(),
+          vinculada_por: profile.id
+        }).eq('id', a.id);
+        if (erroConclusaoAmostra) {
+          toast('Pedido salvo, mas não foi possível concluir a amostra: ' + erroConclusaoAmostra.message, 'error');
           return;
         }
       }
@@ -4994,6 +5055,21 @@ function PaginaPedidos({ profile }) {
                         ' · ' + ((b.produtos && b.produtos.descricao) || '') + ' · ' + fmtNum(b.quantidade || 0) + ' un.',
                         h('div', { style: { color: 'var(--text-muted)', marginTop: 2 } }, b.modalidade_bonificacao === 'desconto' ? 'Aplicar como desconto do pedido' : 'Adicionar ao pedido como bonificação')),
                       h('button', { className: vinc ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm', disabled: vinc, onClick: () => vincularBonificacao(b) }, vinc ? 'Vinculada' : 'Vincular'));
+                  })),
+
+                amostrasAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--accent)' } },
+                  h('div', { className: 'section-title' }, 'Amostras aprovadas em aberto'),
+                  amostrasAbertas.map(a => {
+                    const vinc = amostrasVinculadas.some(x => x.id === a.id);
+                    const resumo = a.tipo_amostra === 'kit'
+                      ? 'KIT'
+                      : (((a.produtos && a.produtos.codigo) || 'Produto') + ' · ' + ((a.produtos && a.produtos.descricao) || '') + ' · ' + fmtNum(a.quantidade || 0) + ' un.');
+                    return h('div', { key: a.id, style: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' } },
+                      h('div', { style: { fontSize: 12 } },
+                        h('div', { style:{fontWeight:700, color:'var(--grespan-red)', marginBottom:3} }, codigoAuditoria(a, 'AMO')),
+                        h('strong', null, resumo),
+                        h('div', { style: { color: 'var(--text-muted)', marginTop: 2 } }, 'Ao salvar o pedido, esta solicitação será concluída e não poderá ser apropriada novamente.')),
+                      h('button', { className: vinc ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm', disabled: vinc, onClick: () => vincularAmostra(a) }, vinc ? 'Apropriada' : 'Apropriar'));
                   })),
 
                 pedidoAnterior && h('div', { className: 'card', style: { marginBottom: 12 } },
