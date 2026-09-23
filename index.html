@@ -8,7 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Cliente - Grespan</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=wbdOIlsfS49nlr9SwF_weLuCGWgXWD0j1kj54Jw1mPs0qc_mIScKg9iVfCUdOm8dD59Ynvuxjvc4UwNC7XSzsPwDqu8M1DyMKxFQS28WXxaBRUkUUD41vAMICb1cLl_kAfFxzJhYWlsiiEB754GG8BbbTewaDosydTMp4Vdd_qBqQZiPu3a8Zjz41UYTL-0I7GdsONBxU3ZPX0eHvanMXQhou5Cao_vq6eQzN7afRp0oTiJzkrao4fhgiB17NufbieMTjZFPXOtNo4QuSqglRft8CbOfcgZnqQ4SkLA7qXb3QuEmHRYm-cruWVqWcuaW6OA2fE0_dv0773v3bYVPscx9sPZrNgrOrK5fNyvhjWoreHp3gNoq9tT9v-0l4OLX" charset="UTF-8"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -2409,8 +2409,36 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         dem.ficha_id?sb.from('fichas_clientes').select('id,codigo,acordo_comercial_numero,razao_social,nome_fantasia,cnpj_cpf,rua,numero,bairro,cidade,estado,cep,consumo_previsto').eq('id',dem.ficha_id).maybeSingle():Promise.resolve({data:null})
       ]);
       if(qi.error)throw qi.error;if(qc.error)throw qc.error;if(qf.error)throw qf.error;
-      const itens=qi.data||[];
-      if(!itens.length)return toast('Nenhum equipamento individualizado para o comodato. Abra a demanda e confira os equipamentos/patrimônios.','error');
+      let itens=qi.data||[];
+
+      // v108 — nas TROCAS antigas os equipamentos podem estar somente no resumo operacional,
+      // sem registros em comodato_equipamentos. Para o novo comodato entram SOMENTE os bens
+      // que serão ENTREGUES ao cliente; os bens coletados não pertencem ao novo contrato.
+      if(!itens.length && dem.equipamento_resumo){
+        let resumo=String(dem.equipamento_resumo||'').trim();
+        if(tipoOperacional(dem)==='troca' && /ENTREGAR\s*:/i.test(resumo)){
+          resumo=resumo.split(/ENTREGAR\s*:/i).pop().trim();
+        }else if(/COLETAR\s*:/i.test(resumo) && !/ENTREGAR\s*:/i.test(resumo)){
+          resumo='';
+        }
+
+        if(resumo){
+          itens=resumo.split(/\s*[•·]\s*/).map((parte,idx)=>{
+            const txt=String(parte||'').replace(/^\s*ENTREGAR\s*:\s*/i,'').trim();
+            if(!txt)return null;
+            const m=txt.match(/^(.*?)\s*\|\s*Patrim[oô]nio\s+(.+)$/i);
+            return {
+              quantidade:1,
+              descricao:(m?m[1]:txt).trim(),
+              patrimonio:(m?m[2]:'—').trim(),
+              condicao:'—',
+              ordem:idx+1
+            };
+          }).filter(Boolean);
+        }
+      }
+
+      if(!itens.length)return toast('Nenhum equipamento de entrega localizado para gerar o comodato.','error');
       let ct=qc.data||null;
       if(!ct){
         const rc=await sb.from('contratos_comodato').insert({entrega_id:dem.id,ficha_id:dem.ficha_id||null,cliente_id:dem.cliente_id||null,criado_por:profile.id}).select().single();
@@ -2493,7 +2521,18 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       let itens=qi.data||[];
       // Se a troca ainda não tiver itens individualizados, usa o resumo operacional para não bloquear o documento.
       if(!itens.length && dem.equipamento_resumo){
-        itens=[{quantidade:1,descricao:dem.equipamento_resumo,patrimonio:'—',condicao:'—'}];
+        let resumo=String(dem.equipamento_resumo||'').trim();
+        if(tipoOperacional(dem)==='troca' && /ENTREGAR\s*:/i.test(resumo)){
+          resumo=resumo.split(/ENTREGAR\s*:/i).pop().trim();
+        }else if(/COLETAR\s*:/i.test(resumo) && !/ENTREGAR\s*:/i.test(resumo)){
+          resumo='';
+        }
+        itens=resumo.split(/\s*[•·]\s*/).map((parte,idx)=>{
+          const txt=String(parte||'').replace(/^\s*ENTREGAR\s*:\s*/i,'').trim();
+          if(!txt)return null;
+          const m=txt.match(/^(.*?)\s*\|\s*Patrim[oô]nio\s+(.+)$/i);
+          return {quantidade:1,descricao:(m?m[1]:txt).trim(),patrimonio:(m?m[2]:'—').trim(),condicao:'—',ordem:idx+1};
+        }).filter(Boolean);
       }
       if(!itens.length)throw new Error('Nenhum equipamento localizado para o comodato.');
 
@@ -4901,6 +4940,9 @@ function PaginaPedidos({ profile }) {
   const [amostrasVinculadas, setAmostrasVinculadas] = useState([]);
   const [itens, setItens] = useState([]);
   const [obsPedido, setObsPedido] = useState('');
+  const [numeroNf, setNumeroNf] = useState(1);
+  const [totalNfs, setTotalNfs] = useState(1);
+  const [tabelaPrecoCliente, setTabelaPrecoCliente] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   // modal +
@@ -4985,11 +5027,11 @@ function PaginaPedidos({ profile }) {
   }
 
   // ---- lancamento de pedido ----
-  async function abrirLancamento(rotaId, dataStr) {
+  async function abrirLancamento(rotaId, dataStr) { try {
     const rota = (rotas || []).find(r => r.id === rotaId);
     if (!rota) return;
     const { data: crs } = await sb.from('cliente_rotas')
-      .select('id, ordem_entrega, clientes(id, razao_social, cnpj_cpf, codigo_totvs, telefone, condicao_pagamento, acordo_comercial)')
+      .select('id, ordem_entrega, clientes(id, razao_social, cnpj_cpf, codigo_totvs, telefone, condicao_pagamento, acordo_comercial, tabela_preco_id)')
       .eq('rota_id', rotaId).order('ordem_entrega');
     const cls = (crs || []).map(cr => cr.clientes).filter(Boolean);
     const { data: acs, error: erroAcomp } = await sb.from('pedido_acompanhamento')
@@ -4999,6 +5041,7 @@ function PaginaPedidos({ profile }) {
     (acs || []).forEach(a => { mapaAcomp[a.cliente_id] = a.status; });
     setAcompanhamentoMap(mapaAcomp);
     setLancando({ rota, data: dataStr, clientesRota: cls });
+    } catch (err) { console.error('Erro ao abrir lançamento:', err); toast('Erro ao carregar rota: ' + err.message, 'error'); }
     setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
   }
 
@@ -5024,7 +5067,18 @@ function PaginaPedidos({ profile }) {
   }
 
   async function selecionarCliente(cli) {
-    setClienteAtivo(cli); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null);
+    try {
+    setClienteAtivo(cli); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
+    // carrega tabela de precos do cliente
+    setTabelaPrecoCliente({});
+    let mapaTabelaPreco = {};
+    if (cli.tabela_preco_id) {
+      const { data: tpItens } = await sb.from('tabela_preco_itens')
+        .select('produto_id, preco_unitario')
+        .eq('tabela_id', cli.tabela_preco_id);
+      (tpItens || []).forEach(tp => { mapaTabelaPreco[tp.produto_id] = Number(tp.preco_unitario); });
+      setTabelaPrecoCliente(mapaTabelaPreco);
+    }
     const { data: bons } = await sb.from('solicitacoes')
       .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(status)')
       .eq('cliente_id', cli.id).eq('categoria', 'bonificacao')
@@ -5091,9 +5145,13 @@ function PaginaPedidos({ profile }) {
           codigo: it.produtos && it.produtos.codigo,
           descricao: it.produtos && it.produtos.descricao,
           unidade: it.produtos && it.produtos.unidade,
-          quantidade: '', valor_unitario: it.valor_unitario, tipo_item: it.tipo_item || 'venda',
+          quantidade: '', valor_unitario: Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : it.valor_unitario, tipo_item: it.tipo_item || 'venda',
         })));
       }
+    }
+    } catch (err) {
+      console.error('Erro ao selecionar cliente no pedido:', err);
+      toast('Erro ao carregar cliente no pedido: ' + (err && err.message ? err.message : String(err)), 'error');
     }
   }
 
@@ -5106,7 +5164,10 @@ function PaginaPedidos({ profile }) {
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
         if (prod) { novo.codigo = prod.codigo; novo.descricao = prod.descricao; novo.unidade = prod.unidade; }
-        if (pedidoAnterior && pedidoAnterior.pedido_itens) {
+        // prioridade: tabela de preço do cliente > pedido anterior > vazio
+        if (Object.prototype.hasOwnProperty.call(tabelaPrecoCliente, valor)) {
+          novo.valor_unitario = tabelaPrecoCliente[valor];
+        } else if (pedidoAnterior && pedidoAnterior.pedido_itens) {
           const ant = pedidoAnterior.pedido_itens.find(a => a.produto_id === valor);
           if (ant) novo.valor_unitario = ant.valor_unitario;
         }
@@ -5195,6 +5256,7 @@ function PaginaPedidos({ profile }) {
       const { data: pedido, error } = await sb.from('pedidos').insert({
         cliente_id: clienteAtivo.id, rota_id: lancando.rota.id, criado_por: profile.id,
         data_pedido: lancando.data, observacoes: obsPedido.trim() || null,
+        numero_nf: numeroNf,
       }).select().single();
       if (error) { setSalvando(false); return toast(error.message, 'error'); }
       pedidoId = pedido.id;
@@ -5240,12 +5302,19 @@ function PaginaPedidos({ profile }) {
 
     await alterarStatusCliente(clienteAtivo.id, 'pedido_fechado');
 
-    const idx = lancando.clientesRota.findIndex(c => c.id === clienteAtivo.id);
-    if (idx >= 0 && idx < lancando.clientesRota.length - 1) {
-      selecionarCliente(lancando.clientesRota[idx + 1]);
+    // se tem mais NFs pra preencher, fica no mesmo cliente
+    if (numeroNf < totalNfs) {
+      setNumeroNf(numeroNf + 1);
+      setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null);
+      toast('NF ' + numeroNf + ' salva. Agora lance a NF ' + (numeroNf + 1) + ' de ' + totalNfs + '.', 'info');
     } else {
-      toast('Todos os clientes desta rota foram atendidos!', 'success');
-      setLancando(null); carregar();
+      const idx = lancando.clientesRota.findIndex(c => c.id === clienteAtivo.id);
+      if (idx >= 0 && idx < lancando.clientesRota.length - 1) {
+        selecionarCliente(lancando.clientesRota[idx + 1]);
+      } else {
+        toast('Todos os clientes desta rota foram atendidos!', 'success');
+        setLancando(null); carregar();
+      }
     }
   }
 
@@ -5310,7 +5379,14 @@ function PaginaPedidos({ profile }) {
                       h('option',{value:'pedido_fechado'},'✓ Pedido Fechado'))),
                   clienteAtivo.acordo_comercial && h('div', {
                     style: { marginTop: 10, padding: '8px 12px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--warning)' }
-                  }, '\uD83D\uDCCB Acordo: ' + clienteAtivo.acordo_comercial)),
+                  }, '\uD83D\uDCCB Acordo: ' + clienteAtivo.acordo_comercial),
+                  h('div', { style: { marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
+                    h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                      h('span', { style: { fontSize: 12, color: 'var(--text-muted)' } }, 'Qtd de NFs:'),
+                      h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange: e => { setTotalNfs(Number(e.target.value)); setNumeroNf(1); } },
+                        [1,2,3,4,5].map(n => h('option', { key: n, value: n }, n)))),
+                    totalNfs > 1 && h('span', { className: 'badge badge-blue' }, 'NF ' + numeroNf + ' de ' + totalNfs),
+                    Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
                   h('div', { className: 'section-title' }, 'Bonificações aprovadas em aberto'),
@@ -5372,7 +5448,7 @@ function PaginaPedidos({ profile }) {
                               onChange: v => setItem(i, 'produto_id', v),
                               items: produtos.map(pr => ({
                                 value: pr.id,
-                                label: pr.codigo,
+                                label: pr.codigo + ' — ' + pr.descricao,
                                 search: pr.codigo + ' ' + pr.descricao,
                                 code: pr.codigo
                               }))
@@ -5987,19 +6063,87 @@ function PaginaImportacao({ profile }) {
     if(atualizados+novos>0) toast((atualizados+novos)+' cliente(s) conciliado(s)!','success');
   }
 
+  // ---------- TABELAS DE PRECO ----------
+  async function importarTabelaPreco(rows) {
+    const obrig = rows.every(r => r.cod_tabela && r.codigo_produto && r.preco_unitario);
+    if (!obrig) return toast('Colunas obrigatórias: cod_tabela, codigo_produto, preco_unitario.', 'error');
+    setImportando(true);
+    const { data: prods } = await sb.from('produtos').select('id, codigo').limit(10000);
+    const prodMap = {};
+    (prods || []).forEach(p => { prodMap[p.codigo.toLowerCase().trim()] = p.id; prodMap[p.codigo.replace(/^0+/,'').toLowerCase()] = p.id; });
+    const tabelas = {};
+    rows.forEach(r => { const cod = (r.cod_tabela || '').trim(); if (!tabelas[cod]) tabelas[cod] = []; tabelas[cod].push(r); });
+    let okTab = 0, okItens = 0, erros = 0;
+    for (const [cod, itens] of Object.entries(tabelas)) {
+      const { data: tab, error: errTab } = await sb.from('tabelas_preco').upsert({ codigo: cod, descricao: 'Tabela ' + cod, ativo: true }, { onConflict: 'codigo' }).select().single();
+      if (errTab) { erros++; continue; } okTab++;
+      for (const it of itens) {
+        const codProd = (it.codigo_produto || '').trim();
+        const prodId = prodMap[codProd.toLowerCase()] || prodMap[codProd.replace(/^0+/,'').toLowerCase()];
+        if (!prodId) { erros++; continue; }
+        const preco = Number(String(it.preco_unitario || '0').replace(',', '.'));
+        const { error } = await sb.from('tabela_preco_itens').upsert({ tabela_id: tab.id, produto_id: prodId, preco_unitario: preco }, { onConflict: 'tabela_id,produto_id' });
+        if (error) erros++; else okItens++;
+      }
+    }
+    setImportando(false);
+    setResultado('\u2713 ' + okTab + ' tabela(s) \u00B7 ' + okItens + ' pre\u00E7o(s) importado(s)' + (erros ? ' \u00B7 \u2717 ' + erros + ' erro(s)' : ''));
+    if (okItens > 0) toast(okItens + ' pre\u00E7o(s) importado(s)!', 'success');
+  }
+
+  // ---------- CLIENTE x TABELA ----------
+  async function importarClienteTabela(rows) {
+    const obrig = rows.every(r => r.codigo_totvs && r.cod_tabela);
+    if (!obrig) return toast('Colunas obrigatórias: codigo_totvs, cod_tabela.', 'error');
+    setImportando(true);
+    const { data: tabs } = await sb.from('tabelas_preco').select('id, codigo');
+    const tabMap = {}; (tabs || []).forEach(t => { tabMap[t.codigo.toLowerCase().trim()] = t.id; });
+    const { data: clis } = await sb.from('clientes').select('id, codigo_totvs').limit(10000);
+    const norm = v => String(v || '').replace(/^0+/, '').toLowerCase().trim();
+    const cliMap = {}; (clis || []).forEach(c => { if (c.codigo_totvs) { cliMap[c.codigo_totvs.toLowerCase().trim()] = c.id; cliMap[norm(c.codigo_totvs)] = c.id; } });
+    let ok = 0, erros = 0, msgs = [];
+    for (const r of rows) {
+      const codCli = (r.codigo_totvs || '').trim();
+      const cliId = cliMap[codCli.toLowerCase()] || cliMap[norm(codCli)];
+      if (!cliId) { erros++; msgs.push(codCli + ': cliente n\u00E3o encontrado'); continue; }
+      const codTab = (r.cod_tabela || '').trim();
+      const tabId = tabMap[codTab.toLowerCase()];
+      if (!tabId) { erros++; msgs.push(codTab + ': tabela n\u00E3o encontrada'); continue; }
+      const { error } = await sb.from('clientes').update({ tabela_preco_id: tabId }).eq('id', cliId);
+      if (error) { erros++; msgs.push(codCli + ': ' + error.message); } else ok++;
+    }
+    setImportando(false);
+    setResultado('\u2713 ' + ok + ' cliente(s) vinculado(s)' + (erros ? ' \u00B7 \u2717 ' + erros + ' erro(s)\n' + msgs.slice(0, 10).join('\n') : ''));
+    if (ok > 0) toast(ok + ' v\u00EDnculo(s) atualizado(s)!', 'success');
+  }
+
   function executar() {
     if (!preview) return;
     const tipo=preview.tipoDetectado || aba;
     if (tipo === 'produtos') importarProdutos(preview.rows);
     else if (tipo === 'pedidos') importarPedidos(preview.rows);
     else if (tipo === 'clientes') importarClientes(preview.rows);
+    else if (tipo === 'tabela_preco') importarTabelaPreco(preview.rows);
+    else if (tipo === 'cliente_tabela') importarClienteTabela(preview.rows);
   }
 
+  if (!MODELOS['tabela_preco']) MODELOS['tabela_preco'] = {
+    headers: ['cod_tabela', 'codigo_produto', 'preco_unitario'],
+    exemplos: [['TAB_7.00', '10000122', '56.00'], ['TAB_7.00', '10000220', '55.00'], ['TAB_8.00', '10000122', '64.00']],
+    dica: 'Colunas obrigat\u00F3rias: cod_tabela, codigo_produto, preco_unitario. Se a tabela j\u00E1 existir, atualiza os pre\u00E7os. Importe os produtos antes.'
+  };
+  if (!MODELOS['cliente_tabela']) MODELOS['cliente_tabela'] = {
+    headers: ['codigo_totvs', 'cod_tabela'],
+    exemplos: [['002989', 'TAB_7.00'], ['001387', 'TAB_8.00']],
+    dica: 'Vincula cada cliente a uma tabela de pre\u00E7o. O codigo_totvs identifica o cliente e cod_tabela deve existir na aba Tabelas de Pre\u00E7o. Importe as tabelas antes.'
+  };
   const modelo = MODELOS[aba];
   const abas_ = [
     { id: 'produtos', label: 'Produtos' },
     { id: 'pedidos', label: 'Pedidos' },
     { id: 'clientes', label: 'Clientes' },
+    { id: 'tabela_preco', label: 'Tabelas de Preço' },
+    { id: 'cliente_tabela', label: 'Cliente x Tabela' },
   ];
 
   return h('div', null,
