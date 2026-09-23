@@ -2281,6 +2281,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       const tipoMsg = sol.categoria === 'bonificacao' ? 'BONIFICAÇÃO' :
         sol.categoria === 'amostra' ? 'ENVIO DE AMOSTRA' :
         sol.tipo === 'troca' ? 'TROCA DE EQUIPAMENTO' :
+        sol.tipo === 'retirada' ? 'RETIRADA DE EQUIPAMENTO' :
         sol.tipo === 'aumento' ? 'AUMENTO DE EQUIPAMENTO' : 'MANUTENÇÃO';
       const detalheMsg = sol.categoria === 'equipamento' ? `\nServiço: ${sol.equipamento || '—'}` :
         sol.categoria === 'bonificacao' ? `\nQuantidade: ${sol.quantidade || '—'}` :
@@ -2301,26 +2302,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       if(em)toast('Solicitação aprovada, mas a ordem operacional não foi criada: '+em.message,'error');
     }
 
-    // Após a aprovação final da Diretoria, uma troca vira DEMANDA OPERACIONAL da Manutenção.
-    if(status==='aprovado' && ap.etapa==='diretoria' && ap.solicitacoes &&
-       (ap.solicitacoes.categoria||'equipamento')==='equipamento' && ap.solicitacoes.tipo==='troca'){
-      const sol=ap.solicitacoes, cli=sol.clientes||{};
-      const {data:cf}=await sb.from('clientes').select('id,razao_social,fichas_clientes(*)').eq('id',sol.cliente_id).single();
-      const fichas=((cf&&cf.fichas_clientes)||[]).slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
-      const f=fichas.find(x=>x.entrega_rua)||fichas[0]||{};
-      const {error:ed}=await sb.from('entregas_equipamentos').upsert({
-        solicitacao_id:sol.id,cliente_id:sol.cliente_id,origem_tipo:'troca',tipo_demanda:'troca',
-        status:'pendente',
-        endereco_rua:f.entrega_rua||f.rua||'Não informado',endereco_numero:f.entrega_numero||f.numero||'S/N',
-        endereco_bairro:f.entrega_bairro||f.bairro||'Não informado',endereco_cidade:f.entrega_cidade||f.cidade||'Não informado',
-        endereco_estado:f.entrega_estado||f.estado||'--',endereco_cep:f.entrega_cep||f.cep||'Não informado',
-        equipamento_coleta:sol.equipamento||null,patrimonio_coleta:sol.patrimonio||null,
-        equipamento_entrega:sol.equipamento_entrega||null,patrimonio_entrega:sol.patrimonio_entrega||null,
-        equipamento_resumo:`COLETAR: ${sol.equipamento||'—'}${sol.patrimonio?' | Patrimônio '+sol.patrimonio:''} • ENTREGAR: ${sol.equipamento_entrega||'—'}${sol.patrimonio_entrega?' | Patrimônio '+sol.patrimonio_entrega:''}`,
-        criado_por:profile.id
-      },{onConflict:'solicitacao_id'});
-      if(ed) toast('Solicitação aprovada, mas a demanda da Manutenção não foi criada: '+ed.message,'error');
-    }
+    // Troca e retirada: a demanda operacional é criada no banco pelos triggers das migrações 99/110,
+    // preservando todos os itens de solicitacao_equipamentos.
 
     toast(`Solicitação ${status}.`, status === 'aprovado' ? 'success' : 'info');
     carregar(); onChanged && onChanged();
@@ -3250,11 +3233,9 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [clienteId, setClienteId] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('');
-  const [equipamento, setEquipamento] = useState('');
-  const [equipamentoManual, setEquipamentoManual] = useState('');
-  const [patrimonio, setPatrimonio] = useState('');
-  const [equipamentoEntrega,setEquipamentoEntrega]=useState('');
-  const [patrimonioEntrega,setPatrimonioEntrega]=useState('');
+  const novaLinhaEquip = () => ({ equipamento:'', quantidade:1, patrimonio:'' });
+  const [equipamentosSolicitados, setEquipamentosSolicitados] = useState([novaLinhaEquip()]);
+  const [equipamentosEntrega, setEquipamentosEntrega] = useState([novaLinhaEquip()]);
   const [justificativa, setJustificativa] = useState('');
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
@@ -3263,6 +3244,9 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [tipoAmostra, setTipoAmostra] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
+  function alterarLinhaEquip(setter, idx, campo, valor) { setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x)); }
+  function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
+  function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
 
   useEffect(() => {
     (async () => {
@@ -3294,10 +3278,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const equipamentos = clienteSel ? listarEquipamentos(clienteSel.fichas_clientes) : [];
   const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria) : [];
 
-  useEffect(() => { setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega(''); }, [clienteId]);
+  useEffect(() => { setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]); }, [clienteId]);
   useEffect(() => {
     setTipo(modulo === 'administracao_vendas' && categoria === 'equipamento' ? 'troca' : '');
-    setEquipamento(''); setEquipamentoManual(''); setPatrimonio(''); setEquipamentoEntrega(''); setPatrimonioEntrega('');
+    setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]);
     setJustificativa(''); setProdutoId(''); setQuantidade(''); setModalidadeBonificacao(''); setTipoAmostra('');
   }, [categoria]);
 
@@ -3324,14 +3308,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
     if (categoria === 'equipamento') {
       if (!tipo) return toast('Selecione o tipo de solicitação.', 'error');
-      const eqFinal = equipamento;
-      if (!eqFinal) return toast('Selecione o equipamento.', 'error');
+      const linhas = equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0);
+      const entregas = tipo === 'troca' ? equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0) : [];
+      if (!linhas.length) return toast('Inclua pelo menos um equipamento e quantidade.', 'error');
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
-      if (tipo === 'troca' && !equipamentoEntrega) return toast('Informe qual equipamento será entregue ao cliente.', 'error');
-      payload = { ...payload, tipo, equipamento: eqFinal, patrimonio: patrimonio.trim() || null,
-        equipamento_entrega: tipo === 'troca' ? equipamentoEntrega : null,
-        patrimonio_entrega: tipo === 'troca' ? (patrimonioEntrega.trim() || null) : null,
-        justificativa: tipo === 'troca' ? justificativa : null };
+      if (tipo === 'retirada' && !justificativa) return toast('Informe o motivo da retirada.', 'error');
+      if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
+      const primeiro = linhas[0], primeiraEntrega = entregas[0];
+      payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
+        equipamento_entrega: tipo === 'troca' && primeiraEntrega ? primeiraEntrega.equipamento : null,
+        patrimonio_entrega: tipo === 'troca' && primeiraEntrega ? ((primeiraEntrega.patrimonio || '').trim() || null) : null,
+        justificativa: ['troca','retirada'].includes(tipo) ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
       if (!modalidadeBonificacao) return toast('Informe se será acréscimo ou desconto do pedido.', 'error');
@@ -3349,6 +3336,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
     setSalvando(false);
     if (error) return toast(error.message, 'error');
+    if (categoria === 'equipamento') {
+      const detalhes = [];
+      equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
+        solicitacao_id:nova.id, movimento: tipo === 'troca' ? 'coletar' : 'equipamento', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+      }));
+      if (tipo === 'troca') equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
+        solicitacao_id:nova.id, movimento:'entregar', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+      }));
+      const { error: erroItens } = await sb.from('solicitacao_equipamentos').insert(detalhes);
+      if (erroItens) return toast('Solicitação criada, mas houve erro ao gravar os equipamentos: ' + erroItens.message, 'error');
+    }
     toast('Solicitação enviada!', 'success');
     onCriada(categoria);
   }
@@ -3383,26 +3381,32 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
                 h('option', { value: '' }, 'Selecione...'),
                 h('option', { value: 'aumento' }, 'Aumento de equipamento'),
                 h('option', { value: 'troca' }, 'Troca de equipamento'),
+                h('option', { value: 'retirada' }, 'Retirada de equipamento'),
                 h('option', { value: 'manutencao' }, 'Manutenção de equipamento'))),
-        h(Campo, { label: tipo === 'troca' ? 'Equipamento a coletar' : 'Equipamento', obrigatorio: true },
-          h('select', { className: 'form-select', value: equipamento, onChange: e => setEquipamento(e.target.value) },
-            h('option', { value: '' }, 'Selecione...'),
-            equipamentos.length > 0 && h('optgroup', { label: 'Equipamentos já registrados no cliente' },
-              equipamentos.map(eq => h('option', { key: 'cad_' + eq, value: eq }, eq))),
-            h('optgroup', { label: 'Lista padrão de equipamentos' },
-              EQUIPAMENTOS_PADRAO.map(eq => h('option', { key: 'pad_' + eq, value: eq }, eq))))),
-        h(Campo, { label: tipo === 'troca' ? 'Patrimônio a coletar' : 'Patrimônio' },
-          h(Input, { value: patrimonio, placeholder: 'Número do patrimônio, se houver', onChange: e => setPatrimonio(e.target.value) })),
-        tipo === 'troca' && h(Campo,{label:'Equipamento a entregar',obrigatorio:true},
-          h('select',{className:'form-select',value:equipamentoEntrega,onChange:e=>setEquipamentoEntrega(e.target.value)},
-            h('option',{value:''},'Selecione...'),
-            EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'ent_'+eq,value:eq},eq)))),
-        tipo === 'troca' && h(Campo,{label:'Patrimônio a entregar'},
-          h(Input,{value:patrimonioEntrega,placeholder:'Se já estiver definido',onChange:e=>setPatrimonioEntrega(e.target.value)})),
-        h(Campo, { label: 'Justificativa', obrigatorio: tipo === 'troca' },
-          h('select', { className: 'form-select', value: justificativa, disabled: tipo !== 'troca', onChange: e => setJustificativa(e.target.value) },
-            h('option', { value: '' }, tipo === 'troca' ? 'Selecione...' : 'Somente para troca'),
-            JUSTIFICATIVAS.map(j => h('option', { key: j, value: j }, j))))),
+        h('div',{style:{gridColumn:'1 / -1'}},
+          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},tipo === 'troca' ? 'Equipamentos a coletar *' : 'Equipamentos *'),
+          equipamentosSolicitados.map((ln,i)=>h('div',{key:'eq_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
+            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'equipamento',e.target.value)},
+              h('option',{value:''},'Selecione o equipamento...'),
+              equipamentos.length > 0 && h('optgroup',{label:'Equipamentos já registrados no cliente'},equipamentos.map(eq=>h('option',{key:'cad_'+i+'_'+eq,value:eq},eq))),
+              h('optgroup',{label:'Lista padrão de equipamentos'},EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'pad_'+i+'_'+eq,value:eq},eq)))),
+            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'quantidade',e.target.value)}),
+            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'patrimonio',e.target.value)}),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosSolicitados.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosSolicitados,i)},'×'))),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosSolicitados)},'+ Equipamento')),
+        tipo === 'troca' && h('div',{style:{gridColumn:'1 / -1'}},
+          h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},'Equipamentos a entregar *'),
+          equipamentosEntrega.map((ln,i)=>h('div',{key:'ent_'+i,style:{display:'grid',gridTemplateColumns:'minmax(260px,2fr) 110px minmax(180px,1fr) 42px',gap:8,marginBottom:8,alignItems:'center'}},
+            h('select',{className:'form-select',value:ln.equipamento,onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'equipamento',e.target.value)},
+              h('option',{value:''},'Selecione o equipamento...'),EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'entopt_'+i+'_'+eq,value:eq},eq))),
+            h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'quantidade',e.target.value)}),
+            h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'patrimonio',e.target.value)}),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosEntrega.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosEntrega,i)},'×'))),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosEntrega)},'+ Equipamento a entregar')),
+        h(Campo, { label: tipo === 'retirada' ? 'Motivo da retirada' : 'Justificativa', obrigatorio: ['troca','retirada'].includes(tipo) },
+          h('select', { className: 'form-select', value: justificativa, disabled: !['troca','retirada'].includes(tipo), onChange: e => setJustificativa(e.target.value) },
+            h('option', { value: '' }, ['troca','retirada'].includes(tipo) ? 'Selecione...' : 'Somente para troca/retirada'),
+            (tipo === 'retirada' ? ['Baixo consumo','Encerramento do contrato'] : JUSTIFICATIVAS).map(j => h('option', { key: j, value: j }, j))))),
 
       categoria === 'bonificacao' && h(React.Fragment, null,
         h(Campo, { label: 'Produto', obrigatorio: true },
@@ -3443,7 +3447,7 @@ function CardSolicitacao({ s }) {
   const cli = s.clientes || {};
   const cat = s.categoria || 'equipamento';
   const tituloTipo = cat === 'bonificacao' ? 'Bonificação' : cat === 'amostra' ? 'Amostra' :
-    s.tipo === 'troca' ? 'Troca' : s.tipo === 'aumento' ? 'Aumento' : 'Manutenção';
+    s.tipo === 'troca' ? 'Troca' : s.tipo === 'retirada' ? 'Retirada' : s.tipo === 'aumento' ? 'Aumento' : 'Manutenção';
   let resumo = s.equipamento || '';
   if (cat === 'bonificacao') resumo = ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un. · ' + (s.modalidade_bonificacao === 'desconto' ? 'Desconto do pedido' : 'Acréscimo no pedido');
   if (cat === 'amostra') resumo = s.tipo_amostra === 'kit' ? 'KIT' : ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un.';
@@ -4272,7 +4276,7 @@ function PaginaEntregasEquipamentos({profile}) {
     try{
       const [re,rr,ri]=await Promise.all([
         sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','troca','retirada']).order('created_at',{ascending:false}),
-        sb.from('rotas_equipamentos').select('id,nome,data_rota,status,created_at').order('data_rota',{ascending:false}),
+        sb.from('rotas_equipamentos').select('*').order('data_rota',{ascending:false}),
         sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem')
       ]);
       if(re.error)throw re.error;if(rr.error)throw rr.error;if(ri.error)throw ri.error;
@@ -4570,6 +4574,20 @@ function PaginaEntregasEquipamentos({profile}) {
     d.save('Atualização de Comodato - Troca - '+String(nome).replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
   }
 
+  async function concluirRota(r){
+    if(!r||!r.id)return;
+    const its=itensDaRota(r.id);
+    if(!its.length)return toast('A rota não possui demandas para concluir.','error');
+    const pend=its.filter(x=>x.entrega&&x.entrega.status!=='concluida');
+    const msg=pend.length ? `Concluir a rota ${r.nome||'selecionada'}? As ${pend.length} demanda(s) serão marcadas como concluídas.` : `Esta rota já possui todas as demandas concluídas. Deseja registrar a conclusão da rota?`;
+    if(!window.confirm(msg))return;
+    const obs=window.prompt('Observação da conclusão da rota (opcional):','');
+    if(obs===null)return;
+    const {error}=await sb.rpc('concluir_rota_equipamentos',{p_rota_id:r.id,p_observacao:obs.trim()||null});
+    if(error){const m=error.message||String(error);if(m.includes('concluir_rota_equipamentos')||m.includes('Could not find the function'))return toast('Execute primeiro a Migração 110 no Supabase.','error');return toast('Não foi possível concluir a rota: '+m,'error');}
+    setAberta(null);toast('Rota concluída com sucesso.','success');await carregar();
+  }
+
   function baixarRomaneio(r){
     if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
     const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'}),its=itensDaRota(r.id);
@@ -4660,8 +4678,9 @@ function PaginaEntregasEquipamentos({profile}) {
       largo:true,onClose:()=>setAberta(null),
       acoes:[
         h('button',{key:'r',className:'btn btn-primary',onClick:()=>baixarRomaneio(rotaAberta)},'Gerar Romaneio'),
-        h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
-        h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
+        !rotaAberta.concluida_em&&h('button',{key:'c',className:'btn btn-success',onClick:()=>concluirRota(rotaAberta)},'Concluir rota'),
+        !rotaAberta.concluida_em&&h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
+        !rotaAberta.concluida_em&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
         h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')
       ]
     },
@@ -4707,22 +4726,24 @@ function PaginaEntregasEquipamentos({profile}) {
   const tabelaRotas=rotasValidas.length===0
     ? h(Empty,{icon:'⌖',texto:'Nenhuma rota criada.'})
     : h('div',{className:'table-wrap'},h('table',null,
-        h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Entregas'),h('th',null,''))),
+        h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Status'),h('th',null,'Entregas'),h('th',null,''))),
         h('tbody',null,...rotasValidas.map(r=>h('tr',{key:r.id},
           h('td',null,h('b',null,r.nome||'Rota')),
           h('td',null,fmtData(r.data_rota)),
+          h('td',null,h('span',{className:'badge '+(r.concluida_em?'badge-green':'badge-blue')},r.concluida_em?'Concluída':'Roteirizada')),
           h('td',null,itensDaRota(r.id).length),
           h('td',null,h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'),
             h('button',{className:'btn btn-primary btn-sm',onClick:()=>baixarRomaneio(r)},'Romaneio'),
-            h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
+            !r.concluida_em&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirRota(r)},'Concluir rota'),
+            !r.concluida_em&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
 
   return h('div',null,
     modalDemanda,
     modalRota,
     h('div',{className:'page-head'},h('div',null,
       h('div',{className:'page-title'},'Entregas e Rotas'),
-      h('div',{className:'page-sub'},'Fila operacional: Ag. Rota → Roteirizado. Ao desmontar, a demanda volta para Ag. Rota.'))),
+      h('div',{className:'page-sub'},'Fila operacional: Ag. Rota → Roteirizado → Concluído. A conclusão da rota encerra todas as demandas vinculadas.'))),
     erro&&h('div',{className:'card',style:{borderColor:'#ef4444',background:'#fff7f7'}},h('b',null,'Erro ao carregar: '),erro),
 
     h('div',{className:'card'},
