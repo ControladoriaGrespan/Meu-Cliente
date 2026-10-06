@@ -2249,6 +2249,23 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           else sols=rsol.data||[];
         }
         const sm=new Map(sols.map(x=>[String(x.id),x]));
+
+        // Se a leitura direta foi bloqueada/omitida por RLS, usa a RPC segura da
+        // Migração 115. A função valida auth.uid(), papel/etapa e status pendente
+        // antes de devolver somente a solicitação vinculada à aprovação.
+        const faltantes=aprovsSolic.filter(ap=>!sm.has(String(ap.solicitacao_id)));
+        if(faltantes.length){
+          const recuperados=await Promise.all(faltantes.map(async ap=>{
+            const rr=await sb.rpc('obter_solicitacao_pendencia',{p_aprovacao_id:ap.id});
+            if(rr.error){
+              console.error('Pendências - RPC detalhe '+ap.id+':',rr.error);
+              return null;
+            }
+            return rr.data||null;
+          }));
+          recuperados.filter(Boolean).forEach(sol=>{if(sol&&sol.id)sm.set(String(sol.id),sol);});
+        }
+
         aprovsSolic=aprovsSolic.map(ap=>({...ap,solicitacoes:sm.get(String(ap.solicitacao_id))||null}));
       }
       setPendSolic(aprovsSolic);
