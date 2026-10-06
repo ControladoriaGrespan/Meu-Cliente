@@ -2230,8 +2230,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       if(rf&&rf.error)console.error('Pendências - fichas:',rf.error);
       if(rs&&rs.error)console.error('Pendências - solicitações:',rs.error);
 
-      setPendentes((rf&&rf.data)||[]);
-      setPendSolic((rs&&rs.data)||[]);
+      // Descarta aprovações órfãs/incompletas para que uma relação ausente não derrube a tela de Pendências.
+      setPendentes(((rf&&rf.data)||[]).filter(ap=>ap&&ap.fichas_clientes));
+      setPendSolic(((rs&&rs.data)||[]).filter(ap=>ap&&ap.solicitacoes));
     }catch(e){
       console.error('Falha ao carregar Pendências:',e);
       setPendentes([]);
@@ -2698,8 +2699,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       h('div', null,
         h('div', { className: 'page-title' }, 'Pendências'),
         h('div', { className: 'page-sub' },
-          ehPreview ? `Visualização de teste — fila de todos os ${ROLE_LABELS[etapa].toLowerCase()}s`
-                    : `Fichas aguardando sua decisão como ${ROLE_LABELS[etapa]}`))),
+          ehPreview ? `Visualização de teste — fila de todos os ${(ROLE_LABELS[etapa]||etapa||'usuário').toLowerCase()}s`
+                    : `Solicitações aguardando sua decisão como ${ROLE_LABELS[etapa]||etapa||'usuário'}`))),
 
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
       h('div', { className: 'card-title' }, 'Avisar no WhatsApp'),
@@ -2711,7 +2712,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     etapa!=='manutencao' && pendSolic.length > 0 && h('div', null,
       h('div', { className: 'section-title' }, 'Solicitações de Serviços'),
       pendSolic.map(ap => {
-        const sol = ap.solicitacoes;
+        const sol = ap && ap.solicitacoes;
+        if (!sol) return null;
         const cli = sol.clientes || {};
         return h('div', { className: 'card', key: ap.id },
           h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 10 } },
@@ -2747,7 +2749,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       : pendentes.length > 0 && h('div', null,
         h('div', { className: 'section-title' }, 'Fichas de cadastro'),
         pendentes.map(ap => {
-          const f = ap.fichas_clientes;
+          const f = ap && ap.fichas_clientes;
+          if (!f) return null;
           return h('div', { className: 'card', key: ap.id },
             h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 12 } },
               h('div', null,
