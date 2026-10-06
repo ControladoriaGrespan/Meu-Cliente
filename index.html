@@ -3316,8 +3316,6 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
       const primeiro = linhas[0], primeiraEntrega = entregas[0];
       payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
-        equipamento_entrega: tipo === 'troca' && primeiraEntrega ? primeiraEntrega.equipamento : null,
-        patrimonio_entrega: tipo === 'troca' && primeiraEntrega ? ((primeiraEntrega.patrimonio || '').trim() || null) : null,
         justificativa: ['troca','retirada'].includes(tipo) ? justificativa : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
