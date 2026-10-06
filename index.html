@@ -2211,8 +2211,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         q=q.eq('responsavel_id',profile.id);
       }
 
+      // Solicitações: primeiro busca a APROVAÇÃO pendente e depois enriquece os dados.
+      // Não dependemos do embed solicitacoes(...) para a fila existir, porque RLS/relação
+      // pode devolver solicitacoes=null mesmo com a aprovação corretamente pendente.
       let qs=sb.from('solicitacao_aprovacoes')
-        .select('*, solicitacoes(*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
+        .select('*')
         .eq('etapa',etapa).eq('status','pendente');
 
       if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
@@ -2230,9 +2233,25 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       if(rf&&rf.error)console.error('Pendências - fichas:',rf.error);
       if(rs&&rs.error)console.error('Pendências - solicitações:',rs.error);
 
-      // Descarta aprovações órfãs/incompletas para que uma relação ausente não derrube a tela de Pendências.
       setPendentes(((rf&&rf.data)||[]).filter(ap=>ap&&ap.fichas_clientes));
-      setPendSolic(((rs&&rs.data)||[]).filter(ap=>ap&&ap.solicitacoes));
+
+      // Enriquece as aprovações de solicitação sem deixar o relacionamento embutido
+      // esconder a fila da Gestão Adm. de Vendas.
+      let aprovsSolic=((rs&&rs.data)||[]).filter(ap=>ap&&ap.id);
+      if(aprovsSolic.length){
+        const solIds=[...new Set(aprovsSolic.map(ap=>ap.solicitacao_id).filter(Boolean))];
+        let sols=[];
+        if(solIds.length){
+          const rsol=await sb.from('solicitacoes')
+            .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
+            .in('id',solIds);
+          if(rsol.error)console.error('Pendências - detalhes solicitações:',rsol.error);
+          else sols=rsol.data||[];
+        }
+        const sm=new Map(sols.map(x=>[String(x.id),x]));
+        aprovsSolic=aprovsSolic.map(ap=>({...ap,solicitacoes:sm.get(String(ap.solicitacao_id))||null}));
+      }
+      setPendSolic(aprovsSolic);
     }catch(e){
       console.error('Falha ao carregar Pendências:',e);
       setPendentes([]);
@@ -2713,7 +2732,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       h('div', { className: 'section-title' }, 'Solicitações de Serviços'),
       pendSolic.map(ap => {
         const sol = ap && ap.solicitacoes;
-        if (!sol) return null;
+        if (!sol) return h('div',{className:'card',key:ap.id},
+          h('div',{style:{fontWeight:700}},'Solicitação pendente'),
+          h('div',{className:'page-sub',style:{marginTop:6}},'A aprovação está na sua fila, mas os detalhes da solicitação não puderam ser carregados.'),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
+            h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Tentar carregar novamente')));
         const cli = sol.clientes || {};
         return h('div', { className: 'card', key: ap.id },
           h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 10 } },
