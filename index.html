@@ -4830,6 +4830,8 @@ const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', '
 function PaginaRotas({ profile }) {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
+  const [mostrarInativas, setMostrarInativas] = useState(false);
+  const [alterandoStatusRota, setAlterandoStatusRota] = useState(null);
   const [clientes, setClientes] = useState([]);
   const [usuariosComerciais,setUsuariosComerciais]=useState([]);
   const [modalNova, setModalNova] = useState(false);
@@ -4848,6 +4850,7 @@ function PaginaRotas({ profile }) {
     const ids = await vendedoresVisiveis(profile);
     const permitido = Array.isArray(ids) ? new Set(ids) : null;
     const clientesEscopo = (rc.data || []).filter(c => !permitido || permitido.has(c.vendedor_id));
+    if (rr.error) toast('Erro ao carregar rotas: ' + rr.error.message, 'error');
     setRotas(rr.data || []);
     setClientes(clientesEscopo);
     setUsuariosComerciais(ru.data || []);
@@ -4879,6 +4882,17 @@ function PaginaRotas({ profile }) {
     setModalNova(false); setNovaRota({ nome: '', dia_semana: '' }); carregar();
   }
 
+  async function alterarStatusRota(rota) {
+    const ativar = rota.ativo === false;
+    if (!ativar && !window.confirm('Inativar a rota "' + rota.nome + '"? Ela deixará de aparecer nas listas de rotas ativas.')) return;
+    setAlterandoStatusRota(rota.id);
+    const { error } = await sb.from('rotas').update({ ativo: ativar }).eq('id', rota.id);
+    setAlterandoStatusRota(null);
+    if (error) return toast('Não foi possível alterar a rota: ' + error.message, 'error');
+    toast(ativar ? 'Rota reativada!' : 'Rota inativada!', 'success');
+    await carregar();
+  }
+
   async function abrirClientes(rota) {
     const { data } = await sb.from('cliente_rotas')
       .select('id, cliente_id, ordem_entrega, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id)')
@@ -4907,6 +4921,7 @@ function PaginaRotas({ profile }) {
     abrirClientes(modalClientes); carregar();
   }
 
+  const rotasExibidas = (rotas || []).filter(r => mostrarInativas ? r.ativo === false : r.ativo !== false);
   if (rotas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
   return h('div', null,
@@ -4971,19 +4986,27 @@ function PaginaRotas({ profile }) {
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Rotas de Entrega'),
-        h('div', { className: 'page-sub' }, rotas.length + ' rota(s) cadastrada(s)')),
+        h('div', { className: 'page-sub' }, rotasExibidas.length + (mostrarInativas ? ' rota(s) inativa(s)' : ' rota(s) ativa(s)'))),
       h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Nova rota')),
 
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 } },
+      h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' } },
+        h('input', { type: 'checkbox', checked: mostrarInativas, onChange: e => setMostrarInativas(e.target.checked) }),
+        'Inativas?'),
+      h('span', { className: 'badge badge-blue' }, (rotas || []).filter(r => r.ativo === false).length + ' inativa(s)')),
     h('div', { className: 'card', style: { padding: 0 } },
       h('div', { className: 'table-wrap' },
         h('table', null,
           h('thead', null, h('tr', null, h('th', null, 'Rota'), h('th', null, 'Dia'), h('th', null, 'Clientes'), h('th', null, ''))),
           h('tbody', null,
-            rotas.map(r => h('tr', { key: r.id },
-              h('td', { className: 'strong' }, r.nome),
+            rotasExibidas.map(r => h('tr', { key: r.id },
+              h('td', { className: 'strong' }, r.nome, r.ativo === false && h('span', { className: 'badge', style: { marginLeft: 8 } }, 'Inativa')),
               h('td', null, DIAS[r.dia_semana]),
               h('td', null, h('span', { className: 'badge badge-blue' }, (r.cliente_rotas || []).length)),
-              h('td', null, h('button', { className: 'btn btn-secondary btn-sm', onClick: () => abrirClientes(r) }, 'Gerenciar clientes')))))))));
+              h('td', null,
+                h('button', { className: 'btn btn-secondary btn-sm', disabled: r.ativo === false, onClick: () => abrirClientes(r) }, 'Gerenciar clientes'),
+                ' ',
+                h('button', { className: 'btn btn-sm ' + (r.ativo === false ? 'btn-primary' : 'btn-danger'), disabled: alterandoStatusRota === r.id, onClick: () => alterarStatusRota(r) }, r.ativo === false ? 'Reativar' : 'Inativar')))))))));
 }
 
 // =====================================================================
