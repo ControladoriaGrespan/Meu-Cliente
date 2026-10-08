@@ -5214,7 +5214,7 @@ function PaginaPedidos({ profile }) {
         descricao: it.produtos && it.produtos.descricao,
         unidade: it.produtos && it.produtos.unidade,
         quantidade: it.quantidade,
-        valor_unitario: it.valor_unitario,
+        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''),
         tipo_item: it.tipo_item || 'venda',
       })));
       // busca pedido anterior (o penultimo)
@@ -5238,7 +5238,7 @@ function PaginaPedidos({ profile }) {
           codigo: it.produtos && it.produtos.codigo,
           descricao: it.produtos && it.produtos.descricao,
           unidade: it.produtos && it.produtos.unidade,
-          quantidade: '', valor_unitario: Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : it.valor_unitario, tipo_item: it.tipo_item || 'venda',
+          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''), tipo_item: it.tipo_item || 'venda',
         })));
       }
     }
@@ -5257,13 +5257,9 @@ function PaginaPedidos({ profile }) {
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
         if (prod) { novo.codigo = prod.codigo; novo.descricao = prod.descricao; novo.unidade = prod.unidade; }
-        // prioridade: tabela de preço do cliente > pedido anterior > vazio
-        if (Object.prototype.hasOwnProperty.call(tabelaPrecoCliente, valor)) {
-          novo.valor_unitario = tabelaPrecoCliente[valor];
-        } else if (pedidoAnterior && pedidoAnterior.pedido_itens) {
-          const ant = pedidoAnterior.pedido_itens.find(a => a.produto_id === valor);
-          if (ant) novo.valor_unitario = ant.valor_unitario;
-        }
+        // Preco de venda sempre vem da tabela do cliente; nunca herdar preco antigo.
+        novo.valor_unitario = (novo.tipo_item || 'venda') === 'bonificacao' ? 0 :
+          (Object.prototype.hasOwnProperty.call(tabelaPrecoCliente, valor) ? tabelaPrecoCliente[valor] : '');
       }
       return novo;
     }));
