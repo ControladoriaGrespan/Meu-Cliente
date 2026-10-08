@@ -4827,7 +4827,7 @@ function PaginaEntregasEquipamentos({profile}) {
 // =====================================================================
 const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
-function PaginaRotas() {
+function PaginaRotas({ profile }) {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
   const [clientes, setClientes] = useState([]);
@@ -4845,8 +4845,11 @@ function PaginaRotas() {
       sb.from('clientes').select('id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id').eq('ativo', true).order('razao_social').limit(10000),
       sb.from('usuarios').select('id,nome,papel,supervisor_id,ativo').eq('ativo',true).limit(10000)
     ]);
+    const ids = await vendedoresVisiveis(profile);
+    const permitido = Array.isArray(ids) ? new Set(ids) : null;
+    const clientesEscopo = (rc.data || []).filter(c => !permitido || permitido.has(c.vendedor_id));
     setRotas(rr.data || []);
-    setClientes(rc.data || []);
+    setClientes(clientesEscopo);
     setUsuariosComerciais(ru.data || []);
   }
 
@@ -4880,13 +4883,16 @@ function PaginaRotas() {
     const { data } = await sb.from('cliente_rotas')
       .select('id, cliente_id, ordem_entrega, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id)')
       .eq('rota_id', rota.id).order('ordem_entrega');
-    setVinculados(data || []);
+    const ids = await vendedoresVisiveis(profile);
+    const permitido = Array.isArray(ids) ? new Set(ids) : null;
+    setVinculados((data || []).filter(v => !permitido || (v.clientes && permitido.has(v.clientes.vendedor_id))));
     setModalClientes(rota);
     setClienteAdd('');
   }
 
   async function addCliente() {
     if (!clienteAdd || !modalClientes) return;
+    if (!(clientes || []).some(c => c.id === clienteAdd)) return toast('Cliente fora da carteira autorizada.', 'error');
     const { error } = await sb.from('cliente_rotas').insert({
       cliente_id: clienteAdd, rota_id: modalClientes.id, ordem_entrega: vinculados.length + 1
     });
@@ -4895,7 +4901,9 @@ function PaginaRotas() {
   }
 
   async function removeCliente(crId) {
-    await sb.from('cliente_rotas').delete().eq('id', crId);
+    if (!(vinculados || []).some(v => v.id === crId)) return toast('Cliente fora da carteira autorizada.', 'error');
+    const { error } = await sb.from('cliente_rotas').delete().eq('id', crId);
+    if (error) return toast(error.message, 'error');
     abrirClientes(modalClientes); carregar();
   }
 
@@ -6410,7 +6418,7 @@ function App() {
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
-  else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, null);
+  else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile });
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
