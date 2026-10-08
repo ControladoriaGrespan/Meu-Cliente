@@ -4831,7 +4831,6 @@ function PaginaRotas({ profile }) {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
   const [mostrarInativas, setMostrarInativas] = useState(false);
-  const [filtroDia, setFiltroDia] = useState('');
   const [alterandoStatusRota, setAlterandoStatusRota] = useState(null);
   const [clientes, setClientes] = useState([]);
   const [usuariosComerciais,setUsuariosComerciais]=useState([]);
@@ -4922,7 +4921,7 @@ function PaginaRotas({ profile }) {
     abrirClientes(modalClientes); carregar();
   }
 
-  const rotasExibidas = (rotas || []).filter(r => (mostrarInativas ? r.ativo === false : r.ativo !== false) && (!filtroDia || Number(r.dia_semana) === Number(filtroDia)));
+  const rotasExibidas = (rotas || []).filter(r => mostrarInativas ? r.ativo === false : r.ativo !== false);
   if (rotas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
   return h('div', null,
@@ -4990,11 +4989,7 @@ function PaginaRotas({ profile }) {
         h('div', { className: 'page-sub' }, rotasExibidas.length + (mostrarInativas ? ' rota(s) inativa(s)' : ' rota(s) ativa(s)'))),
       h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Nova rota')),
 
-    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' } },
-      h('label', { style: { display: 'flex', alignItems: 'center', gap: 8 } }, 'Dia da rota',
-        h('select', { className: 'form-select', style: { width: 180 }, value: filtroDia, onChange: e => setFiltroDia(e.target.value) },
-          h('option', { value: '' }, 'Todos os dias'),
-          [1,2,3,4,5,6,7].map(d => h('option', { key: d, value: d }, DIAS[d])))),
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 } },
       h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' } },
         h('input', { type: 'checkbox', checked: mostrarInativas, onChange: e => setMostrarInativas(e.target.checked) }),
         'Inativas?'),
@@ -5023,7 +5018,6 @@ function PaginaPedidos({ profile }) {
   const [produtos, setProdutos] = useState([]);
   const [pedidosMap, setPedidosMap] = useState({});
   const [semanaOffset, setSemanaOffset] = useState(0);
-  const [filtroDiaPedido, setFiltroDiaPedido] = useState('');
   // tela de lancamento
   const [lancando, setLancando] = useState(null); // { rota, data, clientesRota }
   const [clienteAtivo, setClienteAtivo] = useState(null);
@@ -5581,8 +5575,7 @@ function PaginaPedidos({ profile }) {
                     ) }, '↓ Baixar PDF')))))));
   }
 
-  // ====================== CALENDARIO =====================
-  const rotasFiltradas = (rotas || []).filter(r => !filtroDiaPedido || Number(r.dia_semana) === Number(filtroDiaPedido));=
+  // ====================== CALENDARIO ======================
   const datasGrid = datas();
   const datasInfo = datasGrid.map(diaLabel);
   // agrupa por semana
@@ -5614,7 +5607,7 @@ function PaginaPedidos({ profile }) {
         h(Campo, { label: 'Rota', obrigatorio: true },
           h('select', { className: 'form-select', value: novoRota, onChange: e => setNovoRota(e.target.value) },
             h('option', { value: '' }, 'Selecione...'),
-            rotasFiltradas.map(r => h('option', { key: r.id, value: r.id }, r.nome + ' — ' + DIAS[r.dia_semana])))),
+            rotas.map(r => h('option', { key: r.id, value: r.id }, r.nome + ' — ' + DIAS[r.dia_semana])))),
         h(Campo, { label: 'Data', obrigatorio: true },
           h('input', { className: 'form-input', type: 'date', value: novoData, onChange: e => setNovoData(e.target.value) })))),
 
@@ -5628,11 +5621,7 @@ function PaginaPedidos({ profile }) {
         h('button', { className: 'btn btn-secondary btn-sm', onClick: () => setSemanaOffset(o => o + 1) }, 'Próxima →'),
         h('button', { className: 'btn btn-primary', onClick: abrirModalNovo }, '+ Adicionar pedido'))),
 
-    h('div', { style: { display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' } },
-      h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 } }, 'Dia da rota',
-        h('select', { className: 'form-select', style: { width: 190 }, value: filtroDiaPedido, onChange: e => setFiltroDiaPedido(e.target.value) },
-          h('option', { value: '' }, 'Todos os dias'),
-          [1,2,3,4,5,6,7].map(d => h('option', { key: d, value: d }, DIAS[d])))),
+    h('div', { style: { display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' } },
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)' } }, 'Legenda:'),
       [['cal-vazio', 'Sem pedido'], ['cal-leve', '< 50 kg'], ['cal-medio', '50–200 kg'], ['cal-pesado', '200–500 kg'], ['cal-muito', '> 500 kg']].map(([cls, lbl]) =>
         h('div', { key: cls, style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 } },
