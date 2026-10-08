@@ -5734,6 +5734,7 @@ function montarPreviewImportacao(matriz) {
   for(let i=0;i<Math.min(matriz.length,25);i++){
     const hs=(matriz[i]||[]).map(cabecalhoCanonicoImportacao);
     if(hs.includes('razao_social')) { idxCab=i; break; }
+    if(idxCab<0 && hs.includes('codigo_totvs') && hs.filter(Boolean).length===1) idxCab=i;
     if(idxCab<0 && hs.filter(Boolean).length>=2) idxCab=i;
   }
   if(idxCab<0) return null;
@@ -5860,7 +5861,7 @@ function PaginaImportacao({ profile }) {
     setImportando(true);
     try {
       const parsed = parseArquivo(await lerArquivo(rotaArquivo), rotaArquivo.name);
-      if (!parsed.headers.includes('codigo_totvs')) throw new Error('A planilha deve conter a coluna Código Cliente.');
+      if (!parsed || !parsed.headers || !parsed.headers.includes('codigo_totvs')) throw new Error('A planilha deve conter a coluna Código Cliente, com os códigos nas linhas abaixo.');
       const linhas = parsed.rows.filter(r => String(r.codigo_totvs || '').trim());
       if (!linhas.length) throw new Error('Nenhum código de cliente encontrado.');
       const { data: existentes, error: ec } = await sb.from('clientes').select('id,codigo_totvs').limit(100000);
