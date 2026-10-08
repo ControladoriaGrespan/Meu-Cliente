@@ -5811,6 +5811,10 @@ const MODELOS = {
 function PaginaImportacao({ profile }) {
   const toast = useToast();
   const [aba, setAba] = useState('produtos');
+  const [modalRota, setModalRota] = useState(false);
+  const [rotaNome, setRotaNome] = useState('');
+  const [rotaDia, setRotaDia] = useState('');
+  const [rotaArquivo, setRotaArquivo] = useState(null);
   const [preview, setPreview] = useState(null);
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState('');
@@ -5849,6 +5853,53 @@ function PaginaImportacao({ profile }) {
       toast('Erro ao ler arquivo: ' + err.message, 'error');
     }
     e.target.value = ''; // limpa input para permitir reupload do mesmo arquivo
+  }
+
+  async function importarRotaArquivo() {
+    if (!rotaNome.trim() || !rotaDia || !rotaArquivo) return toast('Informe nome, dia e arquivo XLSX.', 'error');
+    setImportando(true);
+    try {
+      const parsed = parseArquivo(await lerArquivo(rotaArquivo), rotaArquivo.name);
+      if (!parsed.headers.includes('codigo_totvs')) throw new Error('A planilha deve conter a coluna Código Cliente.');
+      const linhas = parsed.rows.filter(r => String(r.codigo_totvs || '').trim());
+      if (!linhas.length) throw new Error('Nenhum código de cliente encontrado.');
+      const { data: existentes, error: ec } = await sb.from('clientes').select('id,codigo_totvs').limit(100000);
+      if (ec) throw ec;
+      const normal = v => String(v == null ? '' : v).trim().replace(/\\.0$/, '').replace(/^0+/, '') || '0';
+      const mapa = new Map();
+      (existentes || []).forEach(c => { if (c.codigo_totvs) mapa.set(normal(c.codigo_totvs), c.id); });
+      const encontrados = [], faltantes = [], vistos = new Set();
+      linhas.forEach((r,i) => {
+        const codigo = String(r.codigo_totvs).trim();
+        const chave = normal(codigo);
+        if (vistos.has(chave)) return;
+        vistos.add(chave);
+        const id = mapa.get(chave);
+        if (id) encontrados.push({id,codigo});
+        else faltantes.push({codigo,linha:i+2});
+      });
+      if (encontrados.length) {
+        const {data: rota,error: er} = await sb.from('rotas').insert({nome:rotaNome.trim(),dia_semana:Number(rotaDia),ativo:true}).select('id').single();
+        if (er) throw er;
+        let salvos=0;
+        for(let i=0;i<encontrados.length;i+=200) {
+          const lote=encontrados.slice(i,i+200).map((c,j)=>({rota_id:rota.id,cliente_id:c.id,ordem_entrega:i+j+1}));
+          const {error: ev} = await sb.from('cliente_rotas').insert(lote);
+          if(ev) throw new Error('Rota criada, mas houve falha nos vínculos após '+salvos+' cliente(s): '+ev.message);
+          salvos+=lote.length;
+        }
+      }
+      if (faltantes.length) {
+        const ws=XLSX.utils.aoa_to_sheet([['Código Cliente','Linha','Motivo'],...faltantes.map(x=>[x.codigo,x.linha,'Cliente não cadastrado'])]);
+        ws['!cols']=[{wch:24},{wch:12},{wch:30}];
+        const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Não encontrados');
+        XLSX.writeFile(wb,'clientes_nao_encontrados_rota.xlsx');
+      }
+      setResultado('Rota: '+rotaNome+' | Clientes vinculados: '+encontrados.length+' | Não encontrados: '+faltantes.length+(faltantes.length?' (relatório XLSX gerado)':''));
+      toast(encontrados.length+' cliente(s) vinculado(s). '+faltantes.length+' não encontrado(s).','success');
+      setModalRota(false);setRotaArquivo(null);setRotaNome('');setRotaDia('');
+    } catch(err) { toast('Erro na importação de rota: '+err.message,'error'); }
+    finally {setImportando(false);}
   }
 
   // ---------- PRODUTOS ----------
@@ -6226,6 +6277,7 @@ function PaginaImportacao({ profile }) {
     exemplos: [['002989', 'TAB_7.00'], ['001387', 'TAB_8.00']],
     dica: 'Vincula cada cliente a uma tabela de pre\u00E7o. O codigo_totvs identifica o cliente e cod_tabela deve existir na aba Tabelas de Pre\u00E7o. Importe as tabelas antes.'
   };
+  if (!MODELOS.rotas) MODELOS.rotas = {headers:['Código Cliente'],exemplos:[['002989'],['001387']],dica:'Importe os códigos TOTVS dos clientes. Informe nome e dia da rota no formulário de importação.'};
   const modelo = MODELOS[aba];
   const abas_ = [
     { id: 'produtos', label: 'Produtos' },
@@ -6233,9 +6285,14 @@ function PaginaImportacao({ profile }) {
     { id: 'clientes', label: 'Clientes' },
     { id: 'tabela_preco', label: 'Tabelas de Preço' },
     { id: 'cliente_tabela', label: 'Cliente x Tabela' },
+    { id: 'rotas', label: 'Rotas' },
   ];
 
   return h('div', null,
+    modalRota && h(Modal,{titulo:'Importar rota',onClose:()=>setModalRota(false),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setModalRota(false)},'Cancelar'),h('button',{className:'btn btn-primary',disabled:importando,onClick:importarRotaArquivo},importando?'Importando...':'Importar rota')]},
+      h(Campo,{label:'Nome da rota'},h(Input,{value:rotaNome,onChange:e=>setRotaNome(e.target.value),placeholder:'Nome da rota'})),
+      h(Campo,{label:'Dia da rota'},h('select',{className:'form-select',value:rotaDia,onChange:e=>setRotaDia(e.target.value)},h('option',{value:''},'Selecione o dia'),[1,2,3,4,5,6,7].map(d=>h('option',{value:d,key:d},DIAS[d])))),
+      h(Campo,{label:'Planilha XLSX (Código Cliente)'},h('input',{type:'file',accept:'.xlsx,.xls',onChange:e=>setRotaArquivo(e.target.files[0]||null)}))),
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Importação TOTVS'),
@@ -6260,8 +6317,9 @@ function PaginaImportacao({ profile }) {
         h('button', { className: 'btn btn-primary btn-sm', onClick: () => downloadXlsx('modelo_' + aba, modelo.headers, modelo.exemplos) }, '⬇ Baixar modelo .xlsx'),
         h('button', { className: 'btn btn-secondary btn-sm', onClick: () => downloadCsv('modelo_' + aba, modelo.headers, modelo.exemplos) }, '⬇ Baixar modelo .csv'))),
 
+    aba==='rotas' && h('div',{className:'card'},h('button',{className:'btn btn-primary',onClick:()=>setModalRota(true)},'Importar rota')),
     // card de upload
-    h('div', { className: 'card' },
+    aba!=='rotas' && h('div', { className: 'card' },
       h('div', { className: 'section-title' }, '2. Enviar arquivo preenchido'),
       h('div', { style: { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
         h('label', {
