@@ -3056,42 +3056,41 @@ function PaginaClientes({ profile, modulo }) {
   useEffect(() => { carregar(); }, []);
 
   async function carregar() {
-    let q = sb.from('clientes')
-      .select('*, usuarios:vendedor_id(nome, codigo_vendedor), fichas_clientes!clientes_ficha_id_fkey(faturamento_previsto, created_at, ficha_aprovacoes(etapa, status, ordem, decidido_em))')
-      .order('created_at', { ascending: false })
-      .limit(10000);
-
-    // Escopo comercial centralizado, incluindo carteira do Adm. de Vendas.
     const idsVisiveis = await vendedoresVisiveis(profile);
-    if (Array.isArray(idsVisiveis)) {
-      if (!idsVisiveis.length) { setClientes([]); setEditandoTotvs({}); return; }
-      q = q.in('vendedor_id', idsVisiveis);
+    if (Array.isArray(idsVisiveis) && !idsVisiveis.length) {
+      setClientes([]); setEditandoTotvs({}); setEditandoAcordo({}); return;
     }
-
-    const { data, error } = await q;
-
-    if (error) {
-      console.warn('Query clientes com embed falhou, tentando sem ficha:', error.message);
-      let q2 = sb.from('clientes')
-        .select('*, usuarios:vendedor_id(nome, codigo_vendedor)')
-        .order('created_at', { ascending: false })
-        .limit(10000);
-      const idsFallback = await vendedoresVisiveis(profile);
-      if (Array.isArray(idsFallback)) {
-        if (!idsFallback.length) { setClientes([]); setEditandoTotvs({}); return; }
-        q2 = q2.in('vendedor_id', idsFallback);
+    async function consultarClientes(comFicha) {
+      const todos = [];
+      for (let inicio = 0; ; inicio += 500) {
+        let q = sb.from('clientes')
+          .select(comFicha
+            ? '*, usuarios:vendedor_id(nome, codigo_vendedor), fichas_clientes!clientes_ficha_id_fkey(faturamento_previsto, created_at, ficha_aprovacoes(etapa, status, ordem, decidido_em))'
+            : '*, usuarios:vendedor_id(nome, codigo_vendedor)')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(inicio, inicio + 499);
+        if (Array.isArray(idsVisiveis)) q = q.in('vendedor_id', idsVisiveis);
+        const { data, error } = await q;
+        if (error) throw error;
+        todos.push(...(data || []));
+        if (!data || data.length < 500) break;
       }
-      const { data: d2, error: e2 } = await q2;
-
-      if (e2) {
-        console.error('Erro ao carregar clientes:', e2.message);
-        toast('Erro ao carregar clientes: ' + e2.message, 'error');
-        setClientes([]);
-      } else {
-        setClientes(d2 || []);
+      return todos;
+    }
+    try {
+      let dados;
+      try {
+        dados = await consultarClientes(true);
+      } catch (erroFicha) {
+        console.warn('Consulta com ficha falhou; tentando sem ficha:', erroFicha.message);
+        dados = await consultarClientes(false);
       }
-    } else {
-      setClientes(data || []);
+      setClientes(dados);
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error.message);
+      toast('Erro ao carregar clientes: ' + error.message, 'error');
+      setClientes([]);
     }
     setEditandoTotvs({});
     setEditandoAcordo({});
