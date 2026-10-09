@@ -4840,6 +4840,8 @@ function PaginaRotas({ profile, visao }) {
   const [modalClientes, setModalClientes] = useState(null); // rota selecionada
   const [vinculados, setVinculados] = useState([]);
   const [clienteAdd, setClienteAdd] = useState('');
+  const [buscaCodigoRota, setBuscaCodigoRota] = useState('');
+  const [buscandoCodigoRota, setBuscandoCodigoRota] = useState(false);
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
@@ -4964,6 +4966,32 @@ function PaginaRotas({ profile, visao }) {
     setVinculados((data || []).filter(v => !permitido || (v.clientes && permitido.has(v.clientes.vendedor_id))));
     setModalClientes(rota);
     setClienteAdd('');
+    setBuscaCodigoRota('');
+  }
+
+  async function localizarClienteCodigoRota() {
+    const codigo = String(buscaCodigoRota || '').trim();
+    if (!codigo) return toast('Informe o código TOTVS.', 'error');
+    setBuscandoCodigoRota(true);
+    try {
+      const normalizado = codigo.replace(/^0+(?=\\d)/, '');
+      const variantes = [...new Set([codigo, normalizado, normalizado.padStart(6, '0')])];
+      const { data, error } = await sb.from('clientes')
+        .select('id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id, ativo')
+        .in('codigo_totvs', variantes).limit(20);
+      if (error) throw error;
+      const encontrado = (data || []).find(c => String(c.codigo_totvs || '').replace(/^0+(?=\\d)/, '') === normalizado);
+      if (!encontrado) return toast('Cliente não retornado pelo Supabase. Verifique código TOTVS e política RLS.', 'error');
+      const ids = await vendedoresVisiveis(profile);
+      if (Array.isArray(ids) && !ids.includes(encontrado.vendedor_id)) return toast('Cliente fora da carteira autorizada.', 'error');
+      setClientes(prev => prev.some(c => c.id === encontrado.id) ? prev : [...prev, encontrado]);
+      setClienteAdd(encontrado.id);
+      toast('Cliente ' + encontrado.codigo_totvs + ' localizado e selecionado.', 'success');
+    } catch (e) {
+      toast('Erro ao consultar cliente: ' + e.message, 'error');
+    } finally {
+      setBuscandoCodigoRota(false);
+    }
   }
 
   async function addCliente() {
@@ -5028,6 +5056,10 @@ function PaginaRotas({ profile, visao }) {
               })
           })),
         h('button', { className: 'btn btn-primary btn-sm', disabled: !clienteAdd, onClick: addCliente }, '+ Adicionar')),
+      h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' } },
+        h('input', { className: 'form-input', style: { maxWidth: 240 }, placeholder: 'Código TOTVS ex.: 004370', value: buscaCodigoRota, onChange: e => setBuscaCodigoRota(e.target.value), onKeyDown: e => { if (e.key === 'Enter') localizarClienteCodigoRota(); } }),
+        h('button', { className: 'btn btn-secondary btn-sm', disabled: buscandoCodigoRota, onClick: localizarClienteCodigoRota }, buscandoCodigoRota ? 'Consultando...' : 'Localizar pelo código'),
+        h('span', { style: { fontSize: 11, color: 'var(--text-muted)' } }, 'Consulta diretamente no Supabase; após localizar, clique em + Adicionar.')),
       vinculados.length === 0
         ? h(Empty, { icon: '\u263A', texto: 'Nenhum cliente nesta rota.' })
         : h('table', null,
