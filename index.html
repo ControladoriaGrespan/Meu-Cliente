@@ -4826,7 +4826,7 @@ function PaginaEntregasEquipamentos({profile}) {
 // =====================================================================
 const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
-function PaginaRotas({ profile }) {
+function PaginaRotas({ profile, visao }) {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
   const [mostrarInativas, setMostrarInativas] = useState(false);
@@ -4878,7 +4878,7 @@ function PaginaRotas({ profile }) {
   }
 
   async function exportarRelatorioRotas() {
-    if (profile.papel !== 'gestao_adm_vendas') return;
+    if (visao !== 'gestao_adm_vendas') return;
     setExportandoRotas(true);
     try {
       const linhas = [];
@@ -5050,7 +5050,7 @@ function PaginaRotas({ profile }) {
         h('div', { className: 'page-title' }, 'Rotas de Entrega'),
         h('div', { className: 'page-sub' }, rotasExibidas.length + (mostrarInativas ? ' rota(s) inativa(s)' : ' rota(s) ativa(s)'))),
       h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-        profile.papel === 'gestao_adm_vendas' && h('button', { className: 'btn btn-secondary', disabled: exportandoRotas, onClick: exportarRelatorioRotas }, exportandoRotas ? 'Exportando...' : '↓ Exportar Excel'),
+        visao === 'gestao_adm_vendas' && h('button', { className: 'btn btn-secondary', disabled: exportandoRotas, onClick: exportarRelatorioRotas }, exportandoRotas ? 'Exportando...' : '↓ Exportar Excel'),
         h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Nova rota'))),
 
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 } },
@@ -6587,7 +6587,7 @@ function App() {
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
-  else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile });
+  else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
