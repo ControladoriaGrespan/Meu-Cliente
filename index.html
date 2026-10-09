@@ -6243,28 +6243,46 @@ function PaginaImportacao({ profile }) {
 
   // ---------- CLIENTE x TABELA ----------
   async function importarClienteTabela(rows) {
-    const obrig = rows.every(r => r.codigo_totvs && r.cod_tabela);
-    if (!obrig) return toast('Colunas obrigatórias: codigo_totvs, cod_tabela.', 'error');
+    const valorCodigo = v => String(v == null ? '' : v).replace(/\u00a0/g, ' ').trim();
+    const norm = v => valorCodigo(v).toLowerCase().replace(/^0+(?=\d)/, '');
+    const linhas = rows.filter(r => Object.values(r).some(v => valorCodigo(v) !== ''));
+    const invalidas = linhas.map((r, i) => (!valorCodigo(r.codigo_totvs) || !valorCodigo(r.cod_tabela)) ? i + 2 : null).filter(Boolean);
+    if (invalidas.length) return toast('Código TOTVS ou código da tabela vazio nas linhas: ' + invalidas.slice(0, 10).join(', '), 'error');
+    if (!linhas.length) return toast('Nenhuma linha válida encontrada.', 'error');
     setImportando(true);
-    const { data: tabs } = await sb.from('tabelas_preco').select('id, codigo');
-    const tabMap = {}; (tabs || []).forEach(t => { tabMap[t.codigo.toLowerCase().trim()] = t.id; });
-    const { data: clis } = await sb.from('clientes').select('id, codigo_totvs').limit(10000);
-    const norm = v => String(v || '').replace(/^0+/, '').toLowerCase().trim();
-    const cliMap = {}; (clis || []).forEach(c => { if (c.codigo_totvs) { cliMap[c.codigo_totvs.toLowerCase().trim()] = c.id; cliMap[norm(c.codigo_totvs)] = c.id; } });
-    let ok = 0, erros = 0, msgs = [];
-    for (const r of rows) {
-      const codCli = (r.codigo_totvs || '').trim();
-      const cliId = cliMap[codCli.toLowerCase()] || cliMap[norm(codCli)];
-      if (!cliId) { erros++; msgs.push(codCli + ': cliente n\u00E3o encontrado'); continue; }
-      const codTab = (r.cod_tabela || '').trim();
-      const tabId = tabMap[codTab.toLowerCase()];
-      if (!tabId) { erros++; msgs.push(codTab + ': tabela n\u00E3o encontrada'); continue; }
-      const { error } = await sb.from('clientes').update({ tabela_preco_id: tabId }).eq('id', cliId);
-      if (error) { erros++; msgs.push(codCli + ': ' + error.message); } else ok++;
+    try {
+      const { data: tabs, error: erroTabs } = await sb.from('tabelas_preco').select('id, codigo');
+      if (erroTabs) throw erroTabs;
+      const tabMap = {};
+      (tabs || []).forEach(t => { tabMap[norm(t.codigo)] = t.id; });
+      const codigos = [...new Set(linhas.map(r => norm(r.codigo_totvs)))];
+      const cliMap = {};
+      // Consulta paginada: evita truncamento silencioso do limite padrão do PostgREST.
+      for (let inicio = 0; ; inicio += 1000) {
+        const { data: clis, error: erroClis } = await sb.from('clientes').select('id, codigo_totvs').order('id').range(inicio, inicio + 999);
+        if (erroClis) throw erroClis;
+        (clis || []).forEach(c => { if (valorCodigo(c.codigo_totvs)) cliMap[norm(c.codigo_totvs)] = c.id; });
+        if (!clis || clis.length < 1000) break;
+      }
+      let ok = 0, erros = 0, msgs = [];
+      for (const r of linhas) {
+        const codCli = valorCodigo(r.codigo_totvs);
+        const cliId = cliMap[norm(codCli)];
+        if (!cliId) { erros++; msgs.push(codCli + ': cliente não encontrado ou sem acesso'); continue; }
+        const codTab = valorCodigo(r.cod_tabela);
+        const tabId = tabMap[norm(codTab)];
+        if (!tabId) { erros++; msgs.push(codTab + ': tabela não encontrada'); continue; }
+        const { error } = await sb.from('clientes').update({ tabela_preco_id: tabId }).eq('id', cliId);
+        if (error) { erros++; msgs.push(codCli + ': ' + error.message); } else ok++;
+      }
+      setResultado('✓ ' + ok + ' cliente(s) vinculado(s)' + (erros ? ' · ✗ ' + erros + ' erro(s)\n' + msgs.slice(0, 20).join('\n') : ''));
+      if (ok > 0) toast(ok + ' vínculo(s) atualizado(s)!', 'success');
+      if (erros) toast(erros + ' linha(s) não importadas. Consulte o resultado.', 'error');
+    } catch (e) {
+      toast('Erro ao importar Cliente x Tabela: ' + e.message, 'error');
+    } finally {
+      setImportando(false);
     }
-    setImportando(false);
-    setResultado('\u2713 ' + ok + ' cliente(s) vinculado(s)' + (erros ? ' \u00B7 \u2717 ' + erros + ' erro(s)\n' + msgs.slice(0, 10).join('\n') : ''));
-    if (ok > 0) toast(ok + ' v\u00EDnculo(s) atualizado(s)!', 'success');
   }
 
   function executar() {
