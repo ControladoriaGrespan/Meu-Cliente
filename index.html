@@ -4833,6 +4833,8 @@ function PaginaRotas({ profile }) {
   const [alterandoStatusRota, setAlterandoStatusRota] = useState(null);
   const [clientes, setClientes] = useState([]);
   const [usuariosComerciais,setUsuariosComerciais]=useState([]);
+  const [carteirasAdm,setCarteirasAdm]=useState([]);
+  const [exportandoRotas,setExportandoRotas]=useState(false);
   const [modalNova, setModalNova] = useState(false);
   const [novaRota, setNovaRota] = useState({ nome: '', dia_semana: '' });
   const [modalClientes, setModalClientes] = useState(null); // rota selecionada
@@ -4841,18 +4843,79 @@ function PaginaRotas({ profile }) {
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
-    const [rr, rc, ru] = await Promise.all([
-      sb.from('rotas').select('*, cliente_rotas(id, cliente_id, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id))').order('dia_semana').order('nome'),
-      sb.from('clientes').select('id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id').eq('ativo', true).order('razao_social').limit(10000),
-      sb.from('usuarios').select('id,nome,papel,supervisor_id,ativo').eq('ativo',true).limit(10000)
-    ]);
     const ids = await vendedoresVisiveis(profile);
     const permitido = Array.isArray(ids) ? new Set(ids) : null;
-    const clientesEscopo = (rc.data || []).filter(c => !permitido || permitido.has(c.vendedor_id));
+    async function buscarTodosClientes() {
+      const todos = [];
+      for (let inicio = 0; ; inicio += 500) {
+        let consulta = sb.from('clientes')
+          .select('id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id, ativo')
+          .order('id').range(inicio, inicio + 499);
+        if (Array.isArray(ids)) {
+          if (!ids.length) return [];
+          consulta = consulta.in('vendedor_id', ids);
+        }
+        const { data, error } = await consulta;
+        if (error) throw error;
+        todos.push(...(data || []));
+        if (!data || data.length < 500) break;
+      }
+      return todos;
+    }
+    const [rr, ru, ra, rc] = await Promise.all([
+      sb.from('rotas').select('*, cliente_rotas(id, cliente_id, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id))').order('dia_semana').order('nome'),
+      sb.from('usuarios').select('id,nome,papel,supervisor_id,ativo').limit(10000),
+      sb.from('adm_vendas_supervisores').select('adm_vendas_id,supervisor_id'),
+      buscarTodosClientes().then(data => ({ data })).catch(error => ({ error }))
+    ]);
     if (rr.error) toast('Erro ao carregar rotas: ' + rr.error.message, 'error');
+    if (rc.error) toast('Erro ao carregar clientes para rotas: ' + rc.error.message, 'error');
+    if (ru.error) toast('Erro ao carregar usuários: ' + ru.error.message, 'error');
     setRotas(rr.data || []);
-    setClientes(clientesEscopo);
+    setClientes((rc.data || []).filter(c => !permitido || permitido.has(c.vendedor_id)));
     setUsuariosComerciais(ru.data || []);
+    setCarteirasAdm(ra.data || []);
+  }
+
+  async function exportarRelatorioRotas() {
+    if (profile.papel !== 'gestao_adm_vendas') return;
+    setExportandoRotas(true);
+    try {
+      const linhas = [];
+      const adms = usuariosComerciais.filter(u => u.papel === 'adm_vendas');
+      for (const rota of (rotas || [])) {
+        for (const vinculo of (rota.cliente_rotas || [])) {
+          const cli = vinculo.clientes;
+          if (!cli) continue;
+          const vendedor = vendedorCliente(cli);
+          const supervisor = supervisorCliente(cli);
+          const nomesAdm = (carteirasAdm || [])
+            .filter(c => supervisor && c.supervisor_id === supervisor.id)
+            .map(c => adms.find(u => u.id === c.adm_vendas_id))
+            .filter(Boolean).map(u => u.nome);
+          linhas.push({
+            'Código Cliente': String(cli.codigo_totvs || ''),
+            'Rota': rota.nome || '',
+            'Dia': DIAS[rota.dia_semana] || '',
+            'Vendedor': vendedor ? vendedor.nome : '',
+            'Supervisor': supervisor ? supervisor.nome : '',
+            'Adm de Vendas': [...new Set(nomesAdm)].join(', ')
+          });
+        }
+      }
+      if (!linhas.length) return toast('Não há clientes vinculados às rotas para exportar.', 'error');
+      const ws = XLSX.utils.json_to_sheet(linhas);
+      ws['!cols'] = [{wch:20},{wch:28},{wch:16},{wch:32},{wch:32},{wch:32}];
+      // Preserva zeros à esquerda do código TOTVS como texto.
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Clientes por Rota');
+      XLSX.writeFile(wb, 'relatorio_clientes_rotas.xlsx');
+      toast(linhas.length + ' vínculo(s) exportado(s).', 'success');
+    } catch (e) {
+      toast('Erro ao exportar relatório: ' + e.message, 'error');
+    } finally {
+      setExportandoRotas(false);
+    }
   }
 
   function usuarioComercial(id){ return (usuariosComerciais||[]).find(u=>u.id===id)||null; }
@@ -4986,7 +5049,9 @@ function PaginaRotas({ profile }) {
       h('div', null,
         h('div', { className: 'page-title' }, 'Rotas de Entrega'),
         h('div', { className: 'page-sub' }, rotasExibidas.length + (mostrarInativas ? ' rota(s) inativa(s)' : ' rota(s) ativa(s)'))),
-      h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Nova rota')),
+      h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+        profile.papel === 'gestao_adm_vendas' && h('button', { className: 'btn btn-secondary', disabled: exportandoRotas, onClick: exportarRelatorioRotas }, exportandoRotas ? 'Exportando...' : '↓ Exportar Excel'),
+        h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Nova rota'))),
 
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 } },
       h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' } },
