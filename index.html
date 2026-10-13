@@ -4897,6 +4897,8 @@ function PaginaRotas({ profile, visao }) {
             .filter(Boolean).map(u => u.nome);
           linhas.push({
             'Código Cliente': String(cli.codigo_totvs || ''),
+            'Razão Social': cli.razao_social || '',
+            'Nome Fantasia': cli.nome_fantasia || '',
             'Rota': rota.nome || '',
             'Dia': DIAS[rota.dia_semana] || '',
             'Vendedor': vendedor ? vendedor.nome : '',
@@ -4907,7 +4909,7 @@ function PaginaRotas({ profile, visao }) {
       }
       if (!linhas.length) return toast('Não há clientes vinculados às rotas para exportar.', 'error');
       const ws = XLSX.utils.json_to_sheet(linhas);
-      ws['!cols'] = [{wch:20},{wch:28},{wch:16},{wch:32},{wch:32},{wch:32}];
+      ws['!cols'] = [{wch:20},{wch:48},{wch:38},{wch:28},{wch:16},{wch:32},{wch:32},{wch:32}];
       // Preserva zeros à esquerda do código TOTVS como texto.
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Clientes por Rota');
