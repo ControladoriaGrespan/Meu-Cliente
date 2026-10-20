@@ -4818,6 +4818,9 @@ const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', '
 function PaginaRotas({ profile, visao }) {
   const toast = useToast();
   const [rotas, setRotas] = useState(null);
+  const [paginaRotas, setPaginaRotas] = useState(0);
+  const TAM_PAGINA_ROTAS = 15;
+  const [clientesCarregadosRotas, setClientesCarregadosRotas] = useState(false);
   const [mostrarInativas, setMostrarInativas] = useState(false);
   const [alterandoStatusRota, setAlterandoStatusRota] = useState(null);
   const [clientes, setClientes] = useState([]);
@@ -4833,10 +4836,8 @@ function PaginaRotas({ profile, visao }) {
   const [buscandoCodigoRota, setBuscandoCodigoRota] = useState(false);
 
   useEffect(() => { carregar(); }, []);
-  async function carregar() {
-    const ids = await vendedoresVisiveis(profile);
-    const permitido = Array.isArray(ids) ? new Set(ids) : null;
-    async function buscarTodosClientes() {
+  async function buscarClientesParaRota() {
+      const ids = await vendedoresVisiveis(profile);
       const todos = [];
       for (let inicio = 0; ; inicio += 500) {
         let consulta = sb.from('clientes')
@@ -4853,17 +4854,21 @@ function PaginaRotas({ profile, visao }) {
       }
       return todos;
     }
+  async function carregar() {
+    const ids = await vendedoresVisiveis(profile);
+    const permitido = Array.isArray(ids) ? new Set(ids) : null;
+
     const [rr, ru, ra, rc] = await Promise.all([
       sb.from('rotas').select('*, cliente_rotas(id, cliente_id, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id))').order('dia_semana').order('nome'),
       sb.from('usuarios').select('id,nome,papel,supervisor_id,ativo').limit(10000),
       sb.from('adm_vendas_supervisores').select('adm_vendas_id,supervisor_id'),
-      buscarTodosClientes().then(data => ({ data })).catch(error => ({ error }))
+      Promise.resolve({ data: [] })
     ]);
     if (rr.error) toast('Erro ao carregar rotas: ' + rr.error.message, 'error');
     if (rc.error) toast('Erro ao carregar clientes para rotas: ' + rc.error.message, 'error');
     if (ru.error) toast('Erro ao carregar usuários: ' + ru.error.message, 'error');
     setRotas(rr.data || []);
-    setClientes((rc.data || []).filter(c => !permitido || permitido.has(c.vendedor_id)));
+    // Clientes carregados somente quando abrir o gerenciamento de uma rota.
     setUsuariosComerciais(ru.data || []);
     setCarteirasAdm(ra.data || []);
   }
@@ -4949,6 +4954,13 @@ function PaginaRotas({ profile, visao }) {
   }
 
   async function abrirClientes(rota) {
+    if (!clientesCarregadosRotas) {
+      try {
+        const lista = await buscarClientesParaRota();
+        setClientes(lista);
+        setClientesCarregadosRotas(true);
+      } catch (e) { toast('Erro ao carregar clientes: ' + e.message, 'error'); }
+    }
     const { data } = await sb.from('cliente_rotas')
       .select('id, cliente_id, ordem_entrega, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, cidade, vendedor_id)')
       .eq('rota_id', rota.id).order('ordem_entrega');
@@ -5003,6 +5015,8 @@ function PaginaRotas({ profile, visao }) {
   }
 
   const rotasExibidas = (rotas || []).filter(r => mostrarInativas ? r.ativo === false : r.ativo !== false);
+  const totalPaginasRotas = Math.max(1, Math.ceil(rotasExibidas.length / TAM_PAGINA_ROTAS));
+  const rotasPagina = rotasExibidas.slice(paginaRotas * TAM_PAGINA_ROTAS, (paginaRotas + 1) * TAM_PAGINA_ROTAS);
   if (rotas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
   return h('div', null,
@@ -5078,7 +5092,7 @@ function PaginaRotas({ profile, visao }) {
 
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 } },
       h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' } },
-        h('input', { type: 'checkbox', checked: mostrarInativas, onChange: e => setMostrarInativas(e.target.checked) }),
+        h('input', { type: 'checkbox', checked: mostrarInativas, onChange: e => { setPaginaRotas(0); setMostrarInativas(e.target.checked); } }),
         'Inativas?'),
       h('span', { className: 'badge badge-blue' }, (rotas || []).filter(r => r.ativo === false).length + ' inativa(s)')),
     h('div', { className: 'card', style: { padding: 0 } },
@@ -5086,7 +5100,7 @@ function PaginaRotas({ profile, visao }) {
         h('table', null,
           h('thead', null, h('tr', null, h('th', null, 'Rota'), h('th', null, 'Dia'), h('th', null, 'Clientes'), h('th', null, ''))),
           h('tbody', null,
-            rotasExibidas.map(r => h('tr', { key: r.id },
+            rotasPagina.map(r => h('tr', { key: r.id },
               h('td', { className: 'strong' }, r.nome, r.ativo === false && h('span', { className: 'badge', style: { marginLeft: 8 } }, 'Inativa')),
               h('td', null, DIAS[r.dia_semana]),
               h('td', null, h('span', { className: 'badge badge-blue' }, (r.cliente_rotas || []).length)),
