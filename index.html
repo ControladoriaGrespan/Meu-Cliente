@@ -3048,6 +3048,7 @@ function PaginaClientes({ profile, modulo }) {
   const toast = useToast();
   const [clientes, setClientes] = useState(null);
   const [busca, setBusca] = useState('');
+  const [somenteSemCodigo, setSomenteSemCodigo] = useState(false);
   const [paginaClientes, setPaginaClientes] = useState(0);
   const [totalClientes, setTotalClientes] = useState(0);
   const [tabelasPrecoClientes, setTabelasPrecoClientes] = useState({});
@@ -3057,7 +3058,7 @@ function PaginaClientes({ profile, modulo }) {
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
-  useEffect(() => { const timer = setTimeout(() => carregar(), 300); return () => clearTimeout(timer); }, [paginaClientes, busca]);
+  useEffect(() => { const timer = setTimeout(() => carregar(), 300); return () => clearTimeout(timer); }, [paginaClientes, busca, somenteSemCodigo]);
   useEffect(() => { (async () => { const { data, error } = await sb.from('tabelas_preco').select('id,codigo,nome').limit(10000); if (!error) setTabelasPrecoClientes(Object.fromEntries((data || []).map(x => [x.id, [x.codigo,x.nome].filter(Boolean).join(' — ')]))); })(); }, []);
 
   async function carregar() {
@@ -3074,6 +3075,7 @@ function PaginaClientes({ profile, modulo }) {
         .order('created_at', { ascending: false }).order('id')
         .range(paginaClientes * TAM_PAGINA_CLIENTES, (paginaClientes + 1) * TAM_PAGINA_CLIENTES - 1);
       if (Array.isArray(idsVisiveis)) q = q.in('vendedor_id', idsVisiveis);
+      if (somenteSemCodigo) q = q.or('codigo_totvs.is.null,codigo_totvs.eq.');
       if (filtro) q = q.or(['razao_social','nome_fantasia','cnpj_cpf','codigo_totvs','cidade'].map(k => k + '.ilike.%' + filtro + '%').join(','));
       const { data, count, error } = await q;
       if (error) throw error;
@@ -3135,13 +3137,16 @@ function PaginaClientes({ profile, modulo }) {
         h('div', { className: 'page-sub' },
           `${totalClientes} cliente(s)` + (semCodigo ? ` · ${semCodigo} sem código TOTVS` : '') +
           (podeEditar ? ' · Código TOTVS editável pelo Adm. de Vendas após o cadastro no TOTVS' : ''))),
+      h('div', { style: { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
+      h('label', { style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 13, fontWeight: 600 } },
+        h('input', { type: 'checkbox', checked: somenteSemCodigo, onChange: e => { setPaginaClientes(0); setSomenteSemCodigo(e.target.checked); } }), 'Sem Código TOTVS'),
       h('input', {
         className: 'form-input',
         style: { maxWidth: 300 },
         placeholder: 'Buscar razão social, fantasia, CNPJ, código ou vendedor...',
         value: busca,
         onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
-      })),
+      }))),
 
     filtrados.length === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u263A', texto: 'Nenhum cliente encontrado.' }))
@@ -3149,7 +3154,7 @@ function PaginaClientes({ profile, modulo }) {
           h('div', { className: 'table-wrap', style: { overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', width: '100%', maxWidth: '100%' } },
             h('table', { style: { minWidth: 1550, width: 'max-content' } },
               h('thead', null, h('tr', null,
-                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Tabela de Preço','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
+                ['Cód. TOTVS','Situação TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Tabela de Preço','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
                   .filter(c => c !== null).map((c, i) => h('th', { key: i }, c)))),
               h('tbody', null,
                 filtrados.map(c => {
@@ -3166,6 +3171,7 @@ function PaginaClientes({ profile, modulo }) {
                             onChange: e => setEditandoTotvs(prev => ({ ...prev, [c.id]: e.target.value }))
                           })
                         : h('span', { className: 'mono' }, c.codigo_totvs || '—')),
+                    h('td', null, !String(c.codigo_totvs || '').trim() ? h('span', { className: 'badge badge-yellow' }, 'Sem Código') : h('span', { className: 'badge badge-green' }, 'Com Código')),
                     h('td', { className: 'strong' }, c.razao_social || '—'),
                     h('td', null, c.nome_fantasia || '—'),
                     h('td', { className: 'mono' }, c.cnpj_cpf || '—'),
