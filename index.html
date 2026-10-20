@@ -3048,52 +3048,48 @@ function PaginaClientes({ profile, modulo }) {
   const toast = useToast();
   const [clientes, setClientes] = useState(null);
   const [busca, setBusca] = useState('');
+  const [paginaClientes, setPaginaClientes] = useState(0);
+  const [totalClientes, setTotalClientes] = useState(0);
+  const [tabelasPrecoClientes, setTabelasPrecoClientes] = useState({});
+  const TAM_PAGINA_CLIENTES = 50;
   const [editandoTotvs, setEditandoTotvs] = useState({});
   const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => { const timer = setTimeout(() => carregar(), 300); return () => clearTimeout(timer); }, [paginaClientes, busca]);
+  useEffect(() => { (async () => { const { data, error } = await sb.from('tabelas_preco').select('id,codigo,nome').limit(10000); if (!error) setTabelasPrecoClientes(Object.fromEntries((data || []).map(x => [x.id, [x.codigo,x.nome].filter(Boolean).join(' — ')]))); })(); }, []);
 
   async function carregar() {
     const idsVisiveis = await vendedoresVisiveis(profile);
     if (Array.isArray(idsVisiveis) && !idsVisiveis.length) {
-      setClientes([]); setEditandoTotvs({}); setEditandoAcordo({}); return;
+      setClientes([]); setTotalClientes(0); return;
     }
-    async function consultarClientes(comFicha) {
-      const todos = [];
-      for (let inicio = 0; ; inicio += 500) {
-        let q = sb.from('clientes')
-          .select(comFicha
-            ? '*, usuarios:vendedor_id(nome, codigo_vendedor), fichas_clientes!clientes_ficha_id_fkey(faturamento_previsto, created_at, ficha_aprovacoes(etapa, status, ordem, decidido_em))'
-            : '*, usuarios:vendedor_id(nome, codigo_vendedor)')
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: true })
-          .range(inicio, inicio + 499);
-        if (Array.isArray(idsVisiveis)) q = q.in('vendedor_id', idsVisiveis);
-        const { data, error } = await q;
-        if (error) throw error;
-        todos.push(...(data || []));
-        if (!data || data.length < 500) break;
-      }
-      return todos;
+    const filtro = busca.trim().replace(/[,()]/g, ' ');
+    async function consultar(comFicha) {
+      let q = sb.from('clientes')
+        .select(comFicha
+          ? '*, usuarios:vendedor_id(nome, codigo_vendedor), fichas_clientes!clientes_ficha_id_fkey(faturamento_previsto, created_at, ficha_aprovacoes(etapa, status, ordem, decidido_em))'
+          : '*, usuarios:vendedor_id(nome, codigo_vendedor)', { count: 'exact' })
+        .order('created_at', { ascending: false }).order('id')
+        .range(paginaClientes * TAM_PAGINA_CLIENTES, (paginaClientes + 1) * TAM_PAGINA_CLIENTES - 1);
+      if (Array.isArray(idsVisiveis)) q = q.in('vendedor_id', idsVisiveis);
+      if (filtro) q = q.or(['razao_social','nome_fantasia','cnpj_cpf','codigo_totvs','cidade'].map(k => k + '.ilike.%' + filtro + '%').join(','));
+      const { data, count, error } = await q;
+      if (error) throw error;
+      return { data, count };
     }
     try {
-      let dados;
-      try {
-        dados = await consultarClientes(true);
-      } catch (erroFicha) {
-        console.warn('Consulta com ficha falhou; tentando sem ficha:', erroFicha.message);
-        dados = await consultarClientes(false);
-      }
-      setClientes(dados);
+      let resultado;
+      try { resultado = await consultar(true); }
+      catch (e) { console.warn('Consulta de ficha indisponível:', e.message); resultado = await consultar(false); }
+      setClientes(resultado.data || []);
+      setTotalClientes(resultado.count || 0);
     } catch (error) {
-      console.error('Erro ao carregar clientes:', error.message);
       toast('Erro ao carregar clientes: ' + error.message, 'error');
-      setClientes([]);
+      setClientes([]); setTotalClientes(0);
     }
-    setEditandoTotvs({});
-    setEditandoAcordo({});
+    setEditandoTotvs({}); setEditandoAcordo({});
   }
 
   async function salvarTotvs(c) {
@@ -3126,20 +3122,7 @@ function PaginaClientes({ profile, modulo }) {
     return { txt: 'em aprovação', cls: 'badge-yellow' };
   }
 
-  const filtrados = useMemo(() => {
-    if (!clientes) return [];
-    const t = busca.trim().toLowerCase();
-    if (!t) return clientes;
-    return clientes.filter(c =>
-      (c.razao_social || '').toLowerCase().includes(t) ||
-      (c.nome_fantasia || '').toLowerCase().includes(t) ||
-      (c.cnpj_cpf || '').includes(t) ||
-      (c.codigo_totvs || '').toLowerCase().includes(t) ||
-      (c.cidade || '').toLowerCase().includes(t) ||
-      ((c.usuarios && c.usuarios.nome) || '').toLowerCase().includes(t) ||
-      ((c.usuarios && c.usuarios.codigo_vendedor) || '').toLowerCase().includes(t)
-    );
-  }, [clientes, busca]);
+  const filtrados = clientes || [];
 
   if (clientes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
@@ -3150,23 +3133,23 @@ function PaginaClientes({ profile, modulo }) {
       h('div', null,
         h('div', { className: 'page-title' }, 'Clientes'),
         h('div', { className: 'page-sub' },
-          `${filtrados.length} cliente(s)` + (semCodigo ? ` · ${semCodigo} sem código TOTVS` : '') +
+          `${totalClientes} cliente(s)` + (semCodigo ? ` · ${semCodigo} sem código TOTVS` : '') +
           (podeEditar ? ' · Código TOTVS editável pelo Adm. de Vendas após o cadastro no TOTVS' : ''))),
       h('input', {
         className: 'form-input',
         style: { maxWidth: 300 },
         placeholder: 'Buscar razão social, fantasia, CNPJ, código ou vendedor...',
         value: busca,
-        onChange: e => setBusca(e.target.value)
+        onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
       })),
 
     filtrados.length === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u263A', texto: 'Nenhum cliente encontrado.' }))
-      : h('div', { className: 'card', style: { padding: 0 } },
-          h('div', { className: 'table-wrap' },
-            h('table', null,
+      : h('div', { className: 'card', style: { padding: 0, maxWidth: '100%', minWidth: 0 } },
+          h('div', { className: 'table-wrap', style: { overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', width: '100%', maxWidth: '100%' } },
+            h('table', { style: { minWidth: 1550, width: 'max-content' } },
               h('thead', null, h('tr', null,
-                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
+                ['Cód. TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Tabela de Preço','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
                   .filter(c => c !== null).map((c, i) => h('th', { key: i }, c)))),
               h('tbody', null,
                 filtrados.map(c => {
@@ -3187,6 +3170,7 @@ function PaginaClientes({ profile, modulo }) {
                     h('td', null, c.nome_fantasia || '—'),
                     h('td', { className: 'mono' }, c.cnpj_cpf || '—'),
                     h('td', null, (c.cidade || '—') + (c.estado ? '/' + c.estado : '')),
+                    h('td', null, tabelasPrecoClientes[c.tabela_preco_id] || '—'),
                     h('td', null,
                       podeEditarAcordo
                         ? h('input', {
@@ -3214,7 +3198,12 @@ function PaginaClientes({ profile, modulo }) {
                           disabled: !(c.id in editandoAcordo),
                           onClick: () => salvarAcordo(c)
                         }, 'Salvar acordo'))));
-                }))))));
+                }))))),
+          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, gap: 10 } },
+            h('span', null, 'Página ' + (paginaClientes + 1) + ' de ' + Math.max(1, Math.ceil(totalClientes / TAM_PAGINA_CLIENTES))),
+            h('div', { style: { display: 'flex', gap: 8 } },
+              h('button', { className: 'btn btn-secondary btn-sm', disabled: paginaClientes === 0, onClick: () => setPaginaClientes(p => Math.max(0, p - 1)) }, 'Anterior'),
+              h('button', { className: 'btn btn-secondary btn-sm', disabled: (paginaClientes + 1) * TAM_PAGINA_CLIENTES >= totalClientes, onClick: () => setPaginaClientes(p => p + 1) }, 'Próxima'))));
 }
 
 function listarEquipamentos(f) {
