@@ -6699,7 +6699,10 @@ function App() {
     if (!perfil) { setSemPerfil(session.user.id); setSessionReady(true); return; }
     const {data:acessos}=await sb.from('usuario_modulos').select('modulo,ativo').eq('usuario_id',perfil.id).eq('ativo',true);
     const ms=(acessos||[]).map(x=>x.modulo);
-    setModulosUsuario(ms.length?ms:modulosPadrao(perfil.papel));
+    // Perfis autorizados ao módulo técnico mantêm acesso mesmo com liberações legadas já gravadas.
+    const obrigatorios=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','tec_panificacao'].includes(perfil.papel)?['visita_tecnica']:[];
+    const base=perfil.papel==='admin'?Object.keys(MODULOS):(ms.length?ms:modulosPadrao(perfil.papel));
+    setModulosUsuario([...new Set([...base,...obrigatorios])]);
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
   }
