@@ -4860,7 +4860,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setCarregando(true);setErroBanco('');
     const [ru,rv]=await Promise.all([
       sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').limit(10000),
-      sb.from('visitas_tecnicas').select('*').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio')
+      sb.from('visitas_tecnicas').select('*, clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia)').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio')
     ]);
     if(rv.error){setErroBanco(rv.error.message);setVisitas([]);}else setVisitas(rv.data||[]);
     if(ru.error)toast('Erro ao carregar equipe: '+ru.error.message,'error');
@@ -4890,7 +4890,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
     if(acao==='checkout'&&!String(payload.relatorio_qualidade).trim())return toast('Preencha o relatório de qualidade antes do checkout.','error');
     setSalvando(true);
-    const {error}=await sb.from('visitas_tecnicas').update(payload).eq('id',v.id).eq('tecnico_id',profile.id).eq('status',acao==='checkin'?'agendada':'em_andamento');
+    const {error}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:acao,p_relatorio:acao==='checkout'?(relato[v.id]||''):''});
     setSalvando(false);
     if(error)return toast('Erro ao registrar: '+error.message,'error');
     toast(acao==='checkin'?'Check-in registrado.':'Checkout registrado.','success');carregar();
@@ -4928,7 +4928,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             const c=clientePorId[v.cliente_id];const u=usuariosPorId[v.tecnico_id];
             return h('div',{key:v.id,style:{padding:9,borderRadius:7,background:'var(--bg)',border:'1px solid var(--border)',marginBottom:8,fontSize:12}},
               h('b',null,v.hora_inicio?.slice(0,5)+' · '+(u?.nome||'Técnico')),
-              h('div',null,c?.razao_social||v.cliente_nome||'Cliente '+String(v.cliente_id).slice(0,8)),
+              h('div',null,c?.razao_social||v.clientes?.razao_social||v.clientes?.nome_fantasia||'Cliente '+String(v.cliente_id).slice(0,8)),
               h('div',null,v.objetivo||'Visita técnica'),
               h('span',{className:'badge '+(v.status==='concluida'?'badge-green':'badge-blue')},nomes[v.status]||v.status),
               v.checkin_em&&h('div',null,'Check-in: '+new Date(v.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
