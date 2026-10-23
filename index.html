@@ -4971,6 +4971,18 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('option',{value:''},'Todas as equipes'),supervisores.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
         !tecnico&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroTecnico,onChange:e=>setFiltroTecnico(e.target.value)},
           h('option',{value:''},'Todos os técnicos'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome))))),
+    !tecnico&&h('div',{className:'card',style:{marginBottom:14}},
+      h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setVerMapa(v=>!v);consultarPosicoes();}},verMapa?'Ocultar mapa':'Mapa: última localização dos técnicos'),
+      verMapa&&h('div',{style:{marginTop:12}},
+        h('p',null,'Localizações dos últimos check-ins/checkouts. Não é rastreamento em tempo real.'),
+        posicoes.filter(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
+          .filter(x=>!filtroSupervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===filtroSupervisor)
+          .filter(x=>!filtroTecnico||x.tecnico_id===filtroTecnico)
+          .map(x=>h('div',{key:x.tecnico_id,style:{padding:9,borderBottom:'1px solid var(--border)'}},
+            h('b',null,usuariosPorId[x.tecnico_id]?.nome||'Técnico'),
+            h('span',{style:{marginLeft:10}},x.tipo+' · '+new Date(x.quando).toLocaleString('pt-BR')),
+            h('a',{style:{marginLeft:12},target:'_blank',rel:'noopener noreferrer',
+              href:'https://www.openstreetmap.org/?mlat='+x.lat+'&mlon='+x.lng+'#map=15/'+x.lat+'/'+x.lng},'Abrir no mapa ↗'))))),
     h('div',{className:'card',style:{overflowX:'auto'}},
       carregando?h('div',null,'Carregando agenda...'):
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,minmax(175px,1fr))',gap:8,minWidth:1225}},
@@ -4999,11 +5011,16 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('option',{value:''},'Selecione o técnico'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome)))),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
         h(Campo,{label:'Horário previsto'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
+        h(Campo,{label:'Duração prevista (min)'},h('input',{className:'form-input',type:'number',min:15,max:600,value:duracao,onChange:e=>setDuracao(Math.max(15,Number(e.target.value)||120))})),
+        h(Campo,{label:'Margem operacional (min)'},h('input',{className:'form-input',type:'number',min:0,max:180,value:margem,onChange:e=>setMargem(Math.max(0,Number(e.target.value)||0))})),
         h(Campo,{label:'Buscar cliente'},h('div',null,
           h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código ou nome do cliente',onChange:e=>setBuscaCliente(e.target.value)}),
             h('button',{className:'btn btn-secondary btn-sm',onClick:buscarClientes},'Buscar')),
           h('select',{className:'form-select',style:{marginTop:8},value:form.cliente_id,onChange:e=>setForm(x=>({...x,cliente_id:e.target.value}))},
             h('option',{value:''},'Selecione um cliente'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||c.nome_fantasia||'')))))),
+        h('div',{style:{gridColumn:'1/-1'}},
+          h('button',{className:'btn btn-secondary btn-sm',onClick:async()=>{try{setAlertaAgenda(await validarHorario());}catch(e){setAlertaAgenda(e.message);}}},'Verificar deslocamento e conflitos'),
+          alertaAgenda&&h('p',{style:{marginTop:8,fontSize:12}},alertaAgenda)),
         h(Campo,{label:'Objetivo'},h('input',{className:'form-input',value:form.objetivo,onChange:e=>setForm(x=>({...x,objetivo:e.target.value}))})),
         h(Campo,{label:'Observações'},h('textarea',{className:'form-input',value:form.observacoes,onChange:e=>setForm(x=>({...x,observacoes:e.target.value}))})))));
 }
