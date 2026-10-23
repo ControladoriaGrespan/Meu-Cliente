@@ -4919,7 +4919,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   async function buscarClientes(){
     const termo=buscaCliente.trim().replace(/[,()]/g,' ');
     if(termo.length<2)return setClientes([]);
-    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
+    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,latitude,longitude').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
     if(error)toast('Busca de clientes: '+error.message,'error');
     setClientes(data||[]);
   }
@@ -4927,7 +4927,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(!form?.cliente_id||!form?.tecnico_id||!form?.data_visita||!form?.hora_inicio)return toast('Informe cliente, técnico, data e horário.','error');
     if(!tecnicos.some(t=>t.id===form.tecnico_id))return toast('Técnico fora da equipe autorizada.','error');
     setSalvando(true);
-    const payload={cliente_id:form.cliente_id,tecnico_id:form.tecnico_id,supervisor_id:usuariosPorId[form.tecnico_id]?.supervisor_id||null,data_visita:form.data_visita,hora_inicio:form.hora_inicio,objetivo:form.objetivo||'',observacoes:form.observacoes||'',status:'agendada'};
+    try{setAlertaAgenda(await validarHorario());}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
+    const payload={cliente_id:form.cliente_id,tecnico_id:form.tecnico_id,supervisor_id:usuariosPorId[form.tecnico_id]?.supervisor_id||null,data_visita:form.data_visita,hora_inicio:form.hora_inicio,duracao_min:duracao,objetivo:form.objetivo||'',observacoes:form.observacoes||'',status:'agendada'};
     const {error}=await sb.from('visitas_tecnicas').insert(payload);
     setSalvando(false);
     if(error)return toast('Erro ao agendar: '+error.message,'error');
@@ -4940,7 +4941,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
     if(acao==='checkout'&&!String(payload.relatorio_qualidade).trim())return toast('Preencha o relatório de qualidade antes do checkout.','error');
     setSalvando(true);
-    const {error}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:acao,p_relatorio:acao==='checkout'?(relato[v.id]||''):''});
+    let gps;try{gps=await localizacaoAtual();}catch(e){setSalvando(false);return toast(e.message,'error');}
+    const {error}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:acao,p_relatorio:acao==='checkout'?(relato[v.id]||''):'',p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
     setSalvando(false);
     if(error)return toast('Erro ao registrar: '+error.message,'error');
     toast(acao==='checkin'?'Check-in registrado.':'Checkout registrado.','success');carregar();
@@ -4957,7 +4959,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'Visita Técnica'),h('div',{className:'page-sub'},'Agenda semanal · Check-in e checkout · Qualidade')),
-      podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',objetivo:'',observacoes:''})},'+ Agendar visita')),
+      podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>{setAlertaAgenda('');setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',objetivo:'',observacoes:''});}},'+ Agendar visita')),
     erroBanco&&h('div',{className:'card',style:{border:'1px solid #e3a83d',marginBottom:16}},
       h('b',null,'Configuração do banco pendente'),h('p',null,'A tabela visitas_tecnicas ou suas permissões ainda não estão disponíveis: '+erroBanco)),
     h('div',{className:'card',style:{marginBottom:14}},
