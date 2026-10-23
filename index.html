@@ -4845,6 +4845,56 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [erroBanco,setErroBanco]=useState('');
   const [salvando,setSalvando]=useState(false);
   const [relato,setRelato]=useState({});
+  const [margem,setMargem]=useState(30);
+  const [duracao,setDuracao]=useState(120);
+  const [alertaAgenda,setAlertaAgenda]=useState('');
+  const [posicoes,setPosicoes]=useState([]);
+  const [verMapa,setVerMapa]=useState(false);
+  const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
+  const formatMin=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+  async function deslocamento(a,b){
+    if(!a||!b||a.latitude==null||a.longitude==null||b.latitude==null||b.longitude==null)throw Error('Cadastre as coordenadas dos clientes antes de validar a rota.');
+    if(a.id===b.id)return 0;
+    const url='https://router.project-osrm.org/route/v1/driving/'+a.longitude+','+a.latitude+';'+b.longitude+','+b.latitude+'?overview=false';
+    const resp=await fetch(url);if(!resp.ok)throw Error('Serviço rodoviário indisponível.');
+    const j=await resp.json();if(!j.routes?.[0])throw Error('Rota rodoviária não encontrada.');
+    return Math.ceil(j.routes[0].duration/60);
+  }
+  async function validarHorario(){
+    if(!form?.cliente_id||!form?.tecnico_id||!form?.data_visita||!form?.hora_inicio)throw Error('Preencha técnico, cliente, data e horário.');
+    const {data,error}=await sb.from('visitas_tecnicas').select('cliente_id,hora_inicio,duracao_min,status').eq('tecnico_id',form.tecnico_id).eq('data_visita',form.data_visita).neq('status','cancelada');
+    if(error)throw error;
+    const lista=[...(data||[]),{cliente_id:form.cliente_id,hora_inicio:form.hora_inicio,duracao_min:duracao}].sort((a,b)=>paraMin(a.hora_inicio)-paraMin(b.hora_inicio));
+    const ids=[...new Set(lista.map(x=>x.cliente_id))];
+    const {data:cs,error:ce}=await sb.from('clientes').select('id,cidade,latitude,longitude').in('id',ids);
+    if(ce)throw ce;
+    const porId=Object.fromEntries((cs||[]).map(x=>[x.id,x]));
+    for(let i=1;i<lista.length;i++){
+      const ant=lista[i-1],atual=lista[i],viagem=await deslocamento(porId[ant.cliente_id],porId[atual.cliente_id]);
+      const disponivel=paraMin(atual.hora_inicio)-paraMin(ant.hora_inicio)-Number(ant.duracao_min||120);
+      if(disponivel<viagem+margem)throw Error('Conflito '+(porId[ant.cliente_id]?.cidade||'origem')+' → '+(porId[atual.cliente_id]?.cidade||'destino')+': viagem '+viagem+' min + margem '+margem+' min. Próximo horário viável: '+formatMin(paraMin(ant.hora_inicio)+Number(ant.duracao_min||120)+viagem+margem));
+    }
+    if(paraMin(form.hora_inicio)+duracao>1440)throw Error('Visita termina após meia-noite.');
+    return 'Horário viável. Deslocamentos e margem considerados.';
+  }
+  async function localizacaoAtual(){
+    if(!navigator.geolocation)throw Error('GPS indisponível.');
+    return new Promise((ok,fail)=>navigator.geolocation.getCurrentPosition(p=>ok({lat:p.coords.latitude,lng:p.coords.longitude,precisao:p.coords.accuracy}),e=>fail(Error('Ative a localização para registrar a visita: '+e.message)),{enableHighAccuracy:true,maximumAge:0,timeout:20000}));
+  }
+  async function consultarPosicoes(){
+    const {data,error}=await sb.from('visitas_tecnicas').select('tecnico_id,checkin_em,checkout_em,checkin_latitude,checkin_longitude,checkout_latitude,checkout_longitude').order('data_visita',{ascending:false}).limit(1000);
+    if(error)return toast(error.message,'error');
+    const ultimas={};
+    (data||[]).forEach(v=>{
+      const fim=v.checkout_em&&v.checkout_latitude!=null;
+      const inicio=v.checkin_em&&v.checkin_latitude!=null;
+      if(!fim&&!inicio)return;
+      const ponto={tecnico_id:v.tecnico_id,lat:fim?v.checkout_latitude:v.checkin_latitude,lng:fim?v.checkout_longitude:v.checkin_longitude,quando:fim?v.checkout_em:v.checkin_em,tipo:fim?'Checkout':'Check-in'};
+      if(!ultimas[v.tecnico_id]||ponto.quando>ultimas[v.tecnico_id].quando)ultimas[v.tecnico_id]=ponto;
+    });
+    setPosicoes(Object.values(ultimas));
+  }
+
   const inicioSemana=React.useMemo(()=>{
     const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7)+semana*7);return d;
   },[semana]);
