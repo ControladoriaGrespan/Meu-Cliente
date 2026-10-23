@@ -4851,6 +4851,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [posicoes,setPosicoes]=useState([]);
   const [verMapa,setVerMapa]=useState(false);
   const [tecnicoMapa,setTecnicoMapa]=useState('');
+  const [tecnicoAgenda,setTecnicoAgenda]=useState('');
+  const [agora,setAgora]=useState(Date.now());
   const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
   const formatMin=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
   // Planejamento usa o centro aproximado da cidade; GPS real é registrado somente no atendimento.
@@ -4931,6 +4933,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
   useEffect(()=>{if(autorizado)carregar();},[semana]);
+  useEffect(()=>{const timer=setInterval(()=>setAgora(Date.now()),60000);return()=>clearInterval(timer);},[]);
   async function carregar(){
     setCarregando(true);setErroBanco('');
     const [ru,rv]=await Promise.all([
@@ -5017,26 +5020,94 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             h('span',{style:{marginLeft:10}},x.tipo+' · '+new Date(x.quando).toLocaleString('pt-BR')),
             h('a',{style:{marginLeft:12},target:'_blank',rel:'noopener noreferrer',
               href:'https://www.openstreetmap.org/?mlat='+x.lat+'&mlon='+x.lng+'#map=15/'+x.lat+'/'+x.lng},'Abrir no mapa ↗'))))),
-    h('div',{className:'card',style:{overflowX:'auto'}},
+    h('div',{className:'card',style:{overflowX:'auto',padding:12}},
       carregando?h('div',null,'Carregando agenda...'):
-      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,minmax(175px,1fr))',gap:8,minWidth:1225}},
-        dias.map(d=>h('div',{key:d.iso,style:{border:'1px solid var(--border)',borderRadius:8,padding:8,minHeight:180}},
-          h('div',{style:{fontWeight:700,marginBottom:10}},d.label),
-          visiveis.filter(v=>v.data_visita===d.iso).map(v=>{
-            const c=clientePorId[v.cliente_id];const u=usuariosPorId[v.tecnico_id];
-            return h('div',{key:v.id,style:{padding:9,borderRadius:7,background:'var(--bg)',border:'1px solid var(--border)',marginBottom:8,fontSize:12}},
-              h('b',null,v.hora_inicio?.slice(0,5)+' · '+(u?.nome||'Técnico')),
-              h('div',null,c?.razao_social||v.clientes?.razao_social||v.clientes?.nome_fantasia||'Cliente '+String(v.cliente_id).slice(0,8)),
-              h('div',null,v.objetivo||'Visita técnica'),
-              h('span',{className:'badge '+(v.status==='concluida'?'badge-green':'badge-blue')},nomes[v.status]||v.status),
-              v.checkin_em&&h('div',null,'Check-in: '+new Date(v.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
-              v.checkout_em&&h('div',null,'Checkout: '+new Date(v.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
-              v.checkin_em&&v.checkout_em&&h('div',null,'Duração: '+Math.round((new Date(v.checkout_em)-new Date(v.checkin_em))/60000)+' min'),
-              tecnico&&v.tecnico_id===profile.id&&v.status==='agendada'&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(v,'checkin')},'Fazer check-in'),
-              tecnico&&v.tecnico_id===profile.id&&v.status==='em_andamento'&&h('div',null,
-                h('textarea',{className:'form-input',placeholder:'Relatório de qualidade: produtos, problemas, orientações e ações...',rows:3,value:relato[v.id]||'',onChange:e=>setRelato(x=>({...x,[v.id]:e.target.value}))}),
-                h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(v,'checkout')},'Fazer checkout')));
-          }))))),
+      (()=> {
+        const atual=new Date(agora);
+        const dataHoje=dataISO(atual);
+        const minutoAgora=atual.getHours()*60+atual.getMinutes();
+        const statusVisita=v=>{
+          if(v.status==='concluida')return 'concluida';
+          if(v.checkin_em||v.status==='em_andamento')return 'checkin';
+          if(v.status==='cancelada')return 'cancelada';
+          if(v.data_visita<dataHoje||(v.data_visita===dataHoje&&paraMin(v.hora_inicio)<minutoAgora))return 'atrasada';
+          return 'agendada';
+        };
+        const paleta={agendada:{bg:'#fff2bd',fg:'#654900'},atrasada:{bg:'#ffd5d5',fg:'#8a1616'},checkin:{bg:'#d2f5db',fg:'#155b2d'},concluida:{bg:'#c5ead2',fg:'#155b2d'},cancelada:{bg:'#e5e7eb',fg:'#555'},deslocamento:{bg:'#e8d7ff',fg:'#5e2a94'}};
+        const equipe=tecnicosFiltro.filter(u=>!filtroTecnico||u.id===filtroTecnico).filter(u=>!tecnico||u.id===profile.id);
+        const selecionado=tecnicoAgenda||((tecnico||filtroTecnico)?equipe[0]?.id:'');
+        const montarAgenda=id=>{
+          const porDia=dias.map(d=>(visiveis.filter(v=>v.tecnico_id===id&&v.data_visita===d.iso)).sort((a,b)=>paraMin(a.hora_inicio)-paraMin(b.hora_inicio)));
+          return porDia;
+        };
+        const abrirAgendamento=(id,d,h)=>{
+          if(!podeAgendar)return;
+          setAlertaAgenda('');setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
+        };
+        const celula=(texto,estilo,acao)=>h('div',{style:{...estilo,boxSizing:'border-box',border:'1px solid rgba(0,0,0,.06)',borderRadius:5,padding:5,overflow:'hidden'},onClick:undefined},texto);
+        const legenda=h('div',{style:{display:'flex',gap:14,flexWrap:'wrap',marginBottom:14,fontSize:12}},
+          [['Agendada','agendada'],['Atrasada','atrasada'],['Check-in realizado','checkin'],['Deslocamento','deslocamento']].map(([nome,k])=>h('span',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{background:paleta[k].bg,width:13,height:13,borderRadius:3,border:'1px solid #ccc'}}),nome)));
+        if(!selecionado){
+          return h('div',null,h('b',null,'Agenda geral da equipe'),h('p',{style:{fontSize:12,color:'var(--muted)',marginBottom:12}},'Clique no técnico para abrir a agenda detalhada. Cada quadrado mostra visitas e tempo total previsto.'),legenda,
+            h('div',{style:{minWidth:900}},
+              h('div',{style:{display:'grid',gridTemplateColumns:'180px repeat(7,minmax(95px,1fr))',gap:5,marginBottom:5}},
+                h('b',null,'Técnico'),dias.map(d=>h('b',{key:d.iso,style:{textAlign:'center',fontSize:12}},d.label))),
+              equipe.map(u=>{
+                const agenda=montarAgenda(u.id);
+                return h('div',{key:u.id,style:{display:'grid',gridTemplateColumns:'180px repeat(7,minmax(95px,1fr))',gap:5,marginBottom:5}},
+                  h('button',{className:'btn btn-secondary btn-sm',style:{textAlign:'left',whiteSpace:'normal'},onClick:()=>setTecnicoAgenda(u.id)},u.nome),
+                  agenda.map((lista,i)=>{
+                    const minutos=lista.filter(v=>v.status!=='cancelada').reduce((acc,v)=>acc+Number(v.duracao_min||120),0);
+                    const atrasos=lista.some(v=>statusVisita(v)==='atrasada');
+                    const realizados=lista.filter(v=>v.checkin_em).length;
+                    return h('button',{key:dias[i].iso,style:{background:atrasos?paleta.atrasada.bg:lista.length?paleta.agendada.bg:'#f5f6f8',border:'1px solid #e2e5e9',borderRadius:7,minHeight:69,cursor:'pointer',fontSize:12,color:'#263043'},onClick:()=>setTecnicoAgenda(u.id)},
+                      h('b',null,lista.length+' visita(s)'),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
+                      realizados?h('div',null,realizados+' check-in(s)'):null);
+                  }));
+              })));
+        }
+        const usuario=usuariosPorId[selecionado];
+        const agenda=montarAgenda(selecionado);
+        const hoje=agenda[dias.findIndex(d=>d.iso===dataHoje)]||[];
+        const concluidas=hoje.filter(v=>v.status==='concluida').length;
+        const atualVisita=hoje.find(v=>v.status==='em_andamento')||hoje.find(v=>v.status==='agendada');
+        const indice=atualVisita?hoje.indexOf(atualVisita)+1:hoje.length;
+        const horaInicio=8*60,horaFim=20*60,alturaSlot=46;
+        const totalAltura=(horaFim-horaInicio)/30*alturaSlot;
+        return h('div',null,
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}},
+            h('div',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setTecnicoAgenda('')},'← Todas as equipes'),
+              h('b',{style:{marginLeft:12}},usuario?.nome||'Técnico')),
+            h('span',{style:{fontSize:12}},'Hoje: '+concluidas+'/'+hoje.length+' concluídas · '+(atualVisita?'Visita '+indice+'/'+hoje.length+' — '+(statusVisita(atualVisita)==='atrasada'?'Atrasada':atualVisita.status==='em_andamento'?'Check-in realizado':'Agendada'):'Sem visita pendente'))),
+          legenda,
+          h('div',{style:{display:'grid',gridTemplateColumns:'65px repeat(7,minmax(140px,1fr))',minWidth:1100}},
+            h('div',{style:{position:'sticky',top:0,background:'var(--card,#fff)',zIndex:2,padding:8}},'Hora'),
+            dias.map(d=>h('div',{key:d.iso,style:{position:'sticky',top:0,background:'var(--card,#fff)',zIndex:2,textAlign:'center',padding:8,fontWeight:700,borderBottom:'1px solid #ddd'}},d.label)),
+            h('div',{style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd'}},
+              Array.from({length:(horaFim-horaInicio)/30},(_,i)=>h('div',{key:i,style:{height:alturaSlot,borderBottom:'1px solid #e7e7e7',fontSize:11,paddingTop:3}},formatMin(horaInicio+i*30)))),
+            dias.map((d,di)=>{
+              const lista=agenda[di];const blocos=[];
+              lista.forEach((v,i)=>{
+                const ini=paraMin(v.hora_inicio),fim=ini+Number(v.duracao_min||120);
+                if(i>0){
+                  const ant=lista[i-1],antFim=paraMin(ant.hora_inicio)+Number(ant.duracao_min||120);
+                  if(ini>antFim)blocos.push({tipo:'deslocamento',inicio:antFim,fim:ini,titulo:'Deslocamento / intervalo',sub:Math.round(ini-antFim)+' min'});
+                }
+                blocos.push({tipo:statusVisita(v),inicio:ini,fim,titulo:(v.clientes?.codigo_totvs||'')+' '+(v.clientes?.razao_social||v.clientes?.nome_fantasia||'Cliente'),sub:v.hora_inicio?.slice(0,5)+' · '+Number(v.duracao_min||120)+' min',visita:v});
+              });
+              return h('div',{key:d.iso,style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd',background:'repeating-linear-gradient(to bottom,transparent 0px,transparent '+(alturaSlot-1)+'px,#e9e9e9 '+(alturaSlot-1)+'px,#e9e9e9 '+alturaSlot+'px)'}},
+                Array.from({length:(horaFim-horaInicio)/30},(_,i)=>h('button',{key:i,title:'Agendar '+formatMin(horaInicio+i*30),disabled:!podeAgendar,onClick:()=>abrirAgendamento(selecionado,d.iso,formatMin(horaInicio+i*30)),style:{position:'absolute',top:i*alturaSlot,left:0,width:'100%',height:alturaSlot,border:0,background:'transparent',cursor:podeAgendar?'pointer':'default'}})),
+                blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:i,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:3,right:3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:1,border:'1px solid rgba(0,0,0,.08)'}},
+                  h('b',null,b.titulo),h('div',null,b.sub),
+                  b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
+                  b.visita&&b.visita.checkout_em&&h('div',null,'Checkout: '+new Date(b.visita.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
+                  tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='agendada'&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkin')},'Check-in'),
+                  tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='em_andamento'&&h('div',null,
+                    h('textarea',{className:'form-input',placeholder:'Relatório de qualidade',rows:2,value:relato[b.visita.id]||'',onChange:e=>setRelato(x=>({...x,[b.visita.id]:e.target.value}))}),
+                    h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkout')},'Checkout')))));
+            })));
+      })()),
     form&&h(Modal,{titulo:'Agendar visita técnica',largo:true,onClose:()=>setForm(null),acoes:[
       h('button',{className:'btn btn-secondary',onClick:()=>setForm(null)},'Cancelar'),
       h('button',{className:'btn btn-primary',disabled:salvando,onClick:gravar},salvando?'Salvando...':'Salvar visita')]},
