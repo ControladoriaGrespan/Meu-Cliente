@@ -4850,6 +4850,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [alertaAgenda,setAlertaAgenda]=useState('');
   const [posicoes,setPosicoes]=useState([]);
   const [verMapa,setVerMapa]=useState(false);
+  const [tecnicoMapa,setTecnicoMapa]=useState('');
   const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
   const formatMin=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
   async function deslocamento(a,b){
@@ -4974,6 +4975,15 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     !tecnico&&h('div',{className:'card',style:{marginBottom:14}},
       h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setVerMapa(v=>!v);consultarPosicoes();}},verMapa?'Ocultar mapa':'Mapa: última localização dos técnicos'),
       verMapa&&h('div',{style:{marginTop:12}},
+        (()=>{const ponto=posicoes.find(x=>x.tecnico_id===tecnicoMapa)||posicoes.find(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id);
+          if(!ponto)return h('p',null,'Nenhuma localização disponível.');
+          const lat=Number(ponto.lat),lng=Number(ponto.lng),delta=0.012;
+          const url='https://www.openstreetmap.org/export/embed.html?bbox='+[lng-delta,lat-delta,lng+delta,lat+delta].join('%2C')+'&layer=mapnik&marker='+lat+'%2C'+lng;
+          return h('div',null,
+            h('select',{className:'form-select',style:{maxWidth:320,marginBottom:12},value:ponto.tecnico_id,onChange:e=>setTecnicoMapa(e.target.value)},
+              posicoes.filter(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id).map(x=>h('option',{key:x.tecnico_id,value:x.tecnico_id},usuariosPorId[x.tecnico_id]?.nome||'Técnico'))),
+            h('iframe',{title:'Última localização do técnico',src:url,style:{width:'100%',height:340,border:'1px solid var(--border)',borderRadius:8},loading:'lazy'}));
+        })(),
         h('p',null,'Localizações dos últimos check-ins/checkouts. Não é rastreamento em tempo real.'),
         posicoes.filter(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
           .filter(x=>!filtroSupervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===filtroSupervisor)
