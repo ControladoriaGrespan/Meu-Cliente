@@ -4870,6 +4870,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const {data:cs,error:ce}=await sb.from('clientes').select('id,cidade,latitude,longitude').in('id',ids);
     if(ce)throw ce;
     const porId=Object.fromEntries((cs||[]).map(x=>[x.id,x]));
+    const destino=porId[form.cliente_id];
+    if(!destino||destino.latitude==null||destino.longitude==null)throw Error('O cliente selecionado não possui coordenadas cadastradas. Informe latitude e longitude para habilitar a agenda inteligente.');
     for(let i=1;i<lista.length;i++){
       const ant=lista[i-1],atual=lista[i],viagem=await deslocamento(porId[ant.cliente_id],porId[atual.cliente_id]);
       const disponivel=paraMin(atual.hora_inicio)-paraMin(ant.hora_inicio)-Number(ant.duracao_min||120);
