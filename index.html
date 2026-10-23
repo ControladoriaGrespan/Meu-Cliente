@@ -4853,10 +4853,31 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [tecnicoMapa,setTecnicoMapa]=useState('');
   const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
   const formatMin=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+  // Planejamento usa o centro aproximado da cidade; GPS real é registrado somente no atendimento.
+  const cacheCidades=React.useRef({});
+  async function coordenadasCidade(c){
+    const cidade=String(c?.cidade||'').trim();
+    const uf=String(c?.estado||'').trim();
+    if(!cidade)throw Error('Cliente sem cidade cadastrada. Atualize a cidade para planejar a visita.');
+    const chave=(cidade+'|'+uf).normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase();
+    if(cacheCidades.current[chave])return cacheCidades.current[chave];
+    // Nominatim: consulta pública sob demanda; não usar para geocodificação em massa.
+    const consulta=[cidade,uf,'Brasil'].filter(Boolean).join(', ');
+    const url='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q='+encodeURIComponent(consulta);
+    const resp=await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!resp.ok)throw Error('Serviço de localização de cidades indisponível. Tente novamente.');
+    const resultados=await resp.json();
+    if(!resultados.length)throw Error('Não foi possível localizar a cidade '+consulta+'. Verifique cidade e estado no cadastro do cliente.');
+    const ponto={latitude:Number(resultados[0].lat),longitude:Number(resultados[0].lon)};
+    cacheCidades.current[chave]=ponto;
+    return ponto;
+  }
   async function deslocamento(a,b){
-    if(!a||!b||a.latitude==null||a.longitude==null||b.latitude==null||b.longitude==null)throw Error('Cadastre as coordenadas dos clientes antes de validar a rota.');
-    if(a.id===b.id)return 0;
-    const url='https://router.project-osrm.org/route/v1/driving/'+a.longitude+','+a.latitude+';'+b.longitude+','+b.latitude+'?overview=false';
+    if(!a||!b)throw Error('Cliente não localizado.');
+    if(a.id===b.id || (String(a.cidade||'').trim().toLowerCase()===String(b.cidade||'').trim().toLowerCase() && String(a.estado||'')===String(b.estado||'')))return 0;
+    const origem=await coordenadasCidade(a);
+    const destino=await coordenadasCidade(b);
+    const url='https://router.project-osrm.org/route/v1/driving/'+origem.longitude+','+origem.latitude+';'+destino.longitude+','+destino.latitude+'?overview=false';
     const resp=await fetch(url);if(!resp.ok)throw Error('Serviço rodoviário indisponível.');
     const j=await resp.json();if(!j.routes?.[0])throw Error('Rota rodoviária não encontrada.');
     return Math.ceil(j.routes[0].duration/60);
@@ -4867,11 +4888,12 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)throw error;
     const lista=[...(data||[]),{cliente_id:form.cliente_id,hora_inicio:form.hora_inicio,duracao_min:duracao}].sort((a,b)=>paraMin(a.hora_inicio)-paraMin(b.hora_inicio));
     const ids=[...new Set(lista.map(x=>x.cliente_id))];
-    const {data:cs,error:ce}=await sb.from('clientes').select('id,cidade,latitude,longitude').in('id',ids);
+    const {data:cs,error:ce}=await sb.from('clientes').select('id,cidade,estado').in('id',ids);
     if(ce)throw ce;
     const porId=Object.fromEntries((cs||[]).map(x=>[x.id,x]));
     const destino=porId[form.cliente_id];
-    if(!destino||destino.latitude==null||destino.longitude==null)throw Error('O cliente selecionado não possui coordenadas cadastradas. Informe latitude e longitude para habilitar a agenda inteligente.');
+    if(!destino||!String(destino.cidade||'').trim())throw Error('Cliente sem cidade cadastrada. Informe a cidade no cadastro do cliente.');
+    if(lista.length>1)await coordenadasCidade(destino);
     for(let i=1;i<lista.length;i++){
       const ant=lista[i-1],atual=lista[i],viagem=await deslocamento(porId[ant.cliente_id],porId[atual.cliente_id]);
       const disponivel=paraMin(atual.hora_inicio)-paraMin(ant.hora_inicio)-Number(ant.duracao_min||120);
@@ -4922,7 +4944,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   async function buscarClientes(){
     const termo=buscaCliente.trim().replace(/[,()]/g,' ');
     if(termo.length<2)return setClientes([]);
-    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,latitude,longitude').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
+    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
     if(error)toast('Busca de clientes: '+error.message,'error');
     setClientes(data||[]);
   }
