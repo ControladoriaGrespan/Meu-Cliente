@@ -4844,6 +4844,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [clientes,setClientes]=useState([]);
   const [semana,setSemana]=useState(0);
   const [filtroSupervisor,setFiltroSupervisor]=useState('');
+  const [filtroLider,setFiltroLider]=useState('');
   const [filtroTecnico,setFiltroTecnico]=useState('');
   const [form,setForm]=useState(null);
   const [buscaCliente,setBuscaCliente]=useState('');
@@ -4935,7 +4936,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const dias=Array.from({length:7},(_,i)=>{const d=new Date(inicioSemana);d.setDate(d.getDate()+i);return {iso:dataISO(d),label:['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][i]+' '+d.getDate()+'/'+String(d.getMonth()+1).padStart(2,'0')};});
   const supervisores=usuarios.filter(u=>u.papel==='supervisor_tec_panificacao');
   const tecnicos=usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false&&(!lider||u.supervisor_id===profile.id)&&(!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)));
-  const tecnicosFiltro=tecnicos.filter(u=>!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor));
+  const lideres=usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false&&(!supervisor||u.supervisor_id===profile.id)&&(!lider||u.id===profile.id)&&(!filtroSupervisor||u.supervisor_id===filtroSupervisor));
+  const tecnicosFiltro=tecnicos.filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
   useEffect(()=>{if(autorizado)carregar();},[semana]);
@@ -4988,6 +4990,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(lider&&!tecnicos.some(u=>u.id===v.tecnico_id))return false;
     if(tecnico&&v.agenda_semana_id&&!agendasSemana.some(a=>a.id===v.agenda_semana_id&&a.status==='aprovada'))return false;
     if(filtroSupervisor&&v.supervisor_id!==filtroSupervisor)return false;
+    if(filtroLider&&usuariosPorId[v.tecnico_id]?.supervisor_id!==filtroLider)return false;
     if(filtroTecnico&&v.tecnico_id!==filtroTecnico)return false;
     return true;
   });
@@ -5015,8 +5018,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSemana(v=>v-1)},'← Semana anterior'),
         h('b',null,dias[0].label+' — '+dias[6].label),
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSemana(v=>v+1)},'Próxima semana →'),
-        gestor&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroSupervisor,onChange:e=>{setFiltroSupervisor(e.target.value);setFiltroTecnico('');}},
+        gestor&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroSupervisor,onChange:e=>{setFiltroSupervisor(e.target.value);setFiltroLider('');setFiltroTecnico('');setTecnicoAgenda('');}},
           h('option',{value:''},'Todas as equipes'),supervisores.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
+        !tecnico&&!lider&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroLider,onChange:e=>{setFiltroLider(e.target.value);setFiltroTecnico('');setTecnicoAgenda('');}},
+          h('option',{value:''},'Todos os líderes Tec'),lideres.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
         !tecnico&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroTecnico,onChange:e=>setFiltroTecnico(e.target.value)},
           h('option',{value:''},'Todos os técnicos'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome))))),
     !tecnico&&h('div',{className:'card',style:{marginBottom:14}},
@@ -5034,6 +5039,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('p',null,'Localizações dos últimos check-ins/checkouts. Não é rastreamento em tempo real.'),
         posicoes.filter(x=>!supervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===profile.id).filter(x=>!lider||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
           .filter(x=>!filtroSupervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===filtroSupervisor)
+          .filter(x=>!filtroLider||usuariosPorId[x.tecnico_id]?.supervisor_id===filtroLider)
           .filter(x=>!filtroTecnico||x.tecnico_id===filtroTecnico)
           .map(x=>h('div',{key:x.tecnico_id,style:{padding:9,borderBottom:'1px solid var(--border)'}},
             h('b',null,usuariosPorId[x.tecnico_id]?.nome||'Técnico'),
