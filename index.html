@@ -3754,7 +3754,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
           'Desempenho da estrutura comercial'))),
     visao!=='vendedor' && h('div',{className:'card',style:{marginBottom:18,padding:16}},
       h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}},
-        supervisores.length>0 && h(Campo,{label:'Supervisor'},h('select',{className:'form-select',value:filtroSup,onChange:e=>{setFiltroSup(e.target.value);setFiltroVend('');}},
+        supervisores.length>0 && h(Campo,{label:'Superior imediato'},h('select',{className:'form-select',value:filtroSup,onChange:e=>{setFiltroSup(e.target.value);setFiltroVend('');}},
           h('option',{value:''},'Todos os supervisores'),...supervisores.map(x=>h('option',{key:x.id,value:x.id},x.nome)))),
         h(Campo,{label:'Vendedor'},h('select',{className:'form-select',value:filtroVend,onChange:e=>setFiltroVend(e.target.value)},
           h('option',{value:''},'Todos os vendedores'),...vendedores.filter(v=>!filtroSup||v.supervisor_id===filtroSup).map(x=>h('option',{key:x.id,value:x.id},x.nome)))))),
@@ -4026,8 +4026,10 @@ function PaginaAdmin({ profile }) {
     const e = edicoes[u.id];
     if (!e) return;
     const supEscolhido=valorDe(u,'supervisor_id');
+    const papelEscolhido=valorDe(u,'papel');
+    const papelSuperiorEsperado=papelEscolhido==='tec_panificacao'?'lider_tec_panificacao':papelEscolhido==='lider_tec_panificacao'?'supervisor_tec_panificacao':papelEscolhido==='vendedor'?'supervisor':null;
     const coordEscolhido=valorDe(u,'coordenador_id');
-    if(supEscolhido && !supervisores.some(x=>x.id===supEscolhido))
+    if(supEscolhido && (!supervisores.some(x=>x.id===supEscolhido) || (papelSuperiorEsperado && !supervisores.some(x=>x.id===supEscolhido&&x.papel===papelSuperiorEsperado))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
     if(coordEscolhido && !coordenadores.some(x=>x.id===coordEscolhido))
       return toast('O coordenador selecionado está inativo ou não está disponível.','error');
@@ -4081,7 +4083,7 @@ function PaginaAdmin({ profile }) {
   async function criarUsuario() {
     if (!novo.nome.trim() || !novo.email.trim() || !novo.senha) return toast('Nome, e-mail e senha são obrigatórios.', 'error');
     if (novo.senha.length < 6) return toast('A senha precisa ter ao menos 6 caracteres.', 'error');
-    if(novo.supervisor_id && !supervisores.some(x=>x.id===novo.supervisor_id))
+    if(novo.supervisor_id && !supervisores.some(x=>x.id===novo.supervisor_id&&(!['vendedor','lider_tec_panificacao','tec_panificacao'].includes(novo.papel)||x.papel===(novo.papel==='vendedor'?'supervisor':novo.papel==='lider_tec_panificacao'?'supervisor_tec_panificacao':'lider_tec_panificacao'))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
     if(novo.coordenador_id && !coordenadores.some(x=>x.id===novo.coordenador_id))
       return toast('O coordenador selecionado está inativo ou não está disponível.','error');
@@ -4140,7 +4142,7 @@ function PaginaAdmin({ profile }) {
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Gestão de Usuários'),
-        h('div', { className: 'page-sub' }, usuariosFiltrados.length + ' de ' + usuarios.length + ' usuário(s) · papéis e hierarquia comercial')),
+        h('div', { className: 'page-sub' }, usuariosFiltrados.length + ' de ' + usuarios.length + ' usuário(s) · hierarquia comercial e técnica')),
       h('div',{style:{display:'flex',gap:8}},
         h('button', { className:'btn btn-secondary', onClick:()=>window.dispatchEvent(new CustomEvent('abrir-config-modulos')) }, 'Módulos e Carteiras'),
         h('button', { className: 'btn btn-primary', onClick: () => setModalNovo(true) }, '+ Novo usuário'))),
@@ -4169,7 +4171,7 @@ function PaginaAdmin({ profile }) {
       h('div', { className: 'table-wrap' },
         h('table', null,
           h('thead', null, h('tr', null,
-            ['Nome','Papel','Cód. Vendedor','Telefone','Supervisor','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
+            ['Nome','Papel','Cód. Vendedor','Telefone','Superior imediato','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
           h('tbody', null,
             usuariosFiltrados.map(u => {
               const alterado = !!edicoes[u.id];
@@ -4195,7 +4197,8 @@ function PaginaAdmin({ profile }) {
                 h('td', null,
                   h('select', { className: 'form-select sm', style: { minWidth: 120 }, value: valorDe(u, 'supervisor_id'), onChange: e => editar(u.id, 'supervisor_id', e.target.value) },
                     h('option', { value: '' }, '—'),
-                    supervisores.map(s => h('option', { key: s.id, value: s.id }, s.nome)))),
+                    supervisores.filter(s=>valorDe(u,'papel')==='tec_panificacao'?s.papel==='lider_tec_panificacao':valorDe(u,'papel')==='lider_tec_panificacao'?s.papel==='supervisor_tec_panificacao':valorDe(u,'papel')==='vendedor'?s.papel==='supervisor':false).map(s => h('option', { key: s.id, value: s.id }, s.nome)),
+                    valorDe(u,'supervisor_id')&&!supervisores.some(s=>s.id===valorDe(u,'supervisor_id')&&((valorDe(u,'papel')==='tec_panificacao'&&s.papel==='lider_tec_panificacao')||(valorDe(u,'papel')==='lider_tec_panificacao'&&s.papel==='supervisor_tec_panificacao')||(valorDe(u,'papel')==='vendedor'&&s.papel==='supervisor')))&&h('option',{value:valorDe(u,'supervisor_id')},(usuarios.find(s=>s.id===valorDe(u,'supervisor_id'))?.nome||'Vínculo legado')+' (revisar vínculo)'))),
                 h('td', null,
                   h('select', { className: 'form-select sm', style: { minWidth: 120 }, value: valorDe(u, 'coordenador_id'), onChange: e => editar(u.id, 'coordenador_id', e.target.value) },
                     h('option', { value: '' }, '—'),
