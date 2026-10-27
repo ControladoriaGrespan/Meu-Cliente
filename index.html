@@ -5025,12 +5025,12 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           const url='https://www.openstreetmap.org/export/embed.html?bbox='+[lng-delta,lat-delta,lng+delta,lat+delta].join('%2C')+'&layer=mapnik&marker='+lat+'%2C'+lng;
           return h('div',null,
             h('select',{className:'form-select',style:{maxWidth:320,marginBottom:12},value:ponto.tecnico_id,onChange:e=>setTecnicoMapa(e.target.value)},
-              posicoes.filter(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id).map(x=>h('option',{key:x.tecnico_id,value:x.tecnico_id},usuariosPorId[x.tecnico_id]?.nome||'Técnico'))),
+              posicoes.filter(x=>!supervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===profile.id).filter(x=>!lider||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id).map(x=>h('option',{key:x.tecnico_id,value:x.tecnico_id},usuariosPorId[x.tecnico_id]?.nome||'Técnico'))),
             h('iframe',{title:'Última localização do técnico',src:url,style:{width:'100%',height:340,border:'1px solid var(--border)',borderRadius:8},loading:'lazy'}));
         })(),
         h('p',null,'Localizações dos últimos check-ins/checkouts. Não é rastreamento em tempo real.'),
-        posicoes.filter(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
-          .filter(x=>!filtroSupervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===filtroSupervisor)
+        posicoes.filter(x=>!supervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===profile.id).filter(x=>!lider||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
+          .filter(x=>!filtroSupervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===filtroSupervisor)
           .filter(x=>!filtroTecnico||x.tecnico_id===filtroTecnico)
           .map(x=>h('div',{key:x.tecnico_id,style:{padding:9,borderBottom:'1px solid var(--border)'}},
             h('b',null,usuariosPorId[x.tecnico_id]?.nome||'Técnico'),
@@ -5059,7 +5059,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         };
         const abrirAgendamento=(id,d,h)=>{
           if(!podeAgendar)return;
-          setAlertaAgenda('');setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
+          setAlertaAgenda('');setAcompanhaLider(false);setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
         };
         const celula=(texto,estilo,acao)=>h('div',{style:{...estilo,boxSizing:'border-box',border:'1px solid rgba(0,0,0,.06)',borderRadius:5,padding:5,overflow:'hidden'},onClick:undefined},texto);
         const legenda=h('div',{style:{display:'flex',gap:14,flexWrap:'wrap',marginBottom:14,fontSize:12}},
@@ -5079,7 +5079,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                     const atrasos=lista.some(v=>statusVisita(v)==='atrasada');
                     const realizados=lista.filter(v=>v.checkin_em).length;
                     return h('button',{key:dias[i].iso,style:{background:atrasos?paleta.atrasada.bg:lista.length?paleta.agendada.bg:'#f5f6f8',border:'1px solid #e2e5e9',borderRadius:7,minHeight:69,cursor:'pointer',fontSize:12,color:'#263043'},onClick:()=>setTecnicoAgenda(u.id)},
-                      h('b',null,lista.length+' visita(s)'),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
+                      h('b',null,lista.length+' visita(s)'),h('div',null,'Agenda: '+(statusAgenda(u.id)?.status||'Sem envio')),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
                       realizados?h('div',null,realizados+' check-in(s)'):null);
                   }));
               })));
@@ -5123,7 +5123,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               return h('div',{key:d.iso,style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd',background:'repeating-linear-gradient(to bottom,transparent 0px,transparent '+(alturaSlot-1)+'px,#e9e9e9 '+(alturaSlot-1)+'px,#e9e9e9 '+alturaSlot+'px)'}},
                 Array.from({length:(horaFim-horaInicio)/30},(_,i)=>h('button',{key:i,title:'Agendar '+formatMin(horaInicio+i*30),disabled:!podeAgendar,onClick:()=>abrirAgendamento(selecionado,d.iso,formatMin(horaInicio+i*30)),style:{position:'absolute',top:i*alturaSlot,left:0,width:'100%',height:alturaSlot,border:0,background:'transparent',cursor:podeAgendar?'pointer':'default'}})),
                 blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:i,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:3,right:3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:1,border:'1px solid rgba(0,0,0,.08)'}},
-                  h('b',null,b.titulo),h('div',null,b.sub),
+                  h('b',null,b.titulo),h('div',null,b.sub),b.visita?.lider_acompanha&&h('div',null,'Líder acompanha'),
                   b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   b.visita&&b.visita.checkout_em&&h('div',null,'Checkout: '+new Date(b.visita.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='agendada'&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkin')},'Check-in'),
