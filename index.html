@@ -4956,7 +4956,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setCarregando(true);setErroBanco('');
     const [ru,rv,ra,rm,re]=await Promise.all([
       sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').limit(10000),
-      sb.from('visitas_tecnicas').select('*, clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia)').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio'),
+      sb.from('visitas_tecnicas').select('*, clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia,cidade,estado,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_latitude,endereco_longitude)').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio'),
       sb.from('agendas_tecnicas_semanais').select('*').eq('semana_inicio',dias[0].iso),
       sb.from('vt_supervisor_comercial_tecnico').select('*'),
       sb.from('vt_aprovacoes_excecao').select('*').eq('status','pendente')
@@ -5049,6 +5049,9 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const {error}=await sb.from('vt_supervisor_comercial_tecnico').delete().eq('supervisor_tecnico_id',st).eq('supervisor_comercial_id',sc);
     if(error)return toast(error.message,'error');carregar();
   }
+  const enderecoVisita=v=>{const c=v.clientes||{};return [c.endereco_logradouro,c.endereco_numero,c.endereco_bairro,c.cidade,c.estado,c.endereco_cep].filter(Boolean).join(', ');};
+  const navegarVisita=v=>{const c=v.clientes||{};const destino=c.endereco_latitude!=null&&c.endereco_longitude!=null?c.endereco_latitude+','+c.endereco_longitude:enderecoVisita(v);if(!destino)return toast('Cliente sem endereço cadastrado.','error');window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destino),'_blank','noopener,noreferrer');};
+  const pdfVisita=v=>{if(!window.jspdf?.jsPDF)return toast('Biblioteca PDF indisponível.','error');const doc=new window.jspdf.jsPDF();const c=v.clientes||{};const linhas=[['Cliente',c.razao_social||c.nome_fantasia||''],['Código',c.codigo_totvs||''],['Endereço',enderecoVisita(v)],['Data',v.data_visita],['Horário',v.hora_inicio],['Responsável',usuariosPorId[v.tecnico_id]?.nome||''],['Situação',v.status],['Objetivo',v.objetivo||''],['Relatório técnico',v.relatorio_qualidade||''],['Check-in',v.checkin_em||''],['Checkout',v.checkout_em||'']];doc.setFontSize(17);doc.text('GRESPAN | RELATORIO DE VISITA TECNICA',14,20);let y=33;doc.setFontSize(10);for(const [a,b] of linhas){const arr=doc.splitTextToSize(a+': '+String(b),180);if(y+arr.length*6>275){doc.addPage();y=20;}doc.text(arr,14,y);y+=arr.length*6+4;}doc.save('visita-tecnica-'+(c.codigo_totvs||v.id)+'.pdf');};
   const nomes={agendada:'Agendada',em_andamento:'Em visita',concluida:'Concluída',cancelada:'Cancelada'};
   if(!autorizado)return h('div',{className:'card'},'Acesso não autorizado.');
   return h('div',null,
@@ -5197,6 +5200,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                   h('b',null,b.titulo),h('div',null,b.sub),b.visita?.lider_acompanha&&h('div',null,'Líder acompanha'),
                   b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   b.visita&&b.visita.checkout_em&&h('div',null,'Checkout: '+new Date(b.visita.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
+                  b.visita&&h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',margin:'6px 0'}},
+                    h('button',{className:'btn btn-secondary btn-sm',onClick:()=>navegarVisita(b.visita)},'Abrir rota'),
+                    h('button',{className:'btn btn-secondary btn-sm',onClick:()=>pdfVisita(b.visita)},'PDF da visita')),
+
                   tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='agendada'&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkin')},'Check-in'),
                   tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='em_andamento'&&h('div',null,
                     h('textarea',{className:'form-input',placeholder:'Relatório de qualidade',rows:2,value:relato[b.visita.id]||'',onChange:e=>setRelato(x=>({...x,[b.visita.id]:e.target.value}))}),
