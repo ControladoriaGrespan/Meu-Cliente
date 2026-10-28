@@ -4836,11 +4836,17 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const supervisor=profile.papel==='supervisor_tec_panificacao';
   const tecnico=profile.papel==='tec_panificacao';
   const lider=profile.papel==='lider_tec_panificacao';
-  const podeAgendar=lider;
+  const podeAgendar=lider||supervisor;
   const [usuarios,setUsuarios]=useState([]);
   const [visitas,setVisitas]=useState([]);
   const [agendasSemana,setAgendasSemana]=useState([]);
   const [acompanhaLider,setAcompanhaLider]=useState(false);
+  const [participantes,setParticipantes]=useState([]);
+  const [excecao,setExcecao]=useState(false);
+  const [justificativaExcecao,setJustificativaExcecao]=useState('');
+  const [vinculosTerritorio,setVinculosTerritorio]=useState([]);
+  const [supervisorComercial,setSupervisorComercial]=useState('');
+  const [excecoes,setExcecoes]=useState([]);
   const [clientes,setClientes]=useState([]);
   const [semana,setSemana]=useState(0);
   const [filtroSupervisor,setFiltroSupervisor]=useState('');
@@ -4937,6 +4943,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const supervisores=usuarios.filter(u=>u.papel==='supervisor_tec_panificacao');
   const tecnicos=usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false&&(!lider||u.supervisor_id===profile.id)&&(!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)));
   const lideres=usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false&&(!supervisor||u.supervisor_id===profile.id)&&(!lider||u.id===profile.id)&&(!filtroSupervisor||u.supervisor_id===filtroSupervisor));
+  const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(lider?(u.id===profile.id||(u.papel==='tec_panificacao'&&u.supervisor_id===profile.id)):supervisor?(u.id===profile.id||(u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)||(u.papel==='tec_panificacao'&&usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id))):false));
   const tecnicosFiltro=tecnicos.filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
@@ -4944,35 +4951,50 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   useEffect(()=>{const timer=setInterval(()=>setAgora(Date.now()),60000);return()=>clearInterval(timer);},[]);
   async function carregar(){
     setCarregando(true);setErroBanco('');
-    const [ru,rv,ra]=await Promise.all([
+    const [ru,rv,ra,rm,re]=await Promise.all([
       sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').limit(10000),
       sb.from('visitas_tecnicas').select('*, clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia)').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio'),
-      sb.from('agendas_tecnicas_semanais').select('*').eq('semana_inicio',dias[0].iso)
+      sb.from('agendas_tecnicas_semanais').select('*').eq('semana_inicio',dias[0].iso),
+      sb.from('vt_supervisor_comercial_tecnico').select('*'),
+      sb.from('vt_aprovacoes_excecao').select('*').eq('status','pendente')
     ]);
     if(rv.error){setErroBanco(rv.error.message);setVisitas([]);}else setVisitas(rv.data||[]);
     if(ra.error)toast('Agendas semanais: '+ra.error.message,'error');else setAgendasSemana(ra.data||[]);
+    if(rm.error)toast('Vínculos comerciais: '+rm.error.message,'error');else setVinculosTerritorio(rm.data||[]);
+    if(re.error)toast('Aprovações de exceção: '+re.error.message,'error');else setExcecoes(re.data||[]);
     if(ru.error)toast('Erro ao carregar equipe: '+ru.error.message,'error');
     setUsuarios(ru.data||[]);setCarregando(false);
   }
+  const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
+  const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
   async function buscarClientes(){
     const termo=buscaCliente.trim().replace(/[,()]/g,' ');
     if(termo.length<2)return setClientes([]);
-    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
+    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
     if(error)toast('Busca de clientes: '+error.message,'error');
-    setClientes(data||[]);
+    if(excecao){setClientes(data||[]);return;}
+    const vendedores=(usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id);
+    setClientes((data||[]).filter(c=>vendedores.includes(c.vendedor_id)));
+  }
+  async function validarHorarioParticipante(id){
+    const {data,error}=await sb.from('visitas_tecnicas').select('hora_inicio,duracao_min,status').eq('tecnico_id',id).eq('data_visita',form.data_visita).neq('status','cancelada');
+    if(error)throw error;
+    const a=paraMin(form.hora_inicio),b=a+duracao;
+    if((data||[]).some(v=>a<paraMin(v.hora_inicio)+Number(v.duracao_min||120)&&paraMin(v.hora_inicio)<b))throw Error('Conflito de horário: '+(usuariosPorId[id]?.nome||id));
   }
   async function gravar(){
-    if(!form?.cliente_id||!form?.tecnico_id||!form?.data_visita||!form?.hora_inicio)return toast('Informe cliente, técnico, data e horário.','error');
-    if(!tecnicos.some(t=>t.id===form.tecnico_id))return toast('Técnico fora da equipe autorizada.','error');
+    if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!participantes.length)return toast('Informe cliente, participantes, data e horário.','error');
+    if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
+    if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
     setSalvando(true);
-    try{setAlertaAgenda(await validarHorario());}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
-    const {error}=await sb.rpc('vt_criar_visita',{p_tecnico:form.tecnico_id,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:duracao,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_acompanha:acompanhaLider});
+    try{for(const id of participantes){setForm(x=>({...x,tecnico_id:id}));await validarHorarioParticipante(id);}setAlertaAgenda('Horários validados.');}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
+    const {error}=await sb.rpc('vt_agendar_equipe',{p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:duracao,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_excecao:excecao,p_justificativa:justificativaExcecao});
     setSalvando(false);
     if(error)return toast('Erro ao agendar: '+error.message,'error');
-    toast('Visita agendada.','success');setForm(null);setBuscaCliente('');setClientes([]);carregar();
+    toast('Atendimento registrado para '+participantes.length+' participante(s), aguardando aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);carregar();
   }
   async function registrar(v,acao){
-    if(!tecnico||v.tecnico_id!==profile.id)return toast('Somente o técnico responsável pode registrar o atendimento.','error');
+    if(v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(profile.papel))return toast('Somente o participante pode registrar seu atendimento.','error');
     if(acao==='checkin'&&v.status!=='agendada')return;
     if(acao==='checkout'&&v.status!=='em_andamento')return;
     const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
@@ -4987,7 +5009,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const visiveis=visitas.filter(v=>{
     if(tecnico&&v.tecnico_id!==profile.id)return false;
     if(supervisor&&v.supervisor_id!==profile.id)return false;
-    if(lider&&!tecnicos.some(u=>u.id===v.tecnico_id))return false;
+    if(lider&&v.tecnico_id!==profile.id&&!tecnicos.some(u=>u.id===v.tecnico_id))return false;
     if(tecnico&&v.agenda_semana_id&&!agendasSemana.some(a=>a.id===v.agenda_semana_id&&a.status==='aprovada'))return false;
     if(filtroSupervisor&&v.supervisor_id!==filtroSupervisor)return false;
     if(filtroLider&&usuariosPorId[v.tecnico_id]?.supervisor_id!==filtroLider)return false;
@@ -5068,7 +5090,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         };
         const abrirAgendamento=(id,d,h)=>{
           if(!podeAgendar)return;
-          setAlertaAgenda('');setAcompanhaLider(false);setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
+          setAlertaAgenda('');setParticipantes([id]);setExcecao(false);setJustificativaExcecao('');setAcompanhaLider(false);setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
         };
         const celula=(texto,estilo,acao)=>h('div',{style:{...estilo,boxSizing:'border-box',border:'1px solid rgba(0,0,0,.06)',borderRadius:5,padding:5,overflow:'hidden'},onClick:undefined},texto);
         const legenda=h('div',{style:{display:'flex',gap:14,flexWrap:'wrap',marginBottom:14,fontSize:12}},
@@ -5145,8 +5167,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       h('button',{className:'btn btn-secondary',onClick:()=>setForm(null)},'Cancelar'),
       h('button',{className:'btn btn-primary',disabled:salvando,onClick:gravar},salvando?'Salvando...':'Salvar visita')]},
       h('div',{className:'form-grid'},
-        h(Campo,{label:'Técnico responsável'},h('select',{className:'form-select',value:form.tecnico_id,onChange:e=>setForm(x=>({...x,tecnico_id:e.target.value}))},
-          h('option',{value:''},'Selecione o técnico'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome)))),
+        h('div',{style:{gridColumn:'1/-1'}},h('b',null,'Participantes do atendimento'),
+          equipeParticipantes.map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
+            h('input',{type:'checkbox',checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
+        supervisor&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
+        excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
         h(Campo,{label:'Horário previsto'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
         h(Campo,{label:'Duração prevista (min)'},h('input',{className:'form-input',type:'number',min:15,max:600,value:duracao,onChange:e=>setDuracao(Math.max(15,Number(e.target.value)||120))})),
@@ -5159,7 +5184,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',{style:{gridColumn:'1/-1'}},
           h('button',{className:'btn btn-secondary btn-sm',onClick:async()=>{try{setAlertaAgenda(await validarHorario());}catch(e){setAlertaAgenda(e.message);}}},'Verificar deslocamento e conflitos'),
           alertaAgenda&&h('p',{style:{marginTop:8,fontSize:12}},alertaAgenda)),
-        h(Campo,{label:'Acompanhamento do líder'},h('label',{style:{display:'flex',gap:8,alignItems:'center'}},h('input',{type:'checkbox',checked:acompanhaLider,onChange:e=>setAcompanhaLider(e.target.checked)}),'Líder acompanhará esta visita')),
+        h('div',{style:{gridColumn:'1/-1',fontSize:12}},'Quem acompanhará a visita deve estar selecionado entre os participantes. Cada pessoa terá seu próprio check-in e checkout.'),
         h(Campo,{label:'Objetivo'},h('input',{className:'form-input',value:form.objetivo,onChange:e=>setForm(x=>({...x,objetivo:e.target.value}))})),
         h(Campo,{label:'Observações'},h('textarea',{className:'form-input',value:form.observacoes,onChange:e=>setForm(x=>({...x,observacoes:e.target.value}))})))));
 }
