@@ -4945,7 +4945,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const tecnicos=usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false&&(!lider||u.supervisor_id===profile.id)&&(!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)));
   const lideres=usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false&&(!supervisor||u.supervisor_id===profile.id)&&(!lider||u.id===profile.id)&&(!filtroSupervisor||u.supervisor_id===filtroSupervisor));
   const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(lider?(u.id===profile.id||(u.papel==='tec_panificacao'&&u.supervisor_id===profile.id)):supervisor?(u.id===profile.id||(u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)||(u.papel==='tec_panificacao'&&usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id))):false));
-  const tecnicosFiltro=tecnicos.filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
+  const tecnicosFiltro=[...tecnicos,...usuarios.filter(u=>u.ativo!==false&&((lider&&u.id===profile.id)||(supervisor&&(u.id===profile.id||u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id))))].filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
   useEffect(()=>{if(autorizado)carregar();},[semana]);
@@ -5013,7 +5013,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(lider&&v.tecnico_id!==profile.id&&!tecnicos.some(u=>u.id===v.tecnico_id))return false;
     if(tecnico&&v.agenda_semana_id&&!agendasSemana.some(a=>a.id===v.agenda_semana_id&&a.status==='aprovada'))return false;
     if(filtroSupervisor&&v.supervisor_id!==filtroSupervisor)return false;
-    if(filtroLider&&usuariosPorId[v.tecnico_id]?.supervisor_id!==filtroLider)return false;
+    if(filtroLider&&v.tecnico_id!==filtroLider&&usuariosPorId[v.tecnico_id]?.supervisor_id!==filtroLider)return false;
     if(filtroTecnico&&v.tecnico_id!==filtroTecnico)return false;
     return true;
   });
