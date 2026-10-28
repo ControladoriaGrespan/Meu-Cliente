@@ -4973,11 +4973,21 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   async function buscarClientes(){
     const termo=buscaCliente.trim().replace(/[,()]/g,' ');
     if(termo.length<2)return setClientes([]);
-    const {data,error}=await sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id').or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+termo+'%').join(',')).limit(30);
-    if(error)toast('Busca de clientes: '+error.message,'error');
-    if(excecao){setClientes(data||[]);return;}
     const vendedores=(usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id);
-    setClientes((data||[]).filter(c=>vendedores.includes(c.vendedor_id)));
+    if(!excecao&&!vendedores.length){setClientes([]);return toast('Nenhuma carteira comercial vinculada à equipe técnica.','error');}
+    const termos=termo.split(/\\s+/).filter(Boolean);
+    let consulta=sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id');
+    if(!excecao)consulta=consulta.in('vendedor_id',vendedores);
+    // Busca em qualquer trecho de código, razão social ou nome fantasia.
+    // A carteira é filtrada no banco ANTES do limite de resultados.
+    for(const palavra of termos){
+      const seguro=palavra.replace(/[%_*]/g,'').trim();
+      if(seguro)consulta=consulta.or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+seguro+'%').join(','));
+    }
+    const {data,error}=await consulta.order('razao_social',{ascending:true}).limit(100);
+    if(error){setClientes([]);return toast('Busca de clientes: '+error.message,'error');}
+    setClientes(data||[]);
+    if(!(data||[]).length)toast('Nenhum cliente encontrado para o termo informado nesta carteira.','info');
   }
   async function validarHorarioParticipante(id){
     const {data,error}=await sb.from('visitas_tecnicas').select('hora_inicio,duracao_min,status').eq('tecnico_id',id).eq('data_visita',form.data_visita).neq('status','cancelada');
@@ -5224,7 +5234,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h(Campo,{label:'Duração prevista (min)'},h('input',{className:'form-input',type:'number',min:15,max:600,value:duracao,onChange:e=>setDuracao(Math.max(15,Number(e.target.value)||120))})),
         h(Campo,{label:'Margem operacional (min)'},h('input',{className:'form-input',type:'number',min:0,max:180,value:margem,onChange:e=>setMargem(Math.max(0,Number(e.target.value)||0))})),
         h(Campo,{label:'Buscar cliente'},h('div',null,
-          h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código ou nome do cliente',onChange:e=>setBuscaCliente(e.target.value)}),
+          h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código, razão social ou nome fantasia (parte do nome)',onChange:e=>setBuscaCliente(e.target.value)}),
             h('button',{className:'btn btn-secondary btn-sm',onClick:buscarClientes},'Buscar')),
           h('select',{className:'form-select',style:{marginTop:8},value:form.cliente_id,onChange:e=>setForm(x=>({...x,cliente_id:e.target.value}))},
             h('option',{value:''},'Selecione um cliente'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||c.nome_fantasia||'')))))),
