@@ -4830,13 +4830,15 @@ const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', '
 
 function PaginaVisitasTecnicas({ profile, visao }) {
   const toast=useToast();
+  const papelVisao=profile.papel==='admin'&&visao&&visao!=='admin'?visao:profile.papel;
+  const emPreview=profile.papel==='admin'&&papelVisao!=='admin';
   const gestores=['admin','coordenador','gestao_adm_vendas'];
-  const autorizado=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(profile.papel);
-  const gestor=gestores.includes(profile.papel);
-  const supervisor=profile.papel==='supervisor_tec_panificacao';
-  const tecnico=profile.papel==='tec_panificacao';
-  const lider=profile.papel==='lider_tec_panificacao';
-  const podeAgendar=lider||supervisor;
+  const autorizado=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papelVisao);
+  const gestor=gestores.includes(papelVisao);
+  const supervisor=papelVisao==='supervisor_tec_panificacao';
+  const tecnico=papelVisao==='tec_panificacao';
+  const lider=papelVisao==='lider_tec_panificacao';
+  const podeAgendar=(lider||supervisor)&&!emPreview;
   const [usuarios,setUsuarios]=useState([]);
   const [visitas,setVisitas]=useState([]);
   const [agendasSemana,setAgendasSemana]=useState([]);
@@ -4984,6 +4986,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if((data||[]).some(v=>a<paraMin(v.hora_inicio)+Number(v.duracao_min||120)&&paraMin(v.hora_inicio)<b))throw Error('Conflito de horário: '+(usuariosPorId[id]?.nome||id));
   }
   async function gravar(){
+    if(emPreview)return toast('Modo Ver como: simulação sem permissão para gravar. Entre com o usuário real para agendar.','error');
     if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!participantes.length)return toast('Informe cliente, participantes, data e horário.','error');
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
     if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
@@ -4995,7 +4998,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     toast('Atendimento registrado para '+participantes.length+' participante(s), aguardando aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);carregar();
   }
   async function registrar(v,acao){
-    if(v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(profile.papel))return toast('Somente o participante pode registrar seu atendimento.','error');
+    if(emPreview||v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return toast('Somente o participante pode registrar seu atendimento.','error');
     if(acao==='checkin'&&v.status!=='agendada')return;
     if(acao==='checkout'&&v.status!=='em_andamento')return;
     const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
@@ -5019,6 +5022,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   });
   const statusAgenda=id=>agendasSemana.find(a=>a.tecnico_id===id);
   async function tramitarAgenda(id,acao){
+    if(emPreview)return toast('Aprovações indisponíveis na simulação de perfil.','error');
     if(!id)return toast('Não existe agenda semanal para este técnico.','error');
     let justificativa='';
     if(acao==='devolver'){justificativa=window.prompt('Informe o motivo da devolução:')||'';if(!justificativa.trim())return;}
@@ -5029,16 +5033,19 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     toast(acao==='enviar'?'Agenda enviada ao supervisor.':acao==='aprovar'?'Agenda aprovada e liberada ao técnico.':'Agenda devolvida ao líder.','success');carregar();
   }
   async function decidirExcecao(id,aprovar){
+    if(emPreview)return toast('Aprovações indisponíveis na simulação de perfil.','error');
     let motivo='';if(!aprovar){motivo=window.prompt('Motivo da devolução:')||'';if(!motivo.trim())return;}
     const {error}=await sb.rpc('vt_decidir_excecao',{p_atendimento:id,p_aprovar:aprovar,p_motivo:motivo});
     if(error)return toast(error.message,'error');toast('Decisão registrada.','success');carregar();
   }
   async function vincularTerritorio(){
+    if(emPreview)return toast('Alterações indisponíveis na simulação de perfil.','error');
     if(!supervisorTecnicoVinculo||!supervisorComercial)return;
     const {error}=await sb.from('vt_supervisor_comercial_tecnico').insert({supervisor_tecnico_id:supervisorTecnicoVinculo,supervisor_comercial_id:supervisorComercial});
     if(error)return toast(error.message,'error');toast('Carteira vinculada.','success');carregar();
   }
   async function desvincularTerritorio(st,sc){
+    if(emPreview)return toast('Alterações indisponíveis na simulação de perfil.','error');
     const {error}=await sb.from('vt_supervisor_comercial_tecnico').delete().eq('supervisor_tecnico_id',st).eq('supervisor_comercial_id',sc);
     if(error)return toast(error.message,'error');carregar();
   }
@@ -5061,7 +5068,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('option',{value:''},'Todos os líderes Tec'),lideres.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
         !tecnico&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroTecnico,onChange:e=>setFiltroTecnico(e.target.value)},
           h('option',{value:''},'Todos os técnicos'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome))))),
-    profile.papel==='admin'&&h('div',{className:'card',style:{marginBottom:14}},
+    papelVisao==='admin'&&h('div',{className:'card',style:{marginBottom:14}},
       h('h3',null,'Matriz de territórios comerciais × equipes técnicas'),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,260px),1fr))',gap:10,alignItems:'end',width:'100%',minWidth:0}},
         h('select',{className:'form-select',style:{width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},value:supervisorTecnicoVinculo,onChange:e=>setSupervisorTecnicoVinculo(e.target.value)},h('option',{value:''},'Supervisor Tec'),supervisores.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
@@ -5070,13 +5077,15 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       vinculosTerritorio.map(v=>h('div',{key:v.supervisor_tecnico_id+v.supervisor_comercial_id,style:{padding:6}},
         (usuariosPorId[v.supervisor_tecnico_id]?.nome||'Supervisor Tec')+' → '+(usuariosPorId[v.supervisor_comercial_id]?.nome||'Supervisor Vendas')+' ',
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularTerritorio(v.supervisor_tecnico_id,v.supervisor_comercial_id)},'Remover')))),
-    profile.papel==='coordenador'&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
+    papelVisao==='coordenador'&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
       excecoes.length===0?h('p',null,'Nenhuma exceção pendente.'):excecoes.map(e=>h('div',{key:e.atendimento_id,style:{padding:10,borderBottom:'1px solid var(--border)'}},
         h('b',null,'Supervisor: '+(usuariosPorId[e.supervisor_tecnico_id]?.nome||'—')),
         h('p',null,'Justificativa: '+e.justificativa),
         h('p',null,'Atendimento: '+(visitas.find(v=>v.atendimento_id===e.atendimento_id)?.clientes?.razao_social||e.atendimento_id)),
         h('button',{className:'btn btn-primary btn-sm',onClick:()=>decidirExcecao(e.atendimento_id,true)},'Aprovar'),
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>decidirExcecao(e.atendimento_id,false)},'Devolver')))),
+    emPreview&&h('div',{className:'card',style:{marginBottom:14,border:'1px solid #c7d2fe',background:'#eef2ff',fontSize:13}},
+      'Prévia do perfil: '+(ROLE_LABELS[papelVisao]||papelVisao)+'. Funções e telas exibidas conforme o perfil selecionado; os dados permanecem vinculados ao administrador e nenhuma ação de gravação é permitida.'),
     !tecnico&&h('div',{className:'card',style:{marginBottom:14}},
       h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setVerMapa(v=>!v);consultarPosicoes();}},verMapa?'Ocultar mapa':'Mapa: última localização dos técnicos'),
       verMapa&&h('div',{style:{marginTop:12}},
