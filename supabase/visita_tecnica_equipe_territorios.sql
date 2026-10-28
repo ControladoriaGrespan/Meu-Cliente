@@ -47,8 +47,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
    OR (public.vt_papel()='lider_tec_panificacao' AND
        (v.tecnico_id=auth.uid() OR EXISTS(SELECT 1 FROM public.usuarios t WHERE t.id=v.tecnico_id AND t.supervisor_id=auth.uid())))
    OR (v.tecnico_id=auth.uid() AND
-      (v.tipo_agendamento='excecao' AND e.status='aprovada'
-       OR v.tipo_agendamento='normal' AND (a.status='aprovada' OR v.agenda_semana_id IS NULL)))
+      (e.atendimento_id IS NOT NULL AND e.status='aprovada'
+       OR v.tipo_agendamento='normal' AND (a.status='aprovada' OR v.agenda_semana_id IS NULL) AND e.atendimento_id IS NULL))
  ))
 $$;
 DROP POLICY IF EXISTS visitas_tecnicas_select ON public.visitas_tecnicas;
@@ -128,9 +128,9 @@ BEGIN
     CASE WHEN p_excecao THEN 'excecao' ELSE 'normal' END,
     CASE WHEN p_excecao THEN p_justificativa ELSE NULL END,v_papel);
  END LOOP;
- IF p_excecao THEN
+ IF p_excecao OR v_papel='supervisor_tec_panificacao' THEN
    INSERT INTO public.vt_aprovacoes_excecao(atendimento_id,supervisor_tecnico_id,justificativa)
-   VALUES(v_atendimento,v_supervisor,p_justificativa);
+   VALUES(v_atendimento,v_supervisor,CASE WHEN p_excecao THEN p_justificativa ELSE 'Agendamento normal criado pelo Supervisor Tec — requer Coordenador Comercial' END);
  END IF;
  RETURN v_atendimento;
 END $$;
@@ -155,8 +155,8 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
  LEFT JOIN public.agendas_tecnicas_semanais a ON a.id=v.agenda_semana_id
  LEFT JOIN public.vt_aprovacoes_excecao e ON e.atendimento_id=v.atendimento_id
  WHERE v.id=p_id AND (
- (v.tipo_agendamento='normal' AND (a.status='aprovada' OR v.agenda_semana_id IS NULL))
- OR (v.tipo_agendamento='excecao' AND e.status='aprovada')))
+ (v.tipo_agendamento='normal' AND e.atendimento_id IS NULL AND (a.status='aprovada' OR v.agenda_semana_id IS NULL))
+ OR (e.atendimento_id IS NOT NULL AND e.status='aprovada')))
 $$;
 REVOKE ALL ON FUNCTION public.vt_agendar_equipe(uuid[],uuid,date,time,integer,text,text,boolean,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) FROM PUBLIC;
