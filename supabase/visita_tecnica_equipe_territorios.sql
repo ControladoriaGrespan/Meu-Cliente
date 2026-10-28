@@ -162,4 +162,30 @@ REVOKE ALL ON FUNCTION public.vt_agendar_equipe(uuid[],uuid,date,time,integer,te
 REVOKE ALL ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.vt_agendar_equipe(uuid[],uuid,date,time,integer,text,text,boolean,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) TO authenticated;
+
+-- Atualiza a função GPS para impedir check-in antes da aprovação.
+CREATE OR REPLACE FUNCTION public.registrar_visita_tecnica(
+ p_id uuid,p_acao text,p_relatorio text DEFAULT '',
+ p_latitude double precision DEFAULT null,p_longitude double precision DEFAULT null,p_precisao_m double precision DEFAULT null
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v public.visitas_tecnicas%ROWTYPE;
+BEGIN
+ SELECT * INTO v FROM public.visitas_tecnicas WHERE id=p_id FOR UPDATE;
+ IF NOT FOUND OR v.tecnico_id<>auth.uid() OR public.vt_papel() NOT IN
+ ('tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao')
+ THEN RAISE EXCEPTION 'Participante não autorizado';END IF;
+ IF NOT public.vt_visita_aprovada(p_id) THEN RAISE EXCEPTION 'Visita não aprovada';END IF;
+ IF p_latitude IS NULL OR p_longitude IS NULL OR p_latitude NOT BETWEEN -90 AND 90
+ OR p_longitude NOT BETWEEN -180 AND 180 THEN RAISE EXCEPTION 'Localização inválida';END IF;
+ IF p_acao='checkin' AND v.status='agendada' THEN
+  UPDATE public.visitas_tecnicas SET checkin_em=now(),status='em_andamento',
+  checkin_latitude=p_latitude,checkin_longitude=p_longitude,checkin_precisao_m=p_precisao_m WHERE id=p_id;
+ ELSIF p_acao='checkout' AND v.status='em_andamento' AND length(trim(p_relatorio))>0 THEN
+  UPDATE public.visitas_tecnicas SET checkout_em=now(),status='concluida',
+  relatorio_qualidade=p_relatorio,checkout_latitude=p_latitude,
+  checkout_longitude=p_longitude,checkout_precisao_m=p_precisao_m WHERE id=p_id;
+ ELSE RAISE EXCEPTION 'Transição inválida ou relatório ausente';END IF;
+END $$;
+-- Desabilita RPC antiga que não conhece participantes/territórios.
+REVOKE EXECUTE ON FUNCTION public.vt_criar_visita(uuid,uuid,date,time,integer,text,text,boolean) FROM authenticated;
 COMMIT;
