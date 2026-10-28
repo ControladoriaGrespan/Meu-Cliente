@@ -4970,6 +4970,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
+  useEffect(()=>{if(!form)return;const timer=setTimeout(()=>{if(buscaCliente.trim().length>=2)buscarClientes();else setClientes([]);},300);return ()=>clearTimeout(timer);},[buscaCliente,excecao,form?.cliente_id===undefined,usuarios.length,vinculosTerritorio.length]);
   async function buscarClientes(){
     const termo=buscaCliente.trim().replace(/[,()]/g,' ');
     if(termo.length<2)return setClientes([]);
@@ -5237,7 +5238,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código, razão social ou nome fantasia (parte do nome)',onChange:e=>setBuscaCliente(e.target.value)}),
             h('button',{className:'btn btn-secondary btn-sm',onClick:buscarClientes},'Buscar')),
           h('select',{className:'form-select',style:{marginTop:8},value:form.cliente_id,onChange:e=>setForm(x=>({...x,cliente_id:e.target.value}))},
-            h('option',{value:''},'Selecione um cliente'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||c.nome_fantasia||'')))))),
+            h('option',{value:''},'Selecione um cliente'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||'')+(c.nome_fantasia&&c.nome_fantasia!==c.razao_social?' — '+c.nome_fantasia:'')+' · '+(c.cidade||'')))))),
         h('div',{style:{gridColumn:'1/-1'}},
           h('button',{className:'btn btn-secondary btn-sm',onClick:async()=>{try{for(const id of participantes)await validarHorarioParticipante(id);setAlertaAgenda('Sem conflitos de horários para os participantes.');}catch(e){setAlertaAgenda(e.message);}}},'Verificar deslocamento e conflitos'),
           alertaAgenda&&h('p',{style:{marginTop:8,fontSize:12}},alertaAgenda)),
