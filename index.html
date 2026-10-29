@@ -5263,6 +5263,12 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             h('span',{style:{fontSize:12,color:'var(--text-muted)',alignSelf:'center'}},'Resultados automáticos')),
           h('select',{className:'form-select',style:{marginTop:8},value:form.cliente_id,onChange:e=>setForm(x=>({...x,cliente_id:e.target.value}))},
             h('option',{value:''},buscaCliente.trim().length<2?'Digite pelo menos 2 caracteres':clientes.length?'Selecione um cliente':'Nenhum cliente encontrado nesta carteira'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||'')+(c.nome_fantasia&&c.nome_fantasia!==c.razao_social?' — '+c.nome_fantasia:'')+' · '+(c.cidade||'')))))),
+        form.cliente_id&&h('div',{style:{gridColumn:'1/-1',padding:12,border:'1px solid var(--border)',borderRadius:8}},
+          h('b',null,'Endereço de atendimento'),
+          enderecoAgendamento&&enderecoAgendamento.endereco_logradouro?h('div',{style:{marginTop:6}},
+            [enderecoAgendamento.endereco_logradouro,enderecoAgendamento.endereco_numero,enderecoAgendamento.endereco_complemento,enderecoAgendamento.endereco_bairro,enderecoAgendamento.cidade,enderecoAgendamento.estado,enderecoAgendamento.endereco_cep].filter(Boolean).join(', '),
+            h('div',{style:{marginTop:8}},h('a',{className:'btn btn-secondary btn-sm',target:'_blank',rel:'noopener noreferrer',href:'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([enderecoAgendamento.endereco_logradouro,enderecoAgendamento.endereco_numero,enderecoAgendamento.cidade,enderecoAgendamento.estado].filter(Boolean).join(', '))},'Abrir no Google Maps')))
+            :h('div',{style:{marginTop:6,color:'var(--text-muted)'}},'Cliente sem endereço cadastrado. Cadastre em Clientes antes de realizar a visita.')),
         h('div',{style:{gridColumn:'1/-1'}},
           h('button',{className:'btn btn-secondary btn-sm',onClick:async()=>{try{for(const id of participantes)await validarHorarioParticipante(id);setAlertaAgenda('Sem conflitos de horários para os participantes.');}catch(e){setAlertaAgenda(e.message);}}},'Verificar deslocamento e conflitos'),
           alertaAgenda&&h('p',{style:{marginTop:8,fontSize:12}},alertaAgenda)),
