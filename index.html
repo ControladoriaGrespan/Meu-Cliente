@@ -876,7 +876,12 @@ function SearchSelect({ items, value, onChange, placeholder, disabled }) {
               style: { padding: '7px 12px', fontSize: 12, color: 'var(--danger)', cursor: 'pointer', borderBottom: '1px solid var(--border)' },
               onClick: () => { onChange(''); setAberto(false); }
             }, '✕ Limpar seleção'),
-            filtrados.length === 0
+            enderecoCliente&&h('div',{className:'card',style:{marginBottom:12}},
+      h('div',{className:'section-title'},'Endereço de atendimento — '+(enderecoCliente.razao_social||'')),
+      h('div',{className:'form-grid'},
+        [['endereco_cep','CEP'],['endereco_logradouro','Rua / Logradouro'],['endereco_numero','Número'],['endereco_complemento','Complemento'],['endereco_bairro','Bairro'],['cidade','Cidade'],['estado','UF']].map(([campo,label])=>h(Campo,{key:campo,label},h('input',{className:'form-input',value:enderecoCliente[campo]||'',onChange:e=>setEnderecoCliente(x=>({...x,[campo]:e.target.value})),onBlur:campo==='endereco_cep'?()=>consultarCepCliente(enderecoCliente.endereco_cep):undefined})))),
+      h('div',{style:{display:'flex',gap:8,marginTop:12}},h('button',{className:'btn btn-primary btn-sm',disabled:salvandoEndereco,onClick:salvarEnderecoCliente},salvandoEndereco?'Salvando...':'Salvar endereço'),h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setEnderecoCliente(null)},'Cancelar'))),
+    filtrados.length === 0
               ? h('div', { style: { padding: '12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' } }, 'Nenhum resultado')
               : filtrados.map(it => h('div', {
                   key: it.value,
@@ -3057,6 +3062,8 @@ function PaginaClientes({ profile, modulo }) {
   const [tabelasPrecoClientes, setTabelasPrecoClientes] = useState({});
   const TAM_PAGINA_CLIENTES = 50;
   const [editandoTotvs, setEditandoTotvs] = useState({});
+  const [enderecoCliente,setEnderecoCliente]=useState(null);
+  const [salvandoEndereco,setSalvandoEndereco]=useState(false);
   const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
@@ -3117,6 +3124,20 @@ function PaginaClientes({ profile, modulo }) {
     carregar();
   }
 
+  async function salvarEnderecoCliente(){
+    if(!enderecoCliente)return;
+    const e=enderecoCliente;
+    if(!e.endereco_cep||!e.endereco_logradouro||!e.endereco_numero||!e.endereco_bairro||!e.cidade||!e.estado)return toast('Preencha CEP, rua, número, bairro, cidade e UF.','error');
+    setSalvandoEndereco(true);
+    const {error}=await sb.from('clientes').update({endereco_cep:e.endereco_cep,endereco_logradouro:e.endereco_logradouro,endereco_numero:e.endereco_numero,endereco_bairro:e.endereco_bairro,endereco_complemento:e.endereco_complemento||null,cidade:e.cidade,estado:e.estado}).eq('id',e.id);
+    setSalvandoEndereco(false);
+    if(error)return toast('Erro ao salvar endereço: '+error.message,'error');
+    setEnderecoCliente(null);toast('Endereço atualizado.','success');carregar();
+  }
+  async function consultarCepCliente(cep){
+    const limpo=String(cep||'').replace(/\D/g,'');if(limpo.length!==8)return;
+    try{const resposta=await fetch('https://viacep.com.br/ws/'+limpo+'/json/');const d=await resposta.json();if(!d.erro)setEnderecoCliente(x=>x?({...x,endereco_logradouro:d.logradouro||x.endereco_logradouro,endereco_bairro:d.bairro||x.endereco_bairro,cidade:d.localidade||x.cidade,estado:d.uf||x.estado}):x);}catch(e){console.warn('CEP indisponível',e);}
+  }
   function statusCliente(c) {
     if (c.origem === 'totvs' && !c.fichas_clientes) return { txt: 'importado', cls: 'badge-blue' };
     if (!c.fichas_clientes) return { txt: '—', cls: 'badge-gray' };
@@ -3157,7 +3178,7 @@ function PaginaClientes({ profile, modulo }) {
           h('div', { className: 'table-wrap', style: { overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', width: '100%', maxWidth: '100%' } },
             h('table', { style: { minWidth: 1550, width: 'max-content' } },
               h('thead', null, h('tr', null,
-                ['Cód. TOTVS','Situação TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Tabela de Preço','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', (podeEditar || podeEditarAcordo) ? '' : null]
+                ['Cód. TOTVS','Situação TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','Tabela de Preço','Acordo','Cód. Vend.','Vendedor','Fat. Previsto','Origem','Status ficha', 'Endereço', (podeEditar || podeEditarAcordo) ? '' : null]
                   .filter(c => c !== null).map((c, i) => h('th', { key: i }, c)))),
               h('tbody', null,
                 filtrados.map(c => {
@@ -3195,6 +3216,7 @@ function PaginaClientes({ profile, modulo }) {
                     h('td', { className: 'mono' }, fmtMoeda(c.fichas_clientes && c.fichas_clientes.faturamento_previsto)),
                     h('td', null, h('span', { className: `badge ${c.origem === 'totvs' ? 'badge-blue' : 'badge-gray'}` }, c.origem || '—')),
                     h('td', null, h('span', { className: `badge ${st.cls}` }, st.txt)),
+                    h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setEnderecoCliente({...c})},c.endereco_logradouro?'Ver / Editar endereço':'Cadastrar endereço')),
                     (podeEditar || podeEditarAcordo) && h('td', null,
                       h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
                         podeEditar && h('button', {
@@ -3643,6 +3665,7 @@ function DashboardComercialV38({profile,visao,modulo}) {
   const [filtroSup,setFiltroSup]=useState('');
   const [filtroVend,setFiltroVend]=useState('');
   const [clientes,setClientes]=useState([]);
+  const [enderecoAgendamento,setEnderecoAgendamento]=useState(null);
   const [fichas,setFichas]=useState([]);
   const [sols,setSols]=useState([]);
   const [titulos,setTitulos]=useState([]); // reservado para integração Protheus / financeiro
@@ -4977,7 +5000,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const vendedores=(usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id);
     if(!excecao&&!vendedores.length){setClientes([]);return toast('Nenhuma carteira comercial vinculada à equipe técnica.','error');}
     const termos=termo.split(/\s+/).filter(Boolean);
-    let consulta=sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id');
+    let consulta=sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_complemento');
     if(!excecao)consulta=consulta.in('vendedor_id',vendedores);
     // Busca em qualquer trecho de código, razão social ou nome fantasia.
     // A carteira é filtrada no banco ANTES do limite de resultados.
@@ -4990,6 +5013,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setClientes(data||[]);
     // A pesquisa automática não deve exibir notificações repetidas a cada digitação.
   }
+  useEffect(()=>{setEnderecoAgendamento(clientes.find(c=>c.id===form?.cliente_id)||null);},[form?.cliente_id,clientes]);
   async function validarHorarioParticipante(id){
     const {data,error}=await sb.from('visitas_tecnicas').select('hora_inicio,duracao_min,status').eq('tecnico_id',id).eq('data_visita',form.data_visita).neq('status','cancelada');
     if(error)throw error;
