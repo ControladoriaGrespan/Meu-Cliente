@@ -7086,7 +7086,7 @@ function App() {
         h('span', { style: { fontSize: 12, color: 'var(--accent)', fontWeight: 600 } }, 'MODO ADMIN · Ver como:'),
         h('select', {
           className: 'form-select sm', style: { maxWidth: 180 }, value: visao,
-          onChange: e => { setVisao(e.target.value); setPagina('dashboard'); }
+          onChange: e => { setVisao(e.target.value); setPagina(modulo==='visita_tecnica'?'visitas_tecnicas':'dashboard'); }
         }, PAPEIS.map(p => h('option', { key: p, value: p }, ROLE_LABELS[p]))),
         ehPreview && h('span', { style: { fontSize: 11, color: 'var(--text-muted)' } }, 'visualizando sem trocar de usuário')),
       conteudo));
