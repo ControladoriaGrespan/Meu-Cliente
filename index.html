@@ -876,11 +876,6 @@ function SearchSelect({ items, value, onChange, placeholder, disabled }) {
               style: { padding: '7px 12px', fontSize: 12, color: 'var(--danger)', cursor: 'pointer', borderBottom: '1px solid var(--border)' },
               onClick: () => { onChange(''); setAberto(false); }
             }, '✕ Limpar seleção'),
-            enderecoCliente&&h('div',{className:'card',style:{marginBottom:12}},
-      h('div',{className:'section-title'},'Endereço de atendimento — '+(enderecoCliente.razao_social||'')),
-      h('div',{className:'form-grid'},
-        [['endereco_cep','CEP'],['endereco_logradouro','Rua / Logradouro'],['endereco_numero','Número'],['endereco_complemento','Complemento'],['endereco_bairro','Bairro'],['cidade','Cidade'],['estado','UF']].map(([campo,label])=>h(Campo,{key:campo,label},h('input',{className:'form-input',value:enderecoCliente[campo]||'',onChange:e=>setEnderecoCliente(x=>({...x,[campo]:e.target.value})),onBlur:campo==='endereco_cep'?()=>consultarCepCliente(enderecoCliente.endereco_cep):undefined})))),
-      h('div',{style:{display:'flex',gap:8,marginTop:12}},h('button',{className:'btn btn-primary btn-sm',disabled:salvandoEndereco,onClick:salvarEnderecoCliente},salvandoEndereco?'Salvando...':'Salvar endereço'),h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setEnderecoCliente(null)},'Cancelar'))),
     filtrados.length === 0
               ? h('div', { style: { padding: '12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' } }, 'Nenhum resultado')
               : filtrados.map(it => h('div', {
@@ -3171,6 +3166,12 @@ function PaginaClientes({ profile, modulo }) {
         value: busca,
         onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
       }))),
+
+    enderecoCliente&&h('div',{className:'card',style:{marginBottom:12}},
+      h('div',{className:'section-title'},'Endereço de atendimento — '+(enderecoCliente.razao_social||'')),
+      h('div',{className:'form-grid'},
+        [['endereco_cep','CEP'],['endereco_logradouro','Rua / Logradouro'],['endereco_numero','Número'],['endereco_complemento','Complemento'],['endereco_bairro','Bairro'],['cidade','Cidade'],['estado','UF']].map(([campo,label])=>h(Campo,{key:campo,label},h('input',{className:'form-input',value:enderecoCliente[campo]||'',onChange:e=>setEnderecoCliente(x=>({...x,[campo]:e.target.value})),onBlur:campo==='endereco_cep'?()=>consultarCepCliente(enderecoCliente.endereco_cep):undefined})))),
+      h('div',{style:{display:'flex',gap:8,marginTop:12}},h('button',{className:'btn btn-primary btn-sm',disabled:salvandoEndereco,onClick:salvarEnderecoCliente},salvandoEndereco?'Salvando...':'Salvar endereço'),h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setEnderecoCliente(null)},'Cancelar'))),
 
     filtrados.length === 0
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u263A', texto: 'Nenhum cliente encontrado.' }))
