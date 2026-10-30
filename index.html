@@ -6388,6 +6388,57 @@ const MODELOS = {
 function PaginaImportacao({ profile }) {
   const toast = useToast();
   const [aba, setAba] = useState('produtos');
+  const [arquivoEnderecos,setArquivoEnderecos]=useState(null);
+  const [previaEnderecos,setPreviaEnderecos]=useState([]);
+  const [statusEnderecos,setStatusEnderecos]=useState('');
+  const [importandoEnderecos,setImportandoEnderecos]=useState(false);
+  const colunasEndereco=['codigo_totvs','cnpj_cpf','endereco_cep','endereco_logradouro','endereco_numero','endereco_complemento','endereco_bairro','cidade','estado'];
+  function baixarModeloEnderecos(){
+    baixarXlsx('modelo_importacao_enderecos.xlsx',colunasEndereco,[['000123','12.345.678/0001-90','17500-000','Rua Exemplo','150','','Centro','Marília','SP']]);
+  }
+  async function prepararEnderecos(file){
+    setArquivoEnderecos(file);setPreviaEnderecos([]);setStatusEnderecos('');
+    if(!file)return;
+    try{
+      const parsed=parseArquivo(await lerArquivo(file),file.name);
+      const faltantes=colunasEndereco.filter(k=>!parsed.headers.includes(k));
+      if(faltantes.length)throw new Error('Colunas ausentes: '+faltantes.join(', '));
+      const rows=parsed.rows.filter(x=>String(x.codigo_totvs||'').trim());
+      if(!rows.length)throw new Error('Nenhum cliente na planilha.');
+      if(rows.length>5000)throw new Error('Importe no máximo 5.000 clientes por arquivo.');
+      setPreviaEnderecos(rows);setStatusEnderecos(rows.length+' linha(s) carregadas. Confira antes de confirmar.');
+    }catch(e){setStatusEnderecos('Erro: '+e.message);}
+  }
+  async function confirmarEnderecos(){
+    if(!previaEnderecos.length)return;
+    setImportandoEnderecos(true);
+    let salvos=0,ignorados=0;const erros=[];
+    try{
+      const normal=v=>String(v==null?'':v).trim().replace(/\\.0$/,'').replace(/^0+/,'')||'0';
+      const docs=v=>String(v||'').replace(/\\D/g,'');
+      const {data:base,error}=await sb.from('clientes').select('id,codigo_totvs,cnpj_cpf,endereco_logradouro').limit(100000);
+      if(error)throw error;
+      const porCodigo=new Map();
+      (base||[]).forEach(c=>{const k=normal(c.codigo_totvs);if(!porCodigo.has(k))porCodigo.set(k,[]);porCodigo.get(k).push(c);});
+      const vistos=new Set();
+      for(let i=0;i<previaEnderecos.length;i++){
+        const x=previaEnderecos[i],codigo=normal(x.codigo_totvs),matches=porCodigo.get(codigo)||[];
+        if(vistos.has(codigo)){ignorados++;erros.push('Linha '+(i+2)+': código repetido na planilha');continue;}vistos.add(codigo);
+        if(matches.length!==1){ignorados++;erros.push('Linha '+(i+2)+': código não encontrado ou ambíguo');continue;}
+        const c=matches[0];
+        if(x.cnpj_cpf&&docs(x.cnpj_cpf)!==docs(c.cnpj_cpf)){ignorados++;erros.push('Linha '+(i+2)+': CNPJ/CPF divergente');continue;}
+        if(c.endereco_logradouro){ignorados++;erros.push('Linha '+(i+2)+': endereço já preenchido; não sobrescrito');continue;}
+        if(!['endereco_cep','endereco_logradouro','endereco_numero','endereco_bairro','cidade','estado'].every(k=>String(x[k]||'').trim())){ignorados++;erros.push('Linha '+(i+2)+': endereço incompleto');continue;}
+        const payload={};['endereco_cep','endereco_logradouro','endereco_numero','endereco_complemento','endereco_bairro','cidade','estado'].forEach(k=>payload[k]=String(x[k]||'').trim()||null);
+        const {error:eu}=await sb.from('clientes').update(payload).eq('id',c.id).is('endereco_logradouro',null);
+        if(eu){ignorados++;erros.push('Linha '+(i+2)+': '+eu.message);}else salvos++;
+      }
+      setStatusEnderecos('Atualizados: '+salvos+' | Ignorados/erros: '+ignorados+'\n'+erros.slice(0,30).join('\n'));
+      setPreviaEnderecos([]);setArquivoEnderecos(null);
+    }catch(e){setStatusEnderecos('Erro na importação: '+e.message);}
+    setImportandoEnderecos(false);
+  }
+
   const [modalRota, setModalRota] = useState(false);
   const [rotaNome, setRotaNome] = useState('');
   const [rotaDia, setRotaDia] = useState('');
@@ -6884,6 +6935,15 @@ function PaginaImportacao({ profile }) {
   ];
 
   return h('div', null,
+    h('div',{className:'card',style:{marginBottom:16}},
+      h('h3',null,'Importação de endereços dos clientes'),
+      h('p',null,'Atualiza somente clientes existentes pelo código TOTVS; não substitui endereços preenchidos.'),
+      h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}},
+        h('button',{className:'btn btn-secondary btn-sm',onClick:baixarModeloEnderecos},'Baixar modelo Excel'),
+        h('input',{type:'file',accept:'.xlsx,.xls,.csv',onChange:e=>prepararEnderecos(e.target.files[0]||null)}),
+        h('button',{className:'btn btn-primary btn-sm',disabled:!previaEnderecos.length||importandoEnderecos,onClick:confirmarEnderecos},importandoEnderecos?'Importando...':'Confirmar '+previaEnderecos.length+' endereço(s)')),
+      previaEnderecos.length>0&&h('div',{style:{marginTop:8,fontSize:12}},'Prévia: '+previaEnderecos.slice(0,5).map(x=>x.codigo_totvs+' — '+x.endereco_logradouro+', '+x.endereco_numero).join(' | ')),
+      statusEnderecos&&h('pre',{style:{whiteSpace:'pre-wrap',fontSize:12,marginTop:8}},statusEnderecos)),
     modalRota && h(Modal,{titulo:'Importar rota',onClose:()=>setModalRota(false),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setModalRota(false)},'Cancelar'),h('button',{className:'btn btn-primary',disabled:importando,onClick:importarRotaArquivo},importando?'Importando...':'Importar rota')]},
       h(Campo,{label:'Nome da rota'},h(Input,{value:rotaNome,onChange:e=>setRotaNome(e.target.value),placeholder:'Nome da rota'})),
       h(Campo,{label:'Dia da rota'},h('select',{className:'form-select',value:rotaDia,onChange:e=>setRotaDia(e.target.value)},h('option',{value:''},'Selecione o dia'),[1,2,3,4,5,6,7].map(d=>h('option',{value:d,key:d},DIAS[d])))),
