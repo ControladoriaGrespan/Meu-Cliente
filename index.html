@@ -5001,7 +5001,22 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       sb.from('vt_supervisor_comercial_tecnico').select('*'),
       sb.from('vt_aprovacoes_excecao').select('*').eq('status','pendente')
     ]);
-    if(rv.error){setErroBanco(rv.error.message);setVisitas([]);}else setVisitas(rv.data||[]);
+    if(rv.error){setErroBanco(rv.error.message);setVisitas([]);}
+    else {
+      const lista=rv.data||[];
+      const semCliente=lista.filter(v=>v.cliente_id&&!v.clientes);
+      if(semCliente.length){
+        const ids=[...new Set(semCliente.map(v=>v.cliente_id))];
+        const {data:clientesVinculados,error:erroClientes}=await sb.from('clientes')
+          .select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_latitude,endereco_longitude')
+          .in('id',ids);
+        if(erroClientes)console.warn('Visitas técnicas: leitura de clientes vinculados negada:',erroClientes.message);
+        const porId=new Map((clientesVinculados||[]).map(c=>[c.id,c]));
+        setVisitas(lista.map(v=>v.clientes?v:({...v,clientes:porId.get(v.cliente_id)||null})));
+        if(semCliente.some(v=>!porId.has(v.cliente_id)))
+          console.warn('Visitas técnicas: existem clientes não visíveis para este usuário. Verifique RLS de clientes.');
+      }else setVisitas(lista);
+    }
     if(ra.error)toast('Agendas semanais: '+ra.error.message,'error');else setAgendasSemana(ra.data||[]);
     if(rm.error)toast('Vínculos comerciais: '+rm.error.message,'error');else setVinculosTerritorio(rm.data||[]);
     if(re.error)toast('Aprovações de exceção: '+re.error.message,'error');else setExcecoes(re.data||[]);
