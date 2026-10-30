@@ -4885,6 +4885,22 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [erroBanco,setErroBanco]=useState('');
   const [salvando,setSalvando]=useState(false);
   const [relato,setRelato]=useState({});
+  const [visitaAberta,setVisitaAberta]=useState(null);
+  const [fechamento,setFechamento]=useState(null);
+  const [fotosFechamento,setFotosFechamento]=useState([]);
+  const assinaturaCanvas=React.useRef(null);
+  const assinaturaDesenhando=React.useRef(false);
+  const assinaturaMarcada=React.useRef(false);
+  const [assinaturaValida,setAssinaturaValida]=useState(false);
+  const novoFechamento=v=>({visita_id:v.id,servico_prestado:v.objetivo||'',orientacao:'',relato_execucao:'',vendedor_responsavel:'',equipamentos:'',logistica:'',sugestao_melhoria:'',observacoes:'',tipo_producao:'',responsavel_nome:''});
+  const abrirFechamento=v=>{setVisitaAberta(null);setFechamento(novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
+  const alterarFechamento=(campo,valor)=>setFechamento(x=>({...x,[campo]:valor}));
+  const limparAssinatura=()=>{const c=assinaturaCanvas.current;if(c)c.getContext('2d').clearRect(0,0,c.width,c.height);assinaturaMarcada.current=false;setAssinaturaValida(false);};
+  const posicaoAssinatura=e=>{const c=assinaturaCanvas.current,r=c.getBoundingClientRect();return {x:(e.clientX-r.left)*c.width/r.width,y:(e.clientY-r.top)*c.height/r.height};};
+  const iniciarAssinatura=e=>{const c=assinaturaCanvas.current;if(!c)return;c.setPointerCapture(e.pointerId);const p=posicaoAssinatura(e),ctx=c.getContext('2d');ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineWidth=2.5;ctx.lineCap='round';ctx.strokeStyle='#1c2733';assinaturaDesenhando.current=true;};
+  const moverAssinatura=e=>{if(!assinaturaDesenhando.current)return;const c=assinaturaCanvas.current,p=posicaoAssinatura(e),ctx=c.getContext('2d');ctx.lineTo(p.x,p.y);ctx.stroke();assinaturaMarcada.current=true;setAssinaturaValida(true);};
+  const terminarAssinatura=()=>{assinaturaDesenhando.current=false;};
+  const adicionarFotos=async e=>{const fs=Array.from(e.target.files||[]);if(fotosFechamento.length+fs.length>8)return toast('Máximo de 8 fotos por relatório.','error');const imgs=await Promise.all(fs.map(file=>new Promise((resolve,reject)=>{if(!file.type.startsWith('image/'))return reject(Error('Selecione somente imagens.'));if(file.size>6*1024*1024)return reject(Error('Cada foto deve ter até 6 MB.'));const reader=new FileReader();reader.onload=()=>resolve({nome:file.name,dados:reader.result});reader.onerror=()=>reject(Error('Falha ao ler imagem.'));reader.readAsDataURL(file);}))).catch(err=>{toast(err.message,'error');return [];});setFotosFechamento(x=>[...x,...imgs]);};
   const [margem,setMargem]=useState(30);
   const [duracao,setDuracao]=useState(120);
   const [alertaAgenda,setAlertaAgenda]=useState('');
@@ -5045,6 +5061,26 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setSalvando(false);
     if(error)return toast('Erro ao registrar: '+error.message,'error');
     toast(acao==='checkin'?'Check-in registrado.':'Checkout registrado.','success');carregar();
+  }
+  async function salvarFechamento(){
+    const v=visitas.find(x=>x.id===fechamento?.visita_id);
+    if(!v||v.status!=='em_andamento')return toast('Visita não está em andamento.','error');
+    if(emPreview||v.tecnico_id!==profile.id)return toast('Somente o participante pode concluir a visita.','error');
+    if(!fechamento.relato_execucao.trim()||!fechamento.servico_prestado.trim()||!fechamento.responsavel_nome.trim())return toast('Informe serviço, relato da execução e nome de quem assina.','error');
+    if(!assinaturaValida||!assinaturaMarcada.current)return toast('A assinatura do cliente é obrigatória.','error');
+    const assinatura=assinaturaCanvas.current?.toDataURL('image/png');
+    if(!assinatura)return toast('Não foi possível capturar a assinatura.','error');
+    setSalvando(true);
+    try{
+      const gps=await localizacaoAtual();
+      const relatorio={...fechamento,assinatura,imagens:fotosFechamento,concluido_em:new Date().toISOString()};
+      const {error:salvarErro}=await sb.from('vt_relatorios').upsert({visita_id:v.id,tecnico_id:profile.id,conteudo:relatorio},{onConflict:'visita_id'});
+      if(salvarErro)throw salvarErro;
+      const {error:checkoutErro}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:'checkout',p_relatorio:fechamento.relato_execucao,p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
+      if(checkoutErro)throw checkoutErro;
+      toast('Relatório assinado e check-out registrado.','success');setFechamento(null);setFotosFechamento([]);carregar();
+    }catch(e){toast('Não foi possível concluir: '+e.message,'error');}
+    finally{setSalvando(false);}
   }
   const visiveis=visitas.filter(v=>{
     if(tecnico&&v.tecnico_id!==profile.id)return false;
@@ -5232,20 +5268,36 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               });
               return h('div',{key:d.iso,style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd',background:'repeating-linear-gradient(to bottom,transparent 0px,transparent '+(alturaSlot-1)+'px,#e9e9e9 '+(alturaSlot-1)+'px,#e9e9e9 '+alturaSlot+'px)'}},
                 Array.from({length:(horaFim-horaInicio)/30},(_,i)=>h('button',{key:i,title:'Agendar '+formatMin(horaInicio+i*30),disabled:!podeAgendar,onClick:()=>abrirAgendamento(selecionado,d.iso,formatMin(horaInicio+i*30)),style:{position:'absolute',top:i*alturaSlot,left:0,width:'100%',height:alturaSlot,border:0,background:'transparent',cursor:podeAgendar?'pointer':'default'}})),
-                blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:i,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:3,right:3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:1,border:'1px solid rgba(0,0,0,.08)'}},
+                blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:i,onClick:b.visita?()=>setVisitaAberta(b.visita):undefined,role:b.visita?'button':undefined,tabIndex:b.visita?0:undefined,onKeyDown:b.visita?e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setVisitaAberta(b.visita);}}:undefined,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:3,right:3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:1,cursor:b.visita?'pointer':'default',border:'1px solid rgba(0,0,0,.08)'}},
                   h('b',null,b.titulo),h('div',null,b.sub),b.visita?.lider_acompanha&&h('div',null,'Líder acompanha'),
                   b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   b.visita&&b.visita.checkout_em&&h('div',null,'Checkout: '+new Date(b.visita.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
-                  b.visita&&h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',margin:'6px 0'}},
-                    h('button',{className:'btn btn-secondary btn-sm',onClick:()=>navegarVisita(b.visita)},'Abrir rota'),
-                    h('button',{className:'btn btn-secondary btn-sm',onClick:()=>pdfVisita(b.visita)},'PDF da visita')),
-
-                  tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='agendada'&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkin')},'Check-in'),
-                  tecnico&&b.visita?.tecnico_id===profile.id&&b.visita.status==='em_andamento'&&h('div',null,
-                    h('textarea',{className:'form-input',placeholder:'Relatório de qualidade',rows:2,value:relato[b.visita.id]||'',onChange:e=>setRelato(x=>({...x,[b.visita.id]:e.target.value}))}),
-                    h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>registrar(b.visita,'checkout')},'Checkout')))));
+                  b.visita&&h('div',{style:{fontSize:10,marginTop:7,opacity:.75}},'Clique para ver detalhes'))));
             })));
       })()),
+    visitaAberta&&h(Modal,{titulo:'Atendimento técnico',largo:true,onClose:()=>setVisitaAberta(null),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setVisitaAberta(null)},'Fechar')]},
+      h('div',{style:{display:'grid',gap:12}},
+        h('h3',null,visitaAberta.clientes?.razao_social||visitaAberta.clientes?.nome_fantasia||'Cliente'),
+        h('div',null,'Código TOTVS: '+(visitaAberta.clientes?.codigo_totvs||'—')),
+        h('div',null,'Endereço: '+(enderecoVisita(visitaAberta)||'Não cadastrado')),
+        h('div',null,'Responsável: '+(usuariosPorId[visitaAberta.tecnico_id]?.nome||'—')),
+        h('div',null,'Data: '+visitaAberta.data_visita+' · '+String(visitaAberta.hora_inicio||'').slice(0,5)),
+        h('div',null,'Objetivo: '+(visitaAberta.objetivo||'—')),
+        h('div',null,'Status: '+(nomes[visitaAberta.status]||visitaAberta.status)),
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
+          visitaAberta.status==='agendada'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
+          visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
+          visitaAberta.status==='concluida'&&h('button',{className:'btn btn-secondary',onClick:()=>pdfVisita(visitaAberta)},'PDF da visita')))),
+    fechamento&&h(Modal,{titulo:'Fechamento do atendimento · GRESPAN',largo:true,onClose:()=>{if(!salvando)setFechamento(null);},acoes:[
+      h('button',{className:'btn btn-secondary',disabled:salvando,onClick:()=>setFechamento(null)},'Cancelar'),
+      h('button',{className:'btn btn-primary',disabled:salvando||!assinaturaValida,onClick:salvarFechamento},salvando?'Salvando...':'Salvar relatório e registrar check-out')]},
+      h('div',{style:{display:'grid',gap:14}},
+        h('div',{style:{borderLeft:'5px solid #c82027',padding:'10px 14px',background:'#f7f7f7'}},h('b',null,'Relatório de visita técnica'),h('div',null,'Preencha as informações e solicite a assinatura do cliente para concluir.')),
+        [['servico_prestado','Serviço prestado *'],['orientacao','Orientação / finalidade'],['relato_execucao','Relato da execução *'],['vendedor_responsavel','Vendedor responsável'],['equipamentos','Equipamentos'],['logistica','Logística'],['sugestao_melhoria','Sugestões de melhoria'],['observacoes','Observações'],['tipo_producao','Tipos de produção']].map(([campo,label])=>h(Campo,{key:campo,label},h('textarea',{className:'form-input',rows:campo==='relato_execucao'?4:2,value:fechamento[campo]||'',onChange:e=>alterarFechamento(campo,e.target.value)}))),
+        h('div',null,h('b',null,'Fotografias do atendimento (até 8)'),h('input',{type:'file',accept:'image/*',multiple:true,className:'form-input',onChange:adicionarFotos}),h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}},fotosFechamento.map((foto,i)=>h('div',{key:i,style:{position:'relative'}},h('img',{src:foto.dados,alt:foto.nome,style:{width:110,height:90,objectFit:'cover',borderRadius:6}}),h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setFotosFechamento(x=>x.filter((_,j)=>j!==i))},'Remover'))))),
+        h(Campo,{label:'Nome do responsável que assina *'},h('input',{className:'form-input',value:fechamento.responsavel_nome||'',onChange:e=>alterarFechamento('responsavel_nome',e.target.value)})),
+        h('div',null,h('b',null,'Assinatura do cliente *'),h('div',{style:{fontSize:12,marginBottom:6}},'Assine no quadro usando o dedo, mouse ou caneta.'),h('canvas',{ref:assinaturaCanvas,width:720,height:180,onPointerDown:iniciarAssinatura,onPointerMove:moverAssinatura,onPointerUp:terminarAssinatura,onPointerCancel:terminarAssinatura,style:{display:'block',width:'100%',height:180,border:'1px solid #aaa',borderRadius:8,background:'#fff',touchAction:'none'}}),h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:limparAssinatura},'Limpar assinatura'),!assinaturaValida&&h('div',{style:{color:'#b91c1c',fontSize:12,marginTop:5}},'Obrigatório assinar para salvar.')))),
     form&&h(Modal,{titulo:'Agendar visita técnica',largo:true,onClose:()=>setForm(null),acoes:[
       h('button',{className:'btn btn-secondary',onClick:()=>setForm(null)},'Cancelar'),
       h('button',{className:'btn btn-primary',disabled:salvando,onClick:gravar},salvando?'Salvando...':'Salvar visita')]},
