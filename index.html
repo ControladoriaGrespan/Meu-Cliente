@@ -6394,7 +6394,7 @@ function PaginaImportacao({ profile }) {
   const [importandoEnderecos,setImportandoEnderecos]=useState(false);
   const colunasEndereco=['codigo_totvs','cnpj_cpf','endereco_cep','endereco_logradouro','endereco_numero','endereco_complemento','endereco_bairro','cidade','estado'];
   function baixarModeloEnderecos(){
-    baixarXlsx('modelo_importacao_enderecos.xlsx',colunasEndereco,[['000123','12.345.678/0001-90','17500-000','Rua Exemplo','150','','Centro','Marília','SP']]);
+    downloadXlsx('modelo_importacao_enderecos',colunasEndereco,[['000123','12.345.678/0001-90','17500-000','Rua Exemplo','150','','Centro','Marília','SP']]);
   }
   async function prepararEnderecos(file){
     setArquivoEnderecos(file);setPreviaEnderecos([]);setStatusEnderecos('');
@@ -6414,8 +6414,8 @@ function PaginaImportacao({ profile }) {
     setImportandoEnderecos(true);
     let salvos=0,ignorados=0;const erros=[];
     try{
-      const normal=v=>String(v==null?'':v).trim().replace(/\\.0$/,'').replace(/^0+/,'')||'0';
-      const docs=v=>String(v||'').replace(/\\D/g,'');
+      const normal=v=>String(v==null?'':v).trim().replace(/\.0$/,'').replace(/^0+/,'')||'0';
+      const docs=v=>String(v||'').replace(/\D/g,'');
       const {data:base,error}=await sb.from('clientes').select('id,codigo_totvs,cnpj_cpf,endereco_logradouro').limit(100000);
       if(error)throw error;
       const porCodigo=new Map();
