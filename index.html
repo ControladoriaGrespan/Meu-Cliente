@@ -5123,7 +5123,30 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   const enderecoVisita=v=>{const c=v.clientes||{};return [c.endereco_logradouro,c.endereco_numero,c.endereco_bairro,c.cidade,c.estado,c.endereco_cep].filter(Boolean).join(', ');};
   const navegarVisita=v=>{const c=v.clientes||{};const destino=c.endereco_latitude!=null&&c.endereco_longitude!=null?c.endereco_latitude+','+c.endereco_longitude:enderecoVisita(v);if(!destino)return toast('Cliente sem endereço cadastrado.','error');window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destino),'_blank','noopener,noreferrer');};
-  const pdfVisita=v=>{if(!window.jspdf?.jsPDF)return toast('Biblioteca PDF indisponível.','error');const doc=new window.jspdf.jsPDF();const c=v.clientes||{};const linhas=[['Cliente',c.razao_social||c.nome_fantasia||''],['Código',c.codigo_totvs||''],['Endereço',enderecoVisita(v)],['Data',v.data_visita],['Horário',v.hora_inicio],['Responsável',usuariosPorId[v.tecnico_id]?.nome||''],['Situação',v.status],['Objetivo',v.objetivo||''],['Relatório técnico',v.relatorio_qualidade||''],['Check-in',v.checkin_em||''],['Checkout',v.checkout_em||'']];doc.setFontSize(17);doc.text('GRESPAN | RELATORIO DE VISITA TECNICA',14,20);let y=33;doc.setFontSize(10);for(const [a,b] of linhas){const arr=doc.splitTextToSize(a+': '+String(b),180);if(y+arr.length*6>275){doc.addPage();y=20;}doc.text(arr,14,y);y+=arr.length*6+4;}doc.save('visita-tecnica-'+(c.codigo_totvs||v.id)+'.pdf');};
+  const pdfVisita=async v=>{
+    if(!window.jspdf?.jsPDF)return toast('Biblioteca PDF indisponível.','error');
+    const {data:registro,error}=await sb.from('vt_relatorios').select('conteudo').eq('visita_id',v.id).maybeSingle();
+    if(error)return toast('Erro ao carregar relatório: '+error.message,'error');
+    if(!registro?.conteudo)return toast('O relatório assinado ainda não está disponível para esta visita.','error');
+    const r=registro.conteudo,c=v.clientes||{},doc=new window.jspdf.jsPDF(),W=210;
+    const novaPagina=()=>{doc.addPage();y=22;};
+    let y=22;
+    const verificar=h=>{if(y+h>277)novaPagina();};
+    doc.setFillColor(190,30,38);doc.rect(0,0,W,12,'F');
+    doc.setTextColor(30,36,44);doc.setFont('helvetica','bold');doc.setFontSize(19);doc.text('GRESPAN',14,27);
+    doc.setFontSize(11);doc.text('RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
+    const secao=t=>{verificar(16);doc.setFillColor(242,243,245);doc.rect(14,y-5,182,10,'F');doc.setTextColor(150,25,32);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(t,18,y+1);y+=13;};
+    const linha=(label,val)=>{const texto=String(val||'—');doc.setFont('helvetica','bold');doc.setFontSize(9);verificar(7);doc.text(label+':',16,y);y+=5;doc.setFont('helvetica','normal');const linhas=doc.splitTextToSize(texto,176);verificar(linhas.length*5+5);doc.text(linhas,18,y);y+=linhas.length*5+5;};
+    secao('CLIENTE');linha('Razão social',c.razao_social||c.nome_fantasia);linha('Código TOTVS',c.codigo_totvs);linha('Endereço',enderecoVisita(v));
+    secao('ATENDIMENTO');linha('Técnico responsável',usuariosPorId[v.tecnico_id]?.nome);linha('Data',v.data_visita);linha('Check-in',v.checkin_em?new Date(v.checkin_em).toLocaleString('pt-BR'):'');linha('Check-out',v.checkout_em?new Date(v.checkout_em).toLocaleString('pt-BR'):'');
+    const campos=[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
+    secao('RELATÓRIO DE EXECUÇÃO');campos.forEach(([l,k])=>linha(l,r[k]));
+    if(r.imagens?.length){secao('REGISTRO FOTOGRÁFICO');for(const foto of r.imagens){try{const tipo=foto.dados.startsWith('data:image/png')?'PNG':'JPEG';verificar(77);doc.addImage(foto.dados,tipo,18,y,90,65,undefined,'FAST');y+=73;}catch(e){linha('Foto',foto.nome+' (não foi possível incluir no PDF)');}}}
+    secao('ASSINATURA DO RESPONSÁVEL');linha('Nome',r.responsavel_nome);
+    if(r.assinatura){verificar(38);doc.addImage(r.assinatura,'PNG',18,y,145,32);y+=36;}
+    doc.setFontSize(8);doc.setTextColor(100);doc.text('GRESPAN · Registro eletrônico de visita técnica',14,289);
+    doc.save('grespan-visita-'+(c.codigo_totvs||v.id)+'.pdf');
+  };
   const nomes={agendada:'Agendada',em_andamento:'Em visita',concluida:'Concluída',cancelada:'Cancelada'};
   if(!autorizado)return h('div',{className:'card'},'Acesso não autorizado.');
   return h('div',null,
