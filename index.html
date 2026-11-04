@@ -636,7 +636,7 @@ const MODULOS = {
   administracao: { label:'Administração', icon:'⚙', descricao:'Usuários, hierarquia comercial, módulos, carteiras e importações.' }
 };
 function menuForModulo(modulo, papel) {
-  if (modulo === 'visita_tecnica') return [{id:'visitas_tecnicas',label:'Agenda Técnica',icon:'▦'}];
+  if (modulo === 'visita_tecnica') return [{id:'visitas_tecnicas',label:'Agenda Técnica',icon:'▦'},{id:'relatorios_visitas',label:'Relatórios',icon:'▤'}];
   if (modulo === 'vendas') {
     const itens=[
       {id:'dashboard',label:'Dashboard',icon:'◳'},{id:'emissao',label:'Cadastro de Ficha',icon:'+'},
@@ -655,7 +655,8 @@ function menuForModulo(modulo, papel) {
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
     {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
     {id:'config_modulos',label:'Módulos e Carteiras',icon:'▦'},
-    {id:'importacao',label:'Importações',icon:'⇧'}
+    {id:'importacao',label:'Importações',icon:'⇧'},
+    {id:'relatorios_admin',label:'Relatórios',icon:'▤'}
   ];
   return menuFor(papel);
 }
@@ -4016,6 +4017,127 @@ function solicitarSenhaAdministrador(nomeUsuario) {
 // =====================================================================
 const NOVO_VAZIO = { nome: '', email: '', senha: '', telefone: '', codigo_vendedor: '', papel: 'vendedor', supervisor_id: '', coordenador_id: '' };
 
+
+function exportarRelatorioXlsx(nome, colunas, registros){
+  if(!window.XLSX)throw Error('Biblioteca de Excel indisponível.');
+  const ws=XLSX.utils.aoa_to_sheet([colunas,...registros]);
+  ws['!cols']=colunas.map((c,i)=>({wch:Math.min(55,Math.max(17,c.length+4,...registros.slice(0,100).map(r=>String(r[i]??'').length+2)))}));
+  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(0,registros.length),c:colunas.length-1}})};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Relatório');
+  XLSX.writeFile(wb,nome+'.xlsx');
+}
+const formatarDataRelatorio=v=>v?new Date(v).toLocaleString('pt-BR'):'';
+function PaginaRelatoriosAdmin({profile}){
+  const toast=useToast();
+  const [usuarios,setUsuarios]=useState([]);
+  const [modulos,setModulos]=useState([]);
+  const [acessos,setAcessos]=useState([]);
+  const [carregando,setCarregando]=useState(true);
+  const [filtro,setFiltro]=useState('');
+  const [tipo,setTipo]=useState('usuarios');
+  const [situacao,setSituacao]=useState('todos');
+  useEffect(()=>{(async()=>{
+    const [u,m,a]=await Promise.all([
+      sb.from('usuarios').select('id,nome,email,telefone,codigo_vendedor,papel,supervisor_id,coordenador_id,ativo').order('nome').limit(10000),
+      sb.from('usuario_modulos').select('usuario_id,modulo,ativo').limit(20000),
+      sb.from('vt_ultimo_acesso').select('usuario_id,ultimo_acesso').limit(10000)
+    ]);
+    if(u.error)toast('Usuários: '+u.error.message,'error');
+    if(m.error)toast('Módulos: '+m.error.message,'error');
+    if(a.error)console.warn('Relatório de acessos ainda requer tabela vt_ultimo_acesso:',a.error.message);
+    setUsuarios(u.data||[]);setModulos(m.data||[]);setAcessos(a.data||[]);setCarregando(false);
+  })();},[]);
+  if(profile.papel!=='admin')return h('div',{className:'card'},'Acesso restrito ao administrador.');
+  const porId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
+  const ultimo=Object.fromEntries(acessos.map(a=>[a.usuario_id,a.ultimo_acesso]));
+  const filtrados=usuarios.filter(u=>(situacao==='todos'||(situacao==='ativos'?u.ativo!==false:u.ativo===false))&&
+    (!filtro||[u.nome,u.email,u.papel,u.codigo_vendedor].some(x=>String(x||'').toLowerCase().includes(filtro.toLowerCase()))));
+  function exportar(){
+    try{
+      if(tipo==='usuarios')exportarRelatorioXlsx('grespan_relatorio_usuarios',
+        ['Nome completo','Código vendedor','E-mail','Telefone','Função','Superior imediato','Coordenador comercial','Situação'],
+        filtrados.map(u=>[u.nome,u.codigo_vendedor||'',u.email||'',u.telefone||'',ROLE_LABELS[u.papel]||u.papel,porId[u.supervisor_id]?.nome||'',porId[u.coordenador_id]?.nome||'',u.ativo===false?'Inativo':'Ativo']));
+      else if(tipo==='modulos')exportarRelatorioXlsx('grespan_relatorio_modulos',
+        ['Nome completo','E-mail','Função',...Object.keys(MODULOS).map(k=>'Módulo '+MODULOS[k].label)],
+        filtrados.map(u=>[u.nome,u.email||'',ROLE_LABELS[u.papel]||u.papel,...Object.keys(MODULOS).map(k=>modulos.some(m=>m.usuario_id===u.id&&m.modulo===k&&m.ativo)?'Sim':'Não')]));
+      else exportarRelatorioXlsx('grespan_relatorio_acessos',
+        ['Nome completo','E-mail','Função','Último acesso'],
+        filtrados.map(u=>[u.nome,u.email||'',ROLE_LABELS[u.papel]||u.papel,formatarDataRelatorio(ultimo[u.id])||'Não registrado']));
+      toast('Arquivo Excel gerado.','success');
+    }catch(e){toast(e.message,'error');}
+  }
+  return h('div',null,
+    h('div',{className:'page-head'},h('h2',null,'Relatórios · Administração')),
+    h('div',{className:'card',style:{display:'grid',gap:12}},
+      h(Campo,{label:'Relatório'},h('select',{className:'form-select',value:tipo,onChange:e=>setTipo(e.target.value)},
+        h('option',{value:'usuarios'},'Usuários'),h('option',{value:'modulos'},'Módulos de Acesso'),h('option',{value:'acessos'},'Último Acesso'))),
+      h(Campo,{label:'Pesquisar usuário, e-mail ou função'},h('input',{className:'form-input',value:filtro,onChange:e=>setFiltro(e.target.value),placeholder:'Pesquisar...'})),
+      h(Campo,{label:'Situação'},h('select',{className:'form-select',value:situacao,onChange:e=>setSituacao(e.target.value)},
+        h('option',{value:'todos'},'Todos'),h('option',{value:'ativos'},'Ativos'),h('option',{value:'inativos'},'Inativos'))),
+      tipo==='acessos'&&!acessos.length&&h('div',{style:{color:'var(--text-muted)',fontSize:12}},'Histórico de acessos ainda não configurado. Sem registro, o Excel mostrará “Não registrado”.'),
+      h('div',null,filtrados.length+' usuário(s) selecionado(s).'),
+      h('button',{className:'btn btn-primary',disabled:carregando,onClick:exportar},carregando?'Carregando...':'Exportar Excel (.xlsx)')));
+}
+function PaginaRelatoriosVisitas({profile,visao}){
+  const toast=useToast();
+  const [visitas,setVisitas]=useState([]);
+  const [usuarios,setUsuarios]=useState([]);
+  const [carregando,setCarregando]=useState(false);
+  const [inicio,setInicio]=useState('');
+  const [fim,setFim]=useState('');
+  const [profissional,setProfissional]=useState('');
+  const [status,setStatus]=useState('');
+  const [cliente,setCliente]=useState('');
+  const papel=profile.papel==='admin'&&visao?visao:profile.papel;
+  const autorizado=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel);
+  useEffect(()=>{(async()=>{const {data,error}=await sb.from('usuarios').select('id,nome,papel,supervisor_id').limit(10000);if(error)toast(error.message,'error');setUsuarios(data||[]);})();},[]);
+  const porId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
+  async function exportar(){
+    if(inicio&&fim&&inicio>fim)return toast('A data inicial deve ser anterior à final.','error');
+    setCarregando(true);
+    try{
+      let q=sb.from('visitas_tecnicas').select('*,clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia,endereco_logradouro,endereco_numero,endereco_bairro,cidade,estado,endereco_cep)').order('data_visita',{ascending:false}).limit(10000);
+      if(inicio)q=q.gte('data_visita',inicio);
+      if(fim)q=q.lte('data_visita',fim);
+      if(status)q=q.eq('status',status);
+      if(profissional)q=q.eq('tecnico_id',profissional);
+      const {data,error}=await q;if(error)throw error;
+      let lista=data||[];
+      if(papel==='tec_panificacao')lista=lista.filter(v=>v.tecnico_id===profile.id);
+      if(papel==='lider_tec_panificacao')lista=lista.filter(v=>v.tecnico_id===profile.id||porId[v.tecnico_id]?.supervisor_id===profile.id);
+      if(papel==='supervisor_tec_panificacao')lista=lista.filter(v=>v.supervisor_id===profile.id);
+      if(cliente)lista=lista.filter(v=>[v.clientes?.razao_social,v.clientes?.nome_fantasia,v.clientes?.codigo_totvs].some(x=>String(x||'').toLowerCase().includes(cliente.toLowerCase())));
+      const dataHora=(v)=>v?new Date(v).toLocaleDateString('pt-BR'):'';
+      const hora=(v)=>v?new Date(v).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+      exportarRelatorioXlsx('grespan_relatorio_visitas',
+        ['Profissional','Função','Líder','Supervisor','Cliente','Código do cliente','Endereço','Data prevista','Hora prevista check-in','Data check-in','Hora check-in','Hora prevista check-out','Data check-out','Hora check-out','Latitude check-in','Longitude check-in','Latitude check-out','Longitude check-out','Status','Objetivo','Relatório de qualidade'],
+        lista.map(v=>{
+          const u=porId[v.tecnico_id],lider=porId[u?.supervisor_id],supervisor=porId[v.supervisor_id];
+          const c=v.clientes||{};
+          const prev=String(v.hora_inicio||'').slice(0,5),dur=Number(v.duracao_min||120),p=prev.split(':').map(Number);
+          const total=(p[0]||0)*60+(p[1]||0)+dur;
+          return [u?.nome||'',ROLE_LABELS[u?.papel]||u?.papel||'',lider?.nome||'',supervisor?.nome||'',c.razao_social||c.nome_fantasia||'',c.codigo_totvs||'',
+            [c.endereco_logradouro,c.endereco_numero,c.endereco_bairro,c.cidade,c.estado,c.endereco_cep].filter(Boolean).join(', '),
+            v.data_visita||'',prev,dataHora(v.checkin_em),hora(v.checkin_em),String(Math.floor(total/60)%24).padStart(2,'0')+':'+String(total%60).padStart(2,'0'),
+            dataHora(v.checkout_em),hora(v.checkout_em),v.checkin_latitude??'',v.checkin_longitude??'',v.checkout_latitude??'',v.checkout_longitude??'',v.status||'',v.objetivo||'',v.relatorio_qualidade||''];
+        }));
+      toast('Excel gerado: '+lista.length+' visita(s).','success');
+    }catch(e){toast('Não foi possível gerar relatório: '+e.message,'error');}
+    finally{setCarregando(false);}
+  }
+  if(!autorizado)return h('div',{className:'card'},'Acesso não autorizado.');
+  return h('div',null,h('div',{className:'page-head'},h('h2',null,'Relatórios · Visitas Técnicas')),
+    h('div',{className:'card',style:{display:'grid',gap:12}},
+      h(Campo,{label:'Data inicial'},h('input',{className:'form-input',type:'date',value:inicio,onChange:e=>setInicio(e.target.value)})),
+      h(Campo,{label:'Data final'},h('input',{className:'form-input',type:'date',value:fim,onChange:e=>setFim(e.target.value)})),
+      h(Campo,{label:'Profissional'},h('select',{className:'form-select',value:profissional,onChange:e=>setProfissional(e.target.value)},
+        h('option',{value:''},'Todos'),usuarios.filter(u=>['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(u.papel)).map(u=>h('option',{key:u.id,value:u.id},u.nome)))),
+      h(Campo,{label:'Cliente / código TOTVS'},h('input',{className:'form-input',value:cliente,onChange:e=>setCliente(e.target.value)})),
+      h(Campo,{label:'Status'},h('select',{className:'form-select',value:status,onChange:e=>setStatus(e.target.value)},
+        h('option',{value:''},'Todos'),h('option',{value:'agendada'},'Agendada'),h('option',{value:'em_andamento'},'Em andamento'),h('option',{value:'concluida'},'Concluída'),h('option',{value:'cancelada'},'Cancelada'))),
+      h('button',{className:'btn btn-primary',disabled:carregando,onClick:exportar},carregando?'Gerando...':'Exportar Excel (.xlsx)')));
+}
+
 function PaginaAdmin({ profile }) {
   const toast = useToast();
   const [usuarios, setUsuarios] = useState(null);
@@ -7246,6 +7368,8 @@ function App() {
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'visitas_tecnicas') conteudo = h(PaginaVisitasTecnicas, { profile, visao });
+  else if (paginaAtual === 'relatorios_visitas') conteudo = h(PaginaRelatoriosVisitas,{profile,visao});
+  else if (paginaAtual === 'relatorios_admin') conteudo = h(PaginaRelatoriosAdmin,{profile});
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
