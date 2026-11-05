@@ -1241,17 +1241,37 @@ function PaginaEmissao({ profile, onSaved }) {
           h(Campo, { label: 'Forno' }, h(Select, { opcoes: ['Gás','Elétrico'], value: f.forno_tipo, onChange: e => set('forno_tipo', e.target.value) })),
           h(Campo, { label: 'Quantidade Forno' }, h(Input, { type: 'number', min: 0, value: f.forno_quantidade, onChange: e => set('forno_quantidade', e.target.value) })),
           h(Campo, { label: 'Esteiras' }, h(Select, { opcoes: ['5','8'], value: f.forno_esteiras, onChange: e => set('forno_esteiras', e.target.value) }))),
-        h('div', { className: 'sub-title' }, 'Freezer'),
-        h('div', { className: 'check-row' },
-          ['Horizontal','Vertical','Expositor','Mini câmara'].map(t =>
-            h('label', { key: t, className: 'check-item' },
-              h('input', { type: 'checkbox', checked: f.freezer_tipos.includes(t), onChange: () => toggleFreezer(t) }), t))),
-        h('div', { className: 'sub-title' }, 'Armários, Câmara Climática e Outros'),
-        h('div', { className: 'form-grid' },
-          h(Campo, { label: 'Armário' }, h(Select, { opcoes: ['Completo','Vazio','Esqueleto'], value: f.armario_tipo, onChange: e => set('armario_tipo', e.target.value) })),
-          h(Campo, { label: 'Tipo de Câmara Climática' }, h(Select, { opcoes: ['20 Esteiras','40 Esteiras'], value: f.camara_climatica, onChange: e => set('camara_climatica', e.target.value) })),
-          h(Campo, { label: 'Esteiras' }, h(Input, { type: 'number', min: 0, value: f.esteiras_quantidade, onChange: e => set('esteiras_quantidade', e.target.value) })),
-          h(Campo, { label: 'Assadeiras' }, h(Input, { type: 'number', min: 0, value: f.assadeiras_quantidade, onChange: e => set('assadeiras_quantidade', e.target.value) }))))),
+        h('div',{className:'sub-title'},'Freezers, Expositores, Armários e Câmaras'),
+        h('div',{className:'form-grid'},
+          ...EQUIPAMENTOS_VARIANTES.map(([ch,nome])=>
+            h(Campo,{key:ch,label:nome},
+              h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                h(Select,{
+                  opcoes:['Sim','Não'],
+                  value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',
+                  onChange:e=>set('equipamentos_quantidades',{
+                    ...f.equipamentos_quantidades,
+                    [ch]:e.target.value==='Sim'?1:0
+                  })
+                }),
+                h(Input,{
+                  type:'number',min:1,step:1,placeholder:'Quantidade',
+                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  value:f.equipamentos_quantidades[ch]||'',
+                  onChange:e=>set('equipamentos_quantidades',{
+                    ...f.equipamentos_quantidades,[ch]:e.target.value
+                  })
+                })
+              )
+            )
+          ),
+          h(Campo,{label:'Esteiras — quantidade'},
+            h(Input,{type:'number',min:0,step:1,value:f.esteiras_quantidade,
+              onChange:e=>set('esteiras_quantidade',e.target.value)})),
+          h(Campo,{label:'Assadeiras — quantidade'},
+            h(Input,{type:'number',min:0,step:1,value:f.assadeiras_quantidade,
+              onChange:e=>set('assadeiras_quantidade',e.target.value)}))
+        ))),
 
     h('div', { className: 'card' },
       h(Campo, { label: 'Observações' },
