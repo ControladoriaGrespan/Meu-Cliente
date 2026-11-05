@@ -2269,8 +2269,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       }
 
       // DEMAIS ETAPAS
+      // Busca primeiro as aprovações: embeds de ficha podem falhar ou voltar null por RLS.
       let q=sb.from('ficha_aprovacoes')
-        .select('*, fichas_clientes(*, usuarios:vendedor_id(nome), clientes(codigo_totvs), ficha_aprovacoes(etapa, status, decidido_em, observacao))')
+        .select('*')
         .eq('etapa',etapa).eq('status','pendente');
 
       if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
@@ -2299,7 +2300,27 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       if(rf&&rf.error)console.error('Pendências - fichas:',rf.error);
       if(rs&&rs.error)console.error('Pendências - solicitações:',rs.error);
 
-      setPendentes(((rf&&rf.data)||[]).filter(ap=>ap&&ap.fichas_clientes));
+      const aprovacoesFicha=((rf&&rf.data)||[]).filter(ap=>ap&&ap.id);
+      const fichaIds=[...new Set(aprovacoesFicha.map(ap=>ap.ficha_id).filter(Boolean))];
+      let detalhesFicha=[];
+      if(fichaIds.length){
+        const df=await sb.from('fichas_clientes')
+          .select('*, usuarios:vendedor_id(nome), clientes(codigo_totvs), ficha_aprovacoes(etapa,status,decidido_em,observacao)')
+          .in('id',fichaIds);
+        if(df.error){
+          console.error('Pendências - detalhes das fichas:',df.error);
+          const fallback=await sb.from('fichas_clientes').select('*').in('id',fichaIds);
+          if(fallback.error)console.error('Pendências - fallback fichas:',fallback.error);
+          detalhesFicha=fallback.data||[];
+        }else detalhesFicha=df.data||[];
+      }
+      const mapaFicha=new Map(detalhesFicha.map(f=>[String(f.id),f]));
+      const pendenciasEnriquecidas=aprovacoesFicha.map(ap=>({
+        ...ap,fichas_clientes:mapaFicha.get(String(ap.ficha_id))||null
+      }));
+      setPendentes(pendenciasEnriquecidas);
+      if(pendenciasEnriquecidas.some(ap=>!ap.fichas_clientes))
+        toast('Há aprovações pendentes, mas o acesso aos dados da ficha está bloqueado. Verifique a política RLS de fichas_clientes.','error');
 
       // Enriquece as aprovações de solicitação sem deixar o relacionamento embutido
       // esconder a fila da Gestão Adm. de Vendas.
