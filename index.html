@@ -5868,7 +5868,7 @@ function proximaEntregaRota(d){
 }
 function PaginaLogisticaFichas({profile}){
   const toast=useToast();
-  const [fila,setFila]=useState([]),[rotas,setRotas]=useState([]),[vinculos,setVinculos]=useState([]);
+  const [fila,setFila]=useState([]),[rotas,setRotas]=useState([]),[vinculos,setVinculos]=useState([]),[fichas,setFichas]=useState({});
   const [escolhas,setEscolhas]=useState({}),[carregando,setCarregando]=useState(true),[salvando,setSalvando]=useState(null);
   async function carregar(){
     setCarregando(true);
@@ -5880,6 +5880,11 @@ function PaginaLogisticaFichas({profile}){
     if(a.error)toast('Logística: '+a.error.message,'error');
     if(b.error)toast('Rotas: '+b.error.message,'error');
     if(c.error)toast('Vínculos: '+c.error.message,'error');
+    const ids=[...new Set((a.data||[]).map(i=>i.ficha_id).filter(Boolean))];
+    if(ids.length){const ff=await sb.from('fichas_clientes').select('id,consumo_previsto').in('id',ids);
+      if(ff.error)toast('Previsão da ficha: '+ff.error.message,'error');
+      setFichas(Object.fromEntries((ff.data||[]).map(i=>[i.id,i])));
+    }else setFichas({});
     setFila(a.data||[]);setRotas(b.data||[]);setVinculos(c.data||[]);
     setCarregando(false);
   }
@@ -5894,16 +5899,15 @@ function PaginaLogisticaFichas({profile}){
   function qtdItem(item){
     return escolhas[item.id]?.qtd||Math.max(1,Number(item.qtd_rotas||rotasItem(item).length||1));
   }
-  function mensalItem(item){return escolhas[item.id]?.mensal??String(item.previsao_kg_mensal??'');}
-  function atualizarMensal(item,valor){setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids:rotasItem(item),mensal:valor}}));}
-  function calcularKg(item){const mensal=Number(String(mensalItem(item)).replace(',','.'))||0;const qtd=qtdItem(item);const semanal=Math.round(mensal*12/52*100)/100;const centavos=Math.round(mensal*12/52*100);const base=Math.floor(centavos/qtd);return {semanal,porRota:Array.from({length:qtd},(_,i)=>(base+(i<centavos%qtd?1:0))/100)};}
+  function mensalItem(item){const ficha=fichas[item.ficha_id];return ficha&&ficha.consumo_previsto!=null?Number(ficha.consumo_previsto)*PESO_PAO_KG*DIAS_MES:null;}
+  function calcularKg(item){const mensal=mensalItem(item)||0;const qtd=qtdItem(item);const semanal=Math.round(mensal*12/52*100)/100;const centavos=Math.round(mensal*12/52*100);const base=Math.floor(centavos/qtd);return {semanal,porRota:Array.from({length:qtd},(_,i)=>(base+(i<centavos%qtd?1:0))/100)};}
   function atualizarQtd(item,valor){
     const qtd=Math.max(1,Math.min(7,Number(valor)||1));
-    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd),mensal:mensalItem(item)}}));
+    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd)}}));
   }
   function atualizarRota(item,indice,id){
     const ids=[...rotasItem(item)];ids[indice]=id;
-    setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids,kg:kgItem(item)}}));
+    setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids}}));
   }
   async function vincular(item){
     if(!item.cliente_id)return toast('Ficha sem cliente cadastrado.','error');
@@ -5911,9 +5915,9 @@ function PaginaLogisticaFichas({profile}){
     if(ids.length!==qtd||ids.some(id=>!id))return toast('Selecione todas as rotas.','error');
     if(new Set(ids).size!==ids.length)return toast('Não repita a mesma rota.','error');
     if(ids.some(id=>!rotas.some(r=>r.id===id)))return toast('Uma das rotas não está ativa.','error');
-    const mensalTexto=String(mensalItem(item)).trim().replace(',','.');
-    if(!/^\d+(?:\.\d{1,2})?$/.test(mensalTexto))return toast('Informe a previsão mensal em Kg com até duas casas decimais.','error');
-    const mensal=Number(mensalTexto),calculado=calcularKg(item);
+    const mensal=mensalItem(item);
+    if(mensal===null||!Number.isFinite(mensal)||mensal<0)return toast('Não foi possível carregar o consumo previsto da ficha comercial.','error');
+    const calculado=calcularKg(item);
     const centavos=Math.round(calculado.semanal*100);
     const kgPorRota=Object.fromEntries(ids.map((id,i)=>[id,calculado.porRota[i]]));
     setSalvando(item.id);
@@ -5958,7 +5962,7 @@ function PaginaLogisticaFichas({profile}){
       h('td',null,h('input',{className:'form-input',type:'number',min:1,max:7,step:1,
         style:{width:80},value:qtd,onChange:e=>atualizarQtd(item,e.target.value)})),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:220}},...seletores)),
-      h('td',null,h('input',{className:'form-input',type:'number',min:0,step:'0.01',style:{width:130},placeholder:'Kg/mês',value:mensalItem(item),onChange:e=>atualizarMensal(item,e.target.value)})),
+      h('td',null,mensalItem(item)===null?'Ficha indisponível':mensalItem(item).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kg'),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:170}},...previsoes)),
       h('td',null,h('strong',null,totalKg.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kg'),h('div',null,qtd+' entrega(s)/semana')),
       h('td',null,h('button',{className:'btn btn-primary btn-sm',
@@ -5976,7 +5980,7 @@ function PaginaLogisticaFichas({profile}){
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('h2',null,'Logística — Fichas e Rotas'),
-        h('div',{className:'page-sub'},'Informe a previsão mensal de venda de pão francês em Kg. O sistema divide por 52/12 semanas e distribui automaticamente entre as rotas semanais.'))),
+        h('div',{className:'page-sub'},'Previsão mensal calculada da ficha comercial (pães/dia × 0,080 Kg × 26 dias); distribuição automática por rota semanal.'))),
     h('div',{className:'card'},
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),
       conteudo)
