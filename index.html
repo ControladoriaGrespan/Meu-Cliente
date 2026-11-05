@@ -5894,13 +5894,15 @@ function PaginaLogisticaFichas({profile}){
   function qtdItem(item){
     return escolhas[item.id]?.qtd||Math.max(1,Number(item.qtd_rotas||rotasItem(item).length||1));
   }
+  function kgItem(item){return escolhas[item.id]?.kg||item.previsao_kg_rotas||{};}
+  function atualizarKg(item,id,valor){if(!id)return;setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids:rotasItem(item),kg:{...kgItem(item),[id]:valor}}}));}
   function atualizarQtd(item,valor){
     const qtd=Math.max(1,Math.min(7,Number(valor)||1));
-    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd)}}));
+    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd),kg:kgItem(item)}}));
   }
   function atualizarRota(item,indice,id){
     const ids=[...rotasItem(item)];ids[indice]=id;
-    setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids}}));
+    setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids,kg:kgItem(item)}}));
   }
   async function vincular(item){
     if(!item.cliente_id)return toast('Ficha sem cliente cadastrado.','error');
@@ -5908,6 +5910,10 @@ function PaginaLogisticaFichas({profile}){
     if(ids.length!==qtd||ids.some(id=>!id))return toast('Selecione todas as rotas.','error');
     if(new Set(ids).size!==ids.length)return toast('Não repita a mesma rota.','error');
     if(ids.some(id=>!rotas.some(r=>r.id===id)))return toast('Uma das rotas não está ativa.','error');
+    const kg=kgItem(item),valores=ids.map(id=>String(kg[id]??'').trim().replace(',','.'));
+    if(valores.some(v=>v===''||!/^\d+(?:\.\d{1,2})?$/.test(v)))return toast('Informe Kg por rota com até 2 casas decimais.','error');
+    const centavos=valores.reduce((n,v)=>n+Math.round(Number(v)*100),0);
+    const kgPorRota=Object.fromEntries(ids.map((id,i)=>[id,Math.round(Number(valores[i])*100)/100]));
     setSalvando(item.id);
     const existentes=vinculos.filter(v=>v.cliente_id===item.cliente_id);
     const faltantes=ids.filter(id=>!existentes.some(v=>v.rota_id===id));
@@ -5920,16 +5926,18 @@ function PaginaLogisticaFichas({profile}){
       }
       criados.push(res.data.id);
     }
-    const dados={status:'vinculado',rota_id:ids[0],rotas_ids:ids,qtd_rotas:qtd,entregas_semanais:qtd,atualizado_por:profile.id,atualizado_em:new Date().toISOString()};
+    const dados={status:'vinculado',rota_id:ids[0],rotas_ids:ids,qtd_rotas:qtd,entregas_semanais:qtd,previsao_kg_rotas:kgPorRota,previsao_kg_semanal:centavos/100,atualizado_por:profile.id,atualizado_em:new Date().toISOString()};
     const u=await sb.from('logistica_fichas').update(dados).eq('id',item.id);
     if(u.error){setSalvando(null);return toast('Vínculos criados, mas não foi possível salvar o planejamento: '+u.error.message,'error');}
     const remover=existentes.filter(v=>!ids.includes(v.rota_id));
     for(const v of remover){const x=await sb.from('cliente_rotas').delete().eq('id',v.id);if(x.error)toast('Não foi possível remover rota anterior: '+x.error.message,'error');}
-    setSalvando(null);toast('Planejamento salvo: '+qtd+' entrega(s) semanal(is).','success');await carregar();
+    setSalvando(null);toast('Planejamento salvo: '+qtd+' entregas e '+(centavos/100).toFixed(2)+' Kg/semana.','success');await carregar();
   }
   const linhas=fila.map(item=>{
     const qtd=qtdItem(item);
     const ids=rotasItem(item).slice(0,qtd);
+    const kg=kgItem(item);
+    const totalKg=ids.reduce((n,id)=>n+(Number(String(kg[id]??0).replace(',','.'))||0),0);
     const selecionadas=ids.map(id=>rotas.find(r=>r.id===id)).filter(Boolean);
     const seletores=[];
     for(let i=0;i<qtd;i++){
@@ -5938,8 +5946,8 @@ function PaginaLogisticaFichas({profile}){
       seletores.push(h('select',{key:i,className:'form-input',value:ids[i]||'',
         onChange:e=>atualizarRota(item,i,e.target.value)},...opcoes));
     }
-    const previsoes=selecionadas.map(r=>h('div',{key:r.id},
-      nomeDiaRota(r.dia_semana)+' — '+proximaEntregaRota(r.dia_semana)));
+    const previsoes=Array.from({length:qtd},(_,i)=>h('div',{key:i,style:{display:'flex',gap:5,alignItems:'center'}},
+      h('input',{className:'form-input',type:'number',min:0,step:'0.01',placeholder:'Kg por entrega',style:{width:125},disabled:!ids[i],value:ids[i]?(kg[ids[i]]??''):'',onChange:e=>atualizarKg(item,ids[i],e.target.value)}),h('span',null,'Kg')));
     return h('tr',{key:item.id},
       h('td',null,(item.ficha_id||'').slice(0,8)),
       h('td',null,item.razao_social||'—'),
@@ -5949,14 +5957,14 @@ function PaginaLogisticaFichas({profile}){
         style:{width:80},value:qtd,onChange:e=>atualizarQtd(item,e.target.value)})),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:220}},...seletores)),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:170}},...previsoes)),
-      h('td',null,qtd+' entrega(s)'),
+      h('td',null,h('strong',null,totalKg.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kg'),h('div',null,qtd+' entrega(s)/semana')),
       h('td',null,h('button',{className:'btn btn-primary btn-sm',
         disabled:!item.cliente_id||salvando===item.id,onClick:()=>vincular(item)},
         salvando===item.id?'Salvando...':'Salvar rotas'))
     );
   });
   const cabecalho=h('thead',null,h('tr',null,
-    ...['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão de entrega','Entregas/semana','Ação']
+    ...['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão francês (Kg/entrega)','Total semanal (Kg)','Ação']
       .map(t=>h('th',{key:t},t))));
   const tabela=h('div',{style:{overflowX:'auto'}},
     h('table',{className:'table'},cabecalho,h('tbody',null,...linhas)));
@@ -5965,7 +5973,7 @@ function PaginaLogisticaFichas({profile}){
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('h2',null,'Logística — Fichas e Rotas'),
-        h('div',{className:'page-sub'},'Defina as rotas e previsões de entrega semanais.'))),
+        h('div',{className:'page-sub'},'Informe a previsão de venda de pão francês em Kg por rota; o total semanal é calculado automaticamente.'))),
     h('div',{className:'card'},
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),
       conteudo)
