@@ -5806,12 +5806,70 @@ function PaginaRotas({ profile, visao }) {
 }
 
 // LOGÍSTICA — triagem gerada no banco ao decidir a primeira etapa da ficha.
-function PaginaLogisticaFichas({profile}){
-  const toast=useToast();const [fila,setFila]=useState([]);const [rotas,setRotas]=useState([]);const [vinculos,setVinculos]=useState([]);const [escolhas,setEscolhas]=useState({});const [carregando,setCarregando]=useState(true);
-  async function carregar(){setCarregando(true);const [a,b,c]=await Promise.all([sb.from('logistica_fichas').select('*').order('criado_em',{ascending:false}).limit(500),sb.from('rotas').select('id,nome,dia_semana,ativo').eq('ativo',true).order('nome'),sb.from('cliente_rotas').select('cliente_id,rota_id')]);if(a.error)toast('Logística: '+a.error.message,'error');setFila(a.data||[]);setRotas(b.data||[]);setVinculos(c.data||[]);setCarregando(false);}
+function PaginaLogisticaFichas({profile}) {
+  const toast=useToast();
+  const [fila,setFila]=useState([]);
+  const [rotas,setRotas]=useState([]);
+  const [vinculos,setVinculos]=useState([]);
+  const [escolhas,setEscolhas]=useState({});
+  const [carregando,setCarregando]=useState(true);
+  async function carregar(){
+    setCarregando(true);
+    const [a,b,c]=await Promise.all([
+      sb.from('logistica_fichas').select('*').order('criado_em',{ascending:false}).limit(500),
+      sb.from('rotas').select('id,nome,dia_semana,ativo').eq('ativo',true).order('nome'),
+      sb.from('cliente_rotas').select('cliente_id,rota_id')
+    ]);
+    if(a.error)toast('Logística: '+a.error.message,'error');
+    setFila(a.data||[]);setRotas(b.data||[]);setVinculos(c.data||[]);
+    setCarregando(false);
+  }
   useEffect(()=>{carregar();},[]);
-  async function vincular(item){if(!item.cliente_id)return toast('Ficha ainda sem cliente cadastrado. O vínculo será possível após o cadastro do cliente.','error');const rotaId=escolhas[item.id];if(!rotaId)return toast('Selecione uma rota.','error');const existente=vinculos.find(x=>x.cliente_id===item.cliente_id);let e;if(existente){({error:e}=await sb.from('cliente_rotas').update({rota_id:rotaId}).eq('cliente_id',item.cliente_id));}else{({error:e}=await sb.from('cliente_rotas').insert({cliente_id:item.cliente_id,rota_id:rotaId}));}if(e)return toast(e.message,'error');const u=await sb.from('logistica_fichas').update({status:'vinculado',rota_id:rotaId,atualizado_por:profile.id,atualizado_em:new Date().toISOString()}).eq('id',item.id);if(u.error)return toast(u.error.message,'error');toast('Cliente vinculado à rota.','success');carregar();}
-  return h('div',null,h('div',{className:'page-head'},h('div',null,h('h2',null,'Logística — Fichas e Rotas'),h('div',{className:'page-sub'},'Avisos gerados após a primeira decisão do workflow comercial.'))),h('div',{className:'card'},h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),carregando?h('p',null,'Carregando...'):fila.length===0?h('p',null,'Nenhuma ficha recebida pela Logística.'):h('div',{style:{overflowX:'auto'}},h('table',{className:'table'},h('thead',null,h('tr',null,['Ficha','Cliente','Primeira decisão','Situação','Rota','Ação'].map(x=>h('th',{key:x},x)))),h('tbody',null,fila.map(x=>h('tr',{key:x.id},h('td',null,x.ficha_id?.slice(0,8)||'—'),h('td',null,x.razao_social||'—'),h('td',null,x.decisao_primeira_etapa),h('td',null,x.status),h('td',null,h('select',{className:'form-input',value:escolhas[x.id]||x.rota_id||'',onChange:e=>setEscolhas(p=>({...p,[x.id]:e.target.value}))},h('option',{value:''},'Selecione'),rotas.map(r=>h('option',{key:r.id,value:r.id},r.nome)))),h('td',null,h('button',{className:'btn btn-primary btn-sm',disabled:!x.cliente_id,onClick:()=>vincular(x)},'Vincular'))))))))));
+  async function vincular(item){
+    if(!item.cliente_id)return toast('Ficha ainda sem cliente cadastrado.','error');
+    const rotaId=escolhas[item.id]||item.rota_id;
+    if(!rotaId)return toast('Selecione uma rota.','error');
+    const existente=vinculos.find(x=>x.cliente_id===item.cliente_id);
+    const res=existente
+      ?await sb.from('cliente_rotas').update({rota_id:rotaId}).eq('cliente_id',item.cliente_id)
+      :await sb.from('cliente_rotas').insert({cliente_id:item.cliente_id,rota_id:rotaId});
+    if(res.error)return toast(res.error.message,'error');
+    const u=await sb.from('logistica_fichas').update({
+      status:'vinculado',rota_id:rotaId,atualizado_por:profile.id,atualizado_em:new Date().toISOString()
+    }).eq('id',item.id);
+    if(u.error)return toast(u.error.message,'error');
+    toast('Cliente vinculado à rota.','success');carregar();
+  }
+  const cabecalho=h('thead',null,h('tr',null,
+    ['Ficha','Cliente','Primeira decisão','Situação','Rota','Ação'].map(x=>h('th',{key:x},x))
+  ));
+  const linhas=h('tbody',null,fila.map(x=>h('tr',{key:x.id},
+    h('td',null,(x.ficha_id||'').slice(0,8)),
+    h('td',null,x.razao_social||'—'),
+    h('td',null,x.decisao_primeira_etapa),
+    h('td',null,x.status),
+    h('td',null,h('select',{
+      className:'form-input',value:escolhas[x.id]||x.rota_id||'',
+      onChange:e=>setEscolhas(p=>({...p,[x.id]:e.target.value}))
+    },h('option',{value:''},'Selecione'),
+      rotas.map(r=>h('option',{key:r.id,value:r.id},r.nome))
+    )),
+    h('td',null,h('button',{
+      className:'btn btn-primary btn-sm',disabled:!x.cliente_id,onClick:()=>vincular(x)
+    },'Vincular'))
+  )));
+  return h('div',null,
+    h('div',{className:'page-head'},h('div',null,
+      h('h2',null,'Logística — Fichas e Rotas'),
+      h('div',{className:'page-sub'},'Avisos gerados após a primeira decisão do workflow comercial.')
+    )),
+    h('div',{className:'card'},
+      h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),
+      carregando?h('p',null,'Carregando...'):
+      fila.length===0?h('p',null,'Nenhuma ficha recebida pela Logística.'):
+      h('div',{style:{overflowX:'auto'}},h('table',{className:'table'},cabecalho,linhas))
+    )
+  );
 }
 
 // =====================================================================
