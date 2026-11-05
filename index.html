@@ -1102,7 +1102,8 @@ function PaginaEmissao({ profile, onSaved }) {
     ];
     const faltando = obrig.filter(([k]) => !String(f[k] || '').trim()).map(([, l]) => l);
     if (faltando.length) return toast('Preencha: ' + faltando.join(', '), 'error');
-    if (temVerba && !f.duracao_verba.trim()) return toast('Informe a Duração da Verba.', 'error');
+    if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe a duração da verba em meses inteiros positivos.', 'error');
+    if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
     if (precisaEquip && !f.equipamento_condicao) return toast('Informe se o equipamento é Novo ou Usado.', 'error');
     if(Number(f.bonificacao_percentual)<0||Number(f.bonificacao_percentual)>100)return toast('Bonificação deve estar entre 0% e 100%.','error');
@@ -1133,8 +1134,8 @@ function PaginaEmissao({ profile, onSaved }) {
       senioridade_tecnico: temTecnico ? f.senioridade_tecnico : null,
       precisa_equipamento: precisaEquip,
       equipamento_condicao: precisaEquip ? f.equipamento_condicao : null,
-      forno_tipo: precisaEquip ? (f.forno_tipo || null) : null,
-      forno_quantidade: precisaEquip ? num(f.forno_quantidade) : null,
+      forno_tipo: precisaEquip ? (Number(f.equipamentos_quantidades.forno_gas||0)>0&&Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Gás e Elétrico':Number(f.equipamentos_quantidades.forno_gas||0)>0?'Gás':Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Elétrico':null) : null,
+      forno_quantidade: precisaEquip ? Number(f.equipamentos_quantidades.forno_gas||0)+Number(f.equipamentos_quantidades.forno_eletrico||0) : null,
       forno_esteiras: precisaEquip ? (f.forno_esteiras || null) : null,
       freezer_tipos: precisaEquip && f.freezer_tipos.length ? f.freezer_tipos : null,
       armario_tipo: precisaEquip ? (f.armario_tipo || null) : null,
@@ -1212,7 +1213,7 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
         h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
         h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(e.target.value)) })),
-        h(Campo, { label: 'Prazo Pagamento', obrigatorio: true }, h(Input, { value: f.prazo_pagamento, placeholder: 'ex: 28 dias', onChange: e => set('prazo_pagamento', e.target.value) })),
+        h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
         h(Campo, { label: 'Verbas de Introdução' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
         h(Campo,{label:'Bonificação (%)'},h(Input,{type:'number',min:0,max:100,step:'0.01',value:f.bonificacao_percentual,onChange:e=>set('bonificacao_percentual',e.target.value)})),
@@ -1221,7 +1222,7 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Verbas de Manutenção de Cliente' }, h(Input, { value: f.verba_manutencao_cliente, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_manutencao_cliente', mascaraMoeda(e.target.value)) })),
         h(Campo, { label: 'Verbas de Negociação de Cliente' }, h(Input, { value: f.verba_negociacao_cliente, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_negociacao_cliente', mascaraMoeda(e.target.value)) })),
         h(Campo, { label: 'Total de Verbas' }, h(Input, { value: fmtMoeda(totalVerbas), disabled: true })),
-        h(Campo, { label: 'Duração Verba', obrigatorio: temVerba }, h(Input, { value: f.duracao_verba, disabled: !temVerba, placeholder: temVerba ? 'ex: 12 meses' : 'Preencha alguma verba', onChange: e => set('duracao_verba', e.target.value) })),
+        h(Campo, { label: 'Duração da Verba (meses)', obrigatorio: temVerba }, h(Input, { type:'number',min:1,step:1,value: f.duracao_verba, disabled: !temVerba, placeholder: temVerba ? 'Ex.: 12' : 'Preencha alguma verba', onChange: e => set('duracao_verba', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Técnico de Panificação?', obrigatorio: true }, h(Select, { opcoes: ['Sim','Não'], value: f.tecnico_panificacao, onChange: e => set('tecnico_panificacao', e.target.value) })),
         h(Campo, { label: 'Senioridade do Técnico', obrigatorio: temTecnico }, h(Select, { opcoes: ['Júnior','Pleno','Sênior'], value: f.senioridade_tecnico, disabled: !temTecnico, onChange: e => set('senioridade_tecnico', e.target.value) }))),
       faturamento !== null && h('div', { style: { marginTop: 14, padding: '10px 14px', background: 'var(--accent-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 13 } },
@@ -1236,11 +1237,33 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Precisa de Equipamento?', obrigatorio: true }, h(Select, { opcoes: ['Sim','Não'], value: f.precisa_equipamento, onChange: e => set('precisa_equipamento', e.target.value) })),
         h(Campo, { label: 'Novo/Usado', obrigatorio: precisaEquip }, h(Select, { opcoes: ['Novo','Usado'], value: f.equipamento_condicao, disabled: !precisaEquip, onChange: e => set('equipamento_condicao', e.target.value) }))),
       h('fieldset', { disabled: !precisaEquip },
-        h('div', { className: 'sub-title' }, 'Fornos'),
-        h('div', { className: 'form-grid' },
-          h(Campo, { label: 'Forno' }, h(Select, { opcoes: ['Gás','Elétrico'], value: f.forno_tipo, onChange: e => set('forno_tipo', e.target.value) })),
-          h(Campo, { label: 'Quantidade Forno' }, h(Input, { type: 'number', min: 0, value: f.forno_quantidade, onChange: e => set('forno_quantidade', e.target.value) })),
-          h(Campo, { label: 'Esteiras' }, h(Select, { opcoes: ['5','8'], value: f.forno_esteiras, onChange: e => set('forno_esteiras', e.target.value) }))),
+        h('div',{className:'sub-title'},'Fornos — escolha um ou ambos os modelos'),
+        h('div',{className:'form-grid'},
+          ...[['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].map(([ch,nome])=>
+            h(Campo,{key:ch,label:nome},
+              h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                h(Select,{
+                  opcoes:['Sim','Não'],
+                  value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',
+                  onChange:e=>set('equipamentos_quantidades',{
+                    ...f.equipamentos_quantidades,[ch]:e.target.value==='Sim'?1:0
+                  })
+                }),
+                h(Input,{
+                  type:'number',min:1,step:1,placeholder:'Quantidade',
+                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  value:f.equipamentos_quantidades[ch]||'',
+                  onChange:e=>set('equipamentos_quantidades',{
+                    ...f.equipamentos_quantidades,[ch]:e.target.value
+                  })
+                })
+              )
+            )
+          ),
+          h(Campo,{label:'Esteiras por forno'},
+            h(Select,{opcoes:['5','8'],value:f.forno_esteiras,
+              onChange:e=>set('forno_esteiras',e.target.value)}))
+        ),
         h('div',{className:'sub-title'},'Freezers, Expositores, Armários e Câmaras'),
         h('div',{className:'form-grid'},
           ...EQUIPAMENTOS_VARIANTES.map(([ch,nome])=>
@@ -1295,7 +1318,9 @@ function linhaInfo(label, valor) {
 const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['freezer_vertical','Freezer Vertical'],['expositor','Expositor'],['mini_camara','Mini câmara'],['armario_completo','Armário Completo'],['armario_vazio','Armário Vazio'],['armario_esqueleto','Armário Esqueleto'],['camara_20','Câmara Climática 20 Esteiras'],['camara_40','Câmara Climática 40 Esteiras']];
 function itensEquipamentosFicha(f,condicaoFinal){
   const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
-  if(f.forno_tipo)a.push({quantidade:Number(f.forno_quantidade||1),descricao:`FORNO ${String(f.forno_tipo).toUpperCase()}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});
+  const fornos=f.equipamentos_quantidades||{};
+  [['forno_gas','GÁS'],['forno_eletrico','ELÉTRICO']].forEach(([k,n])=>{if(Number(fornos[k]||0)>0)a.push({quantidade:Number(fornos[k]),descricao:`FORNO ${n}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});});
+  if(!Number(fornos.forno_gas||0)&&!Number(fornos.forno_eletrico||0)&&f.forno_tipo)a.push({quantidade:Number(f.forno_quantidade||1),descricao:`FORNO ${String(f.forno_tipo).toUpperCase()}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)a.push({quantidade:qtd,descricao:nome.toUpperCase(),patrimonio:'',condicao:c});});
   if(!Object.keys(f.equipamentos_quantidades||{}).length)(f.freezer_tipos||[]).forEach(x=>a.push({quantidade:1,descricao:'FREEZER '+String(x).toUpperCase(),patrimonio:'',condicao:c}));
   if(!Object.keys(f.equipamentos_quantidades||{}).length&&f.armario_tipo)a.push({quantidade:1,descricao:'ARMÁRIO '+String(f.armario_tipo).toUpperCase(),patrimonio:'',condicao:c});
@@ -1308,7 +1333,8 @@ function itensEquipamentosFicha(f,condicaoFinal){
 function resumoEquipamentos(f) {
   if (!f.precisa_equipamento) return 'Não';
   const partes = [f.equipamento_condicao];
-  if (f.forno_tipo) partes.push(`Forno ${f.forno_tipo}${f.forno_quantidade ? ' x' + f.forno_quantidade : ''}${f.forno_esteiras ? ' (' + f.forno_esteiras + ' esteiras)' : ''}`);
+  [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].forEach(([k,n])=>{const q=Number((f.equipamentos_quantidades||{})[k]||0);if(q>0)partes.push(n+' x'+q);});
+  if(!Number((f.equipamentos_quantidades||{}).forno_gas||0)&&!Number((f.equipamentos_quantidades||{}).forno_eletrico||0)&&f.forno_tipo) partes.push(`Forno ${f.forno_tipo}${f.forno_quantidade ? ' x' + f.forno_quantidade : ''}${f.forno_esteiras ? ' (' + f.forno_esteiras + ' esteiras)' : ''}`);
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)partes.push(nome+' x'+qtd);});
   if (!Object.keys(f.equipamentos_quantidades||{}).length&&f.freezer_tipos && f.freezer_tipos.length) partes.push('Freezer: ' + f.freezer_tipos.join(', '));
   if (!Object.keys(f.equipamentos_quantidades||{}).length&&f.armario_tipo) partes.push('Armário ' + f.armario_tipo);
@@ -5826,6 +5852,7 @@ function PaginaRotas({ profile, visao }) {
 }
 
 // LOGÍSTICA — triagem gerada no banco ao decidir a primeira etapa da ficha.
+function nomeDiaRota(d){const dias=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];if(d===null||d===undefined||d==='')return 'Dia não definido';const n=Number(d);if(Number.isInteger(n)&&n>=0&&n<=6)return dias[n];if(Number.isInteger(n)&&n===7)return 'Domingo';return String(d).replace(/-feira/gi,'').replace(/^./,c=>c.toUpperCase());}
 function PaginaLogisticaFichas({profile}) {
   const toast=useToast();
   const [fila,setFila]=useState([]);
@@ -5872,7 +5899,7 @@ function PaginaLogisticaFichas({profile}) {
       className:'form-input',value:escolhas[x.id]||x.rota_id||'',
       onChange:e=>setEscolhas(p=>({...p,[x.id]:e.target.value}))
     },h('option',{value:''},'Selecione'),
-      rotas.map(r=>h('option',{key:r.id,value:r.id},r.nome))
+      rotas.map(r=>h('option',{key:r.id,value:r.id},r.nome+' — '+nomeDiaRota(r.dia_semana)))
     )),
     h('td',null,h('button',{
       className:'btn btn-primary btn-sm',disabled:!x.cliente_id,onClick:()=>vincular(x)
