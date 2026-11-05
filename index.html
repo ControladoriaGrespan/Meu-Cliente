@@ -5927,40 +5927,48 @@ function PaginaLogisticaFichas({profile}){
     for(const v of remover){const x=await sb.from('cliente_rotas').delete().eq('id',v.id);if(x.error)toast('Não foi possível remover rota anterior: '+x.error.message,'error');}
     setSalvando(null);toast('Planejamento salvo: '+qtd+' entrega(s) semanal(is).','success');await carregar();
   }
+  const linhas=fila.map(item=>{
+    const qtd=qtdItem(item);
+    const ids=rotasItem(item).slice(0,qtd);
+    const selecionadas=ids.map(id=>rotas.find(r=>r.id===id)).filter(Boolean);
+    const seletores=[];
+    for(let i=0;i<qtd;i++){
+      const opcoes=[h('option',{key:'empty',value:''},'Selecione a rota '+(i+1))];
+      rotas.forEach(r=>opcoes.push(h('option',{key:r.id,value:r.id},r.nome+' — '+nomeDiaRota(r.dia_semana))));
+      seletores.push(h('select',{key:i,className:'form-input',value:ids[i]||'',
+        onChange:e=>atualizarRota(item,i,e.target.value)},...opcoes));
+    }
+    const previsoes=selecionadas.map(r=>h('div',{key:r.id},
+      nomeDiaRota(r.dia_semana)+' — '+proximaEntregaRota(r.dia_semana)));
+    return h('tr',{key:item.id},
+      h('td',null,(item.ficha_id||'').slice(0,8)),
+      h('td',null,item.razao_social||'—'),
+      h('td',null,item.decisao_primeira_etapa),
+      h('td',null,item.status),
+      h('td',null,h('input',{className:'form-input',type:'number',min:1,max:7,step:1,
+        style:{width:80},value:qtd,onChange:e=>atualizarQtd(item,e.target.value)})),
+      h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:220}},...seletores)),
+      h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:170}},...previsoes)),
+      h('td',null,qtd+' entrega(s)'),
+      h('td',null,h('button',{className:'btn btn-primary btn-sm',
+        disabled:!item.cliente_id||salvando===item.id,onClick:()=>vincular(item)},
+        salvando===item.id?'Salvando...':'Salvar rotas'))
+    );
+  });
+  const cabecalho=h('thead',null,h('tr',null,
+    ...['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão de entrega','Entregas/semana','Ação']
+      .map(t=>h('th',{key:t},t))));
+  const tabela=h('div',{style:{overflowX:'auto'}},
+    h('table',{className:'table'},cabecalho,h('tbody',null,...linhas)));
+  const conteudo=carregando?h('p',null,'Carregando...'):
+    fila.length===0?h('p',null,'Nenhuma ficha recebida pela Logística.'):tabela;
   return h('div',null,
-    h('div',{className:'page-head'},h('div',null,h('h2',null,'Logística — Fichas e Rotas'),
-      h('div',{className:'page-sub'},'Defina a quantidade de rotas e as previsões de entrega semanais.'))),
+    h('div',{className:'page-head'},
+      h('div',null,h('h2',null,'Logística — Fichas e Rotas'),
+        h('div',{className:'page-sub'},'Defina as rotas e previsões de entrega semanais.'))),
     h('div',{className:'card'},
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),
-      carregando?h('p',null,'Carregando...'):fila.length===0?h('p',null,'Nenhuma ficha recebida pela Logística.'):
-      h('div',{style:{overflowX:'auto'}},h('table',{className:'table'},
-        h('thead',null,h('tr',null,
-          ['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão de entrega','Entregas/semana','Ação'].map(t=>h('th',{key:t},t)))),
-        h('tbody',null,fila.map(item=>{
-          const qtd=qtdItem(item),ids=rotasItem(item).slice(0,qtd);
-          const selecionadas=ids.map(id=>rotas.find(r=>r.id===id)).filter(Boolean);
-          return h('tr',{key:item.id},
-            h('td',null,(item.ficha_id||'').slice(0,8)),
-            h('td',null,item.razao_social||'—'),
-            h('td',null,item.decisao_primeira_etapa),
-            h('td',null,item.status),
-            h('td',null,h('input',{className:'form-input',type:'number',min:1,max:7,step:1,
-              style:{width:80},value:qtd,onChange:e=>atualizarQtd(item,e.target.value)})),
-            h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:220}},
-              Array.from({length:qtd},(_,i)=>h('select',{key:i,className:'form-input',
-                value:ids[i]||'',onChange:e=>atualizarRota(item,i,e.target.value)},
-                h('option',{value:''},'Selecione a rota '+(i+1)),
-                rotas.map(r=>h('option',{key:r.id,value:r.id},r.nome+' — '+nomeDiaRota(r.dia_semana))))))),
-            h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:170}},
-              selecionadas.map(r=>h('div',{key:r.id},nomeDiaRota(r.dia_semana)+' — '+proximaEntregaRota(r.dia_semana))))),
-            h('td',null,qtd+' entrega(s)'),
-            h('td',null,h('button',{className:'btn btn-primary btn-sm',
-              disabled:!item.cliente_id||salvando===item.id,onClick:()=>vincular(item)},
-              salvando===item.id?'Salvando...':'Salvar rotas'))
-          );
-        })))
-      ))
-    )
+      conteudo)
   );
 }
 
