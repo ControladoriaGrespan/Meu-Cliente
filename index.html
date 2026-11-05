@@ -5894,11 +5894,12 @@ function PaginaLogisticaFichas({profile}){
   function qtdItem(item){
     return escolhas[item.id]?.qtd||Math.max(1,Number(item.qtd_rotas||rotasItem(item).length||1));
   }
-  function kgItem(item){return escolhas[item.id]?.kg||item.previsao_kg_rotas||{};}
-  function atualizarKg(item,id,valor){if(!id)return;setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids:rotasItem(item),kg:{...kgItem(item),[id]:valor}}}));}
+  function mensalItem(item){return escolhas[item.id]?.mensal??String(item.previsao_kg_mensal??'');}
+  function atualizarMensal(item,valor){setEscolhas(p=>({...p,[item.id]:{qtd:qtdItem(item),ids:rotasItem(item),mensal:valor}}));}
+  function calcularKg(item){const mensal=Number(String(mensalItem(item)).replace(',','.'))||0;const qtd=qtdItem(item);const semanal=Math.round(mensal*12/52*100)/100;const centavos=Math.round(mensal*12/52*100);const base=Math.floor(centavos/qtd);return {semanal,porRota:Array.from({length:qtd},(_,i)=>(base+(i<centavos%qtd?1:0))/100)};}
   function atualizarQtd(item,valor){
     const qtd=Math.max(1,Math.min(7,Number(valor)||1));
-    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd),kg:kgItem(item)}}));
+    setEscolhas(p=>({...p,[item.id]:{qtd,ids:rotasItem(item).slice(0,qtd),mensal:mensalItem(item)}}));
   }
   function atualizarRota(item,indice,id){
     const ids=[...rotasItem(item)];ids[indice]=id;
@@ -5910,10 +5911,11 @@ function PaginaLogisticaFichas({profile}){
     if(ids.length!==qtd||ids.some(id=>!id))return toast('Selecione todas as rotas.','error');
     if(new Set(ids).size!==ids.length)return toast('Não repita a mesma rota.','error');
     if(ids.some(id=>!rotas.some(r=>r.id===id)))return toast('Uma das rotas não está ativa.','error');
-    const kg=kgItem(item),valores=ids.map(id=>String(kg[id]??'').trim().replace(',','.'));
-    if(valores.some(v=>v===''||!/^\d+(?:\.\d{1,2})?$/.test(v)))return toast('Informe Kg por rota com até 2 casas decimais.','error');
-    const centavos=valores.reduce((n,v)=>n+Math.round(Number(v)*100),0);
-    const kgPorRota=Object.fromEntries(ids.map((id,i)=>[id,Math.round(Number(valores[i])*100)/100]));
+    const mensalTexto=String(mensalItem(item)).trim().replace(',','.');
+    if(!/^\d+(?:\.\d{1,2})?$/.test(mensalTexto))return toast('Informe a previsão mensal em Kg com até duas casas decimais.','error');
+    const mensal=Number(mensalTexto),calculado=calcularKg(item);
+    const centavos=Math.round(calculado.semanal*100);
+    const kgPorRota=Object.fromEntries(ids.map((id,i)=>[id,calculado.porRota[i]]));
     setSalvando(item.id);
     const existentes=vinculos.filter(v=>v.cliente_id===item.cliente_id);
     const faltantes=ids.filter(id=>!existentes.some(v=>v.rota_id===id));
@@ -5926,7 +5928,7 @@ function PaginaLogisticaFichas({profile}){
       }
       criados.push(res.data.id);
     }
-    const dados={status:'vinculado',rota_id:ids[0],rotas_ids:ids,qtd_rotas:qtd,entregas_semanais:qtd,previsao_kg_rotas:kgPorRota,previsao_kg_semanal:centavos/100,atualizado_por:profile.id,atualizado_em:new Date().toISOString()};
+    const dados={status:'vinculado',rota_id:ids[0],rotas_ids:ids,qtd_rotas:qtd,entregas_semanais:qtd,previsao_kg_rotas:kgPorRota,previsao_kg_semanal:centavos/100,previsao_kg_mensal:mensal,atualizado_por:profile.id,atualizado_em:new Date().toISOString()};
     const u=await sb.from('logistica_fichas').update(dados).eq('id',item.id);
     if(u.error){setSalvando(null);return toast('Vínculos criados, mas não foi possível salvar o planejamento: '+u.error.message,'error');}
     const remover=existentes.filter(v=>!ids.includes(v.rota_id));
@@ -5936,8 +5938,8 @@ function PaginaLogisticaFichas({profile}){
   const linhas=fila.map(item=>{
     const qtd=qtdItem(item);
     const ids=rotasItem(item).slice(0,qtd);
-    const kg=kgItem(item);
-    const totalKg=ids.reduce((n,id)=>n+(Number(String(kg[id]??0).replace(',','.'))||0),0);
+    const calculado=calcularKg(item);
+    const totalKg=calculado.semanal;
     const selecionadas=ids.map(id=>rotas.find(r=>r.id===id)).filter(Boolean);
     const seletores=[];
     for(let i=0;i<qtd;i++){
@@ -5946,8 +5948,8 @@ function PaginaLogisticaFichas({profile}){
       seletores.push(h('select',{key:i,className:'form-input',value:ids[i]||'',
         onChange:e=>atualizarRota(item,i,e.target.value)},...opcoes));
     }
-    const previsoes=Array.from({length:qtd},(_,i)=>h('div',{key:i,style:{display:'flex',gap:5,alignItems:'center'}},
-      h('input',{className:'form-input',type:'number',min:0,step:'0.01',placeholder:'Kg por entrega',style:{width:125},disabled:!ids[i],value:ids[i]?(kg[ids[i]]??''):'',onChange:e=>atualizarKg(item,ids[i],e.target.value)}),h('span',null,'Kg')));
+    const previsoes=Array.from({length:qtd},(_,i)=>h('div',{key:i},
+      ids[i]?(calculado.porRota[i].toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kg'):'Selecione a rota'));
     return h('tr',{key:item.id},
       h('td',null,(item.ficha_id||'').slice(0,8)),
       h('td',null,item.razao_social||'—'),
@@ -5956,6 +5958,7 @@ function PaginaLogisticaFichas({profile}){
       h('td',null,h('input',{className:'form-input',type:'number',min:1,max:7,step:1,
         style:{width:80},value:qtd,onChange:e=>atualizarQtd(item,e.target.value)})),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:220}},...seletores)),
+      h('td',null,h('input',{className:'form-input',type:'number',min:0,step:'0.01',style:{width:130},placeholder:'Kg/mês',value:mensalItem(item),onChange:e=>atualizarMensal(item,e.target.value)})),
       h('td',null,h('div',{style:{display:'grid',gap:6,minWidth:170}},...previsoes)),
       h('td',null,h('strong',null,totalKg.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kg'),h('div',null,qtd+' entrega(s)/semana')),
       h('td',null,h('button',{className:'btn btn-primary btn-sm',
@@ -5964,7 +5967,7 @@ function PaginaLogisticaFichas({profile}){
     );
   });
   const cabecalho=h('thead',null,h('tr',null,
-    ...['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão francês (Kg/entrega)','Total semanal (Kg)','Ação']
+    ...['Ficha','Cliente','Primeira decisão','Situação','Qtd. rotas','Rotas e dias','Previsão mensal (Kg)','Kg por rota/entrega','Total semanal (Kg)','Ação']
       .map(t=>h('th',{key:t},t))));
   const tabela=h('div',{style:{overflowX:'auto'}},
     h('table',{className:'table'},cabecalho,h('tbody',null,...linhas)));
@@ -5973,7 +5976,7 @@ function PaginaLogisticaFichas({profile}){
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('h2',null,'Logística — Fichas e Rotas'),
-        h('div',{className:'page-sub'},'Informe a previsão de venda de pão francês em Kg por rota; o total semanal é calculado automaticamente.'))),
+        h('div',{className:'page-sub'},'Informe a previsão mensal de venda de pão francês em Kg. O sistema divide por 52/12 semanas e distribui automaticamente entre as rotas semanais.'))),
     h('div',{className:'card'},
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Atualizar'),
       conteudo)
