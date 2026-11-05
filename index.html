@@ -1248,7 +1248,7 @@ function PaginaEmissao({ profile, onSaved }) {
               h(Select,{opcoes:['Sim','Não'],value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',onChange:e=>set('equipamentos_quantidades',{...f.equipamentos_quantidades,[ch]:e.target.value==='Sim'?1:0})}),
               h(Input,{type:'number',min:1,step:1,placeholder:'Qtd.',disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),value:f.equipamentos_quantidades[ch]||'',onChange:e=>set('equipamentos_quantidades',{...f.equipamentos_quantidades,[ch]:e.target.value})})))),
           h(Campo,{label:'Esteiras — quantidade'},h(Input,{type:'number',min:0,step:1,value:f.esteiras_quantidade,onChange:e=>set('esteiras_quantidade',e.target.value)})),
-          h(Campo,{label:'Assadeiras — quantidade'},h(Input,{type:'number',min:0,step:1,value:f.assadeiras_quantidade,onChange:e=>set('assadeiras_quantidade',e.target.value)}))))))),
+          h(Campo,{label:'Assadeiras — quantidade'},h(Input,{type:'number',min:0,step:1,value:f.assadeiras_quantidade,onChange:e=>set('assadeiras_quantidade',e.target.value)}))))),
 
     h('div', { className: 'card' },
       h(Campo, { label: 'Observações' },
