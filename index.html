@@ -2877,7 +2877,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         h('div', { className: 'section-title' }, 'Fichas de cadastro'),
         pendentes.map(ap => {
           const f = ap && ap.fichas_clientes;
-          if (!f) return null;
+          if (!f) return h('div',{className:'card',key:ap.id},h('strong',null,'Aprovação pendente — ficha não acessível'),h('p',null,'Etapa: '+ap.etapa+' · Ficha: '+(ap.ficha_id||'—')),h('p',null,'A política de acesso (RLS) está impedindo a leitura dos dados da ficha. Solicite ajuste ao administrador.'));
           return h('div', { className: 'card', key: ap.id },
             h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 12 } },
               h('div', null,
