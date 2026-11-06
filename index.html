@@ -6288,7 +6288,10 @@ function PaginaPedidos({ profile }) {
     setItens(itens.map((it, i) => {
       if (i !== idx) return it;
       const novo = { ...it, [campo]: valor };
-      if(campo==='tipo_item')novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
+      if(campo==='tipo_item'){
+        novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
+        novo.valor_unitario=valor==='bonificacao'?0:(Object.prototype.hasOwnProperty.call(tabelaPrecoCliente,novo.produto_id)?tabelaPrecoCliente[novo.produto_id]:'');
+      }
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
         if (prod) { novo.codigo = prod.codigo; novo.descricao = prod.descricao; novo.unidade = prod.unidade; }
@@ -6370,7 +6373,8 @@ function PaginaPedidos({ profile }) {
       // EDITAR: atualiza observacoes e substitui os itens
       const {error:ecab}=await sb.from('pedidos').update({observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs}).eq('id',pedidoId);
       if(ecab){setSalvando(false);return toast(ecab.message,'error');}
-      // remove itens antigos e insere novos
+      // ATENÇÃO: atualização de itens deve ser transacional no banco.
+      // A edição permanece com o fluxo legado até RPC de substituição atômica.
       await sb.from('pedido_itens').delete().eq('pedido_id', pedidoId);
       const { error: errIt } = await sb.from('pedido_itens').insert(
         validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda',numero_nf:Number(it.numero_nf||1),codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido) })));
@@ -6584,7 +6588,7 @@ function PaginaPedidos({ profile }) {
                               }))
                             })),
                             h('td', null, h('select', { className: 'form-select', style: { minWidth: 115 }, value: it.tipo_item || 'venda', onChange: e => {
-                              const tipo = e.target.value; setItem(i, 'tipo_item', tipo); if (tipo === 'bonificacao') setItem(i, 'valor_unitario', 0);
+                              const tipo=e.target.value;setItem(i,'tipo_item',tipo);
                             } }, h('option', { value: 'venda' }, 'Compra'), h('option', { value: 'bonificacao' }, 'Bonificação'))),
                             h('td',{style:{fontSize:12,color:'var(--text-muted)'}},
                                it.descricao||'—',
@@ -6602,7 +6606,7 @@ function PaginaPedidos({ profile }) {
                             h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeItem(i) }, '\u2717')));
                         }),
                         h('tr', null,
-                          h('td', { colSpan: 5, style: { textAlign: 'right', fontWeight: 600 } }, 'Total'),
+                          h('td', { colSpan: 7, style: { textAlign: 'right', fontWeight: 600 } }, 'Total'),
                           h('td', { className: 'mono strong' }, fmtMoeda(itens.reduce((s, it) => s + (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0), 0))),
                           h('td', null))))),
                   h('div', { style: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' } },
