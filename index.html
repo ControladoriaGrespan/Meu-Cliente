@@ -6065,6 +6065,7 @@ function PaginaPedidos({ profile }) {
   const [obsPedido, setObsPedido] = useState('');
   const [numeroNf, setNumeroNf] = useState(1);
   const [totalNfs, setTotalNfs] = useState(1);
+  const [operacaoPedido,setOperacaoPedido]=useState('01');
   const [tabelaPrecoCliente, setTabelaPrecoCliente] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
@@ -6191,7 +6192,7 @@ function PaginaPedidos({ profile }) {
 
   async function selecionarCliente(cli) {
     try {
-    setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
+    setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false);setOperacaoPedido('01'); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
     // carrega tabela de precos do cliente
     setTabelaPrecoCliente({});
     let mapaTabelaPreco = {};
@@ -6239,7 +6240,7 @@ function PaginaPedidos({ profile }) {
       // editar pedido existente
       setPedidoEditandoId(pedidoHoje.id);
       setPedidoEditandoCodigo(pedidoHoje.codigo || null);
-      setObsPedido(pedidoHoje.observacoes || '');
+      setObsPedido(pedidoHoje.observacoes || '');setTotalNfs(pedidoHoje.total_nfs||1);setOperacaoPedido(pedidoHoje.codigo_operacao||'01');
       setItens(pedidoHoje.pedido_itens.map(it => ({
         item_id: it.id,
         produto_id: it.produto_id,
@@ -6248,7 +6249,7 @@ function PaginaPedidos({ profile }) {
         unidade: it.produtos && it.produtos.unidade,
         quantidade: it.quantidade,
         valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''),
-        tipo_item: it.tipo_item || 'venda',
+        tipo_item: it.tipo_item || 'venda',numero_nf:it.numero_nf||1,codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||pedidoHoje.codigo_operacao||'01'),
       })));
       // busca pedido anterior (o penultimo)
       const { data: ant } = await sb.from('pedidos')
@@ -6271,7 +6272,7 @@ function PaginaPedidos({ profile }) {
           codigo: it.produtos && it.produtos.codigo,
           descricao: it.produtos && it.produtos.descricao,
           unidade: it.produtos && it.produtos.unidade,
-          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''), tipo_item: it.tipo_item || 'venda',
+          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''), tipo_item: it.tipo_item || 'venda',numero_nf:1,codigo_operacao:it.tipo_item==='bonificacao'?'04':'01',
         })));
       }
     }
@@ -6281,12 +6282,13 @@ function PaginaPedidos({ profile }) {
     }
   }
 
-  function addItem() { setItens([...itens, { produto_id: '', codigo: '', descricao: '', unidade: '', quantidade: '', valor_unitario: '', tipo_item: 'venda' }]); }
+  function addItem() { setItens([...itens, { produto_id: '', codigo: '', descricao: '', unidade: '', quantidade: '', valor_unitario: '', tipo_item: 'venda',numero_nf:1,codigo_operacao:operacaoPedido }]); }
   function removeItem(idx) { setItens(itens.filter((_, i) => i !== idx)); }
   function setItem(idx, campo, valor) {
     setItens(itens.map((it, i) => {
       if (i !== idx) return it;
       const novo = { ...it, [campo]: valor };
+      if(campo==='tipo_item')novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
         if (prod) { novo.codigo = prod.codigo; novo.descricao = prod.descricao; novo.unidade = prod.unidade; }
@@ -6341,7 +6343,7 @@ function PaginaPedidos({ profile }) {
         quantidade: qtdBonificacao,
         valor_unitario: 0,
         tipo_item: 'bonificacao',
-        solicitacao_bonificacao_id: sol.id
+        solicitacao_bonificacao_id: sol.id,numero_nf:1,codigo_operacao:'04'
       });
 
       return novos;
@@ -6358,17 +6360,20 @@ function PaginaPedidos({ profile }) {
   async function salvarPedido() {
     const validos = itens.filter(it => it.produto_id && Number(it.quantidade) > 0 && ((it.tipo_item || 'venda') === 'bonificacao' || Number(it.valor_unitario) > 0));
     if (!validos.length) return toast('Adicione pelo menos um item.', 'error');
+    if(validos.some(it=>Number(it.numero_nf||1)<1||Number(it.numero_nf||1)>totalNfs))return toast('Confira a NF dos itens.','error');
+    if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))return toast('Cada NF precisa ter ao menos um item.','error');
     setSalvando(true);
 
     let pedidoId = pedidoEditandoId;
 
     if (pedidoId) {
       // EDITAR: atualiza observacoes e substitui os itens
-      await sb.from('pedidos').update({ observacoes: obsPedido.trim() || null }).eq('id', pedidoId);
+      const {error:ecab}=await sb.from('pedidos').update({observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs}).eq('id',pedidoId);
+      if(ecab){setSalvando(false);return toast(ecab.message,'error');}
       // remove itens antigos e insere novos
       await sb.from('pedido_itens').delete().eq('pedido_id', pedidoId);
       const { error: errIt } = await sb.from('pedido_itens').insert(
-        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda' })));
+        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda',numero_nf:Number(it.numero_nf||1),codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido) })));
       setSalvando(false);
       if (errIt) return toast(errIt.message, 'error');
       const total = validos.reduce((s, it) => s + Number(it.quantidade) * Number(it.valor_unitario), 0);
@@ -6378,13 +6383,13 @@ function PaginaPedidos({ profile }) {
       const { data: pedido, error } = await sb.from('pedidos').insert({
         cliente_id: clienteAtivo.id, rota_id: lancando.rota.id, criado_por: profile.id,
         data_pedido: lancando.data, observacoes: obsPedido.trim() || null,
-        numero_nf: numeroNf,
+        numero_nf: 1,codigo_operacao:operacaoPedido,total_nfs:totalNfs,
       }).select().single();
       if (error) { setSalvando(false); return toast(error.message, 'error'); }
       pedidoId = pedido.id;
       setPedidoEditandoCodigo(pedido.codigo || null);
       const { error: errIt } = await sb.from('pedido_itens').insert(
-        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda' })));
+        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda',numero_nf:Number(it.numero_nf||1),codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido) })));
       setSalvando(false);
       if (errIt) return toast(errIt.message, 'error');
       const total = validos.reduce((s, it) => s + Number(it.quantidade) * Number(it.valor_unitario), 0);
@@ -6424,20 +6429,9 @@ function PaginaPedidos({ profile }) {
 
     await alterarStatusCliente(clienteAtivo.id, 'pedido_fechado');
 
-    // se tem mais NFs pra preencher, fica no mesmo cliente
-    if (numeroNf < totalNfs) {
-      setNumeroNf(numeroNf + 1);
-      setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null);
-      toast('NF ' + numeroNf + ' salva. Agora lance a NF ' + (numeroNf + 1) + ' de ' + totalNfs + '.', 'info');
-    } else {
-      const idx = lancando.clientesRota.findIndex(c => c.id === clienteAtivo.id);
-      if (idx >= 0 && idx < lancando.clientesRota.length - 1) {
-        selecionarCliente(lancando.clientesRota[idx + 1]);
-      } else {
-        toast('Todos os clientes desta rota foram atendidos!', 'success');
-        setLancando(null); carregar();
-      }
-    }
+    const idx=lancando.clientesRota.findIndex(c=>c.id===clienteAtivo.id);
+    if(idx>=0&&idx<lancando.clientesRota.length-1)selecionarCliente(lancando.clientesRota[idx+1]);
+    else {toast('Todos os clientes desta rota foram atendidos!','success');setLancando(null);carregar();}
   }
 
   function voltarCalendario() { setLancando(null); carregar(); }
@@ -6505,9 +6499,10 @@ function PaginaPedidos({ profile }) {
                   h('div', { style: { marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
                     h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
                       h('span', { style: { fontSize: 12, color: 'var(--text-muted)' } }, 'Qtd de NFs:'),
-                      h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange: e => { setTotalNfs(Number(e.target.value)); setNumeroNf(1); } },
+                      h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange:e=>{const n=Number(e.target.value);setTotalNfs(n);setItens(prev=>prev.map(it=>({...it,numero_nf:Math.min(Number(it.numero_nf||1),n)})));} },
                         [1,2,3,4,5].map(n => h('option', { key: n, value: n }, n)))),
-                    totalNfs > 1 && h('span', { className: 'badge badge-blue' }, 'NF ' + numeroNf + ' de ' + totalNfs),
+                    h('span',{className:'badge badge-blue'},'Distribua os itens entre '+totalNfs+' NF(s)'),
+                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op))))),
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
@@ -6573,7 +6568,7 @@ function PaginaPedidos({ profile }) {
                    h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
                   h('div', { className: 'table-wrap' },
                     h('table', null,
-                      h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
+                      h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'NF'), h('th', null, 'Operação'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
                       h('tbody', null,
                         itens.map((it, i) => {
                           const vt = (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0);
@@ -6597,6 +6592,8 @@ function PaginaPedidos({ profile }) {
                                  !historicoPedidos.some(p=>(p.pedido_itens||[]).some(x=>x.produto_id===it.produto_id&&(x.tipo_item||'venda')!=='bonificacao'))&&
                                  h('div',{style:{color:'var(--warning)',fontWeight:600,marginTop:4}},
                                    '⚠ Produto diferente do histórico de compras. Confira peso/gramatura antes de salvar.')),
+                            h('td',null,h('select',{className:'form-select',value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
+                            h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 90 }, type: 'number', step: '0.01', min: 0,
