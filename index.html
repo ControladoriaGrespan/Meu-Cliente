@@ -6227,9 +6227,18 @@ function PaginaPedidos({ profile }) {
     setAmostrasAbertas(amostrasAprovadas);
     setAmostrasVinculadas([]);
 
-    const {data:historico,error:erroHistorico}=await sb.from('pedidos').select('id,codigo,data_pedido,created_at,pedido_itens(produto_id,quantidade,valor_total,tipo_item,produtos(codigo,descricao,peso_kg))').eq('cliente_id',cli.id).order('data_pedido',{ascending:false}).order('created_at',{ascending:false}).limit(100);
+    const {data:historico,error:erroHistorico}=await sb.from('pedidos').select('id,codigo,data_pedido,created_at,pedido_itens(produto_id,quantidade,valor_unitario,valor_total,tipo_item,produtos(codigo,descricao,peso_kg))').eq('cliente_id',cli.id).order('data_pedido',{ascending:false}).order('created_at',{ascending:false}).limit(100);
     if(erroHistorico)toast('Histórico: '+erroHistorico.message,'error');
     setHistoricoPedidos(historico||[]);
+    // Preço de referência por produto: pedido mais recente com preço positivo.
+    // Nunca usar o preço de outro produto como substituto.
+    const precosHistoricos={};
+    (historico||[]).forEach(p=>(p.pedido_itens||[]).forEach(it=>{
+      if(it.produto_id && (it.tipo_item||'venda')!=='bonificacao' &&
+         Number(it.valor_unitario)>0 &&
+         !Object.prototype.hasOwnProperty.call(precosHistoricos,it.produto_id))
+        precosHistoricos[it.produto_id]=Number(it.valor_unitario);
+    }));
     // verifica se ja existe pedido para este cliente NESTA data
     const { data: pedidoHoje } = await sb.from('pedidos')
       .select('*, pedido_itens(*, produtos(codigo, descricao, unidade, peso_kg))')
@@ -6248,7 +6257,7 @@ function PaginaPedidos({ profile }) {
         descricao: it.produtos && it.produtos.descricao,
         unidade: it.produtos && it.produtos.unidade,
         quantidade: it.quantidade,
-        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : (it.valor_unitario ?? '')),
+        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Number(it.valor_unitario)>0 ? Number(it.valor_unitario) : (Number(mapaTabelaPreco[it.produto_id])>0 ? Number(mapaTabelaPreco[it.produto_id]) : (precosHistoricos[it.produto_id] ?? ''))),
         tipo_item: it.tipo_item || 'venda',numero_nf:it.numero_nf||1,codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||pedidoHoje.codigo_operacao||'01'),
       })));
       // busca pedido anterior (o penultimo)
@@ -6272,7 +6281,7 @@ function PaginaPedidos({ profile }) {
           codigo: it.produtos && it.produtos.codigo,
           descricao: it.produtos && it.produtos.descricao,
           unidade: it.produtos && it.produtos.unidade,
-          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''), tipo_item: it.tipo_item || 'venda',numero_nf:1,codigo_operacao:it.tipo_item==='bonificacao'?'04':'01',
+          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Number(mapaTabelaPreco[it.produto_id])>0 ? Number(mapaTabelaPreco[it.produto_id]) : (precosHistoricos[it.produto_id] ?? '')), tipo_item: it.tipo_item || 'venda',numero_nf:1,codigo_operacao:it.tipo_item==='bonificacao'?'04':'01',
         })));
       }
     }
@@ -6633,11 +6642,11 @@ function PaginaPedidos({ profile }) {
                                  !historicoPedidos.some(p=>(p.pedido_itens||[]).some(x=>x.produto_id===it.produto_id&&(x.tipo_item||'venda')!=='bonificacao'))&&
                                  h('div',{style:{color:'var(--warning)',fontWeight:600,marginTop:4}},
                                    '⚠ Produto diferente do histórico de compras. Confira peso/gramatura antes de salvar.')),
-                            h('td',null,h('select',{className:'form-select',value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
+                            h('td',null,h('select',{className:'form-select',style:{minWidth:92,width:92},value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
                             h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
-                            h('td', null, h('input', { className: 'form-input sm', style: { width: 90 }, type: 'number', step: '0.01', min: 0,
+                            h('td', null, h('input', { className: 'form-input sm', style: { width: 110, minWidth:110 }, type: 'number', step: '0.01', min: 0, placeholder:'Informe preço',
                               value: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : it.valor_unitario, disabled: (it.tipo_item || 'venda') === 'bonificacao', onChange: e => setItem(i, 'valor_unitario', e.target.value) })),
                             h('td', { className: 'mono strong' }, vt > 0 ? fmtMoeda(vt) : '—'),
                             h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeItem(i) }, '\u2717')));
