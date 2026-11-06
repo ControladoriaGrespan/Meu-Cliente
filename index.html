@@ -6597,7 +6597,7 @@ function PaginaPedidos({ profile }) {
     setExportandoTotvs(true);
     try{
       const {data:pedidos,error}=await sb.from('pedidos')
-        .select('id,codigo,cliente_id,rota_id,data_pedido,total_nfs,clientes(codigo_totvs,loja_totvs),pedido_itens(id,produto_id,quantidade,numero_nf,codigo_operacao,produtos(codigo))')
+        .select('id,codigo,cliente_id,rota_id,data_pedido,total_nfs,clientes(codigo_totvs,loja_totvs),pedido_itens(id,produto_id,quantidade,numero_nf,tipo_item,codigo_operacao,produtos(codigo))')
         .eq('rota_id',lancando.rota.id).eq('data_pedido',lancando.data)
         .order('created_at',{ascending:true});
       if(error)throw new Error('Falha ao consultar pedidos: '+error.message);
@@ -6623,7 +6623,7 @@ function PaginaPedidos({ profile }) {
         }
         for(const item of pedido.pedido_itens||[]){
           const prod=String(item.produtos?.codigo||'').trim();
-          const operacao=item.codigo_operacao||'01';
+          const operacao=item.tipo_item==='bonificacao'?'04':(item.codigo_operacao||'01');
           const nf=Number(item.numero_nf||1);
           const qtd=Number(item.quantidade);
           if(!prod||!(qtd>0)||!Number.isInteger(nf)||nf<1||nf>Number(pedido.total_nfs||1)){
@@ -6645,6 +6645,7 @@ function PaginaPedidos({ profile }) {
           linhas.push({nf,codigo,loja,produto:prod,qtd,operacao,tes});
         }
       }
+      for(const cliente of clientesRota)if(!porCliente[cliente.id])erros.push('Cliente '+(cliente.codigo_totvs||cliente.id)+' marcado como fechado, mas sem pedido nesta rota/data.');
       for(const [cliente,qtd] of Object.entries(porCliente))
         if(qtd>1)erros.push('Há '+qtd+' pedidos do mesmo cliente ('+cliente+') nesta rota/data. Revise duplicidades antes da exportação.');
       if(erros.length){
