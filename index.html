@@ -6248,7 +6248,7 @@ function PaginaPedidos({ profile }) {
         descricao: it.produtos && it.produtos.descricao,
         unidade: it.produtos && it.produtos.unidade,
         quantidade: it.quantidade,
-        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : ''),
+        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Object.prototype.hasOwnProperty.call(mapaTabelaPreco, it.produto_id) ? mapaTabelaPreco[it.produto_id] : (it.valor_unitario ?? '')),
         tipo_item: it.tipo_item || 'venda',numero_nf:it.numero_nf||1,codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||pedidoHoje.codigo_operacao||'01'),
       })));
       // busca pedido anterior (o penultimo)
@@ -6361,44 +6361,81 @@ function PaginaPedidos({ profile }) {
   }
 
   async function salvarPedido() {
-    const validos = itens.filter(it => it.produto_id && Number(it.quantidade) > 0 && ((it.tipo_item || 'venda') === 'bonificacao' || Number(it.valor_unitario) > 0));
-    if (!validos.length) return toast('Adicione pelo menos um item.', 'error');
-    if(validos.some(it=>Number(it.numero_nf||1)<1||Number(it.numero_nf||1)>totalNfs))return toast('Confira a NF dos itens.','error');
-    if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))return toast('Cada NF precisa ter ao menos um item.','error');
+    if(salvando)return;
+    const preenchidos=itens.filter(it=>it.produto_id);
+    if(!preenchidos.length)return toast('Adicione pelo menos um produto ao pedido.','error');
+    const incompletos=preenchidos.filter(it=>!(Number(it.quantidade)>0)||
+      ((it.tipo_item||'venda')!=='bonificacao'&&!(Number(it.valor_unitario)>0)));
+    if(incompletos.length)return toast('Preencha quantidade e valor de todos os produtos antes de salvar. '+incompletos.length+' item(ns) incompleto(s).','error');
+    const validos=preenchidos;
+    if(validos.some(it=>!Number.isInteger(Number(it.numero_nf||1))||
+      Number(it.numero_nf||1)<1||Number(it.numero_nf||1)>totalNfs))
+      return toast('Confira a NF atribuída a cada item.','error');
+    if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))
+      return toast('Cada NF deve conter pelo menos um item.','error');
+
     setSalvando(true);
-
-    let pedidoId = pedidoEditandoId;
-
-    if (pedidoId) {
-      // EDITAR: atualiza observacoes e substitui os itens
-      const {error:ecab}=await sb.from('pedidos').update({observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs}).eq('id',pedidoId);
-      if(ecab){setSalvando(false);return toast(ecab.message,'error');}
-      // ATENÇÃO: atualização de itens deve ser transacional no banco.
-      // A edição permanece com o fluxo legado até RPC de substituição atômica.
-      await sb.from('pedido_itens').delete().eq('pedido_id', pedidoId);
-      const { error: errIt } = await sb.from('pedido_itens').insert(
-        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda',numero_nf:Number(it.numero_nf||1),codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido) })));
-      setSalvando(false);
-      if (errIt) return toast(errIt.message, 'error');
-      const total = validos.reduce((s, it) => s + Number(it.quantidade) * Number(it.valor_unitario), 0);
-      toast((pedidoEditandoCodigo || 'Pedido') + ' · ' + clienteAtivo.razao_social + ' — atualizado · ' + fmtMoeda(total), 'success');
-    } else {
-      // CRIAR novo pedido
-      const { data: pedido, error } = await sb.from('pedidos').insert({
-        cliente_id: clienteAtivo.id, rota_id: lancando.rota.id, criado_por: profile.id,
-        data_pedido: lancando.data, observacoes: obsPedido.trim() || null,
-        numero_nf: 1,codigo_operacao:operacaoPedido,total_nfs:totalNfs,
-      }).select().single();
-      if (error) { setSalvando(false); return toast(error.message, 'error'); }
-      pedidoId = pedido.id;
-      setPedidoEditandoCodigo(pedido.codigo || null);
-      const { error: errIt } = await sb.from('pedido_itens').insert(
-        validos.map(it => ({ pedido_id: pedidoId, produto_id: it.produto_id, quantidade: Number(it.quantidade), valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : Number(it.valor_unitario), tipo_item: it.tipo_item || 'venda',numero_nf:Number(it.numero_nf||1),codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido) })));
-      setSalvando(false);
-      if (errIt) return toast(errIt.message, 'error');
-      const total = validos.reduce((s, it) => s + Number(it.quantidade) * Number(it.valor_unitario), 0);
-      toast((pedido.codigo || codigoAuditoria(pedido, 'PED')) + ' · ' + clienteAtivo.razao_social + ' — ' + validos.length + ' item(ns) · ' + fmtMoeda(total), 'success');
-    }
+    let pedidoId=pedidoEditandoId;
+    const payload=validos.map(it=>({
+      produto_id:it.produto_id,
+      quantidade:Number(it.quantidade),
+      valor_unitario:(it.tipo_item||'venda')==='bonificacao'?0:Number(it.valor_unitario),
+      tipo_item:it.tipo_item||'venda',
+      numero_nf:Number(it.numero_nf||1),
+      codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido)
+    }));
+    try{
+      if(pedidoId){
+        // Preserva os itens antigos até que os substitutos tenham sido gravados.
+        const anteriores=await sb.from('pedido_itens').select('id').eq('pedido_id',pedidoId);
+        if(anteriores.error)throw new Error('Não foi possível conferir os itens existentes: '+anteriores.error.message);
+        const idsAntigos=(anteriores.data||[]).map(it=>it.id);
+        const inseridos=await sb.from('pedido_itens')
+          .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
+        if(inseridos.error)throw new Error('Novos itens não gravados; itens anteriores preservados: '+inseridos.error.message);
+        if((inseridos.data||[]).length!==payload.length)
+          throw new Error('A gravação retornou menos itens que o previsto. Verifique o pedido antes de tentar novamente.');
+        if(idsAntigos.length){
+          const excluidos=await sb.from('pedido_itens').delete().in('id',idsAntigos).select('id');
+          if(excluidos.error||(excluidos.data||[]).length!==idsAntigos.length)
+            throw new Error('Itens novos inseridos, mas não foi possível retirar todos os antigos. Confira o pedido antes de repetir a operação.');
+        }
+        const cabecalho=await sb.from('pedidos').update({
+          observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs
+        }).eq('id',pedidoId).select('id').maybeSingle();
+        if(cabecalho.error||!cabecalho.data)throw new Error('Itens gravados, mas o cabeçalho não foi confirmado: '+(cabecalho.error?.message||'pedido não localizado'));
+      }else{
+        const novo=await sb.from('pedidos').insert({
+          cliente_id:clienteAtivo.id,rota_id:lancando.rota.id,criado_por:profile.id,
+          data_pedido:lancando.data,observacoes:obsPedido.trim()||null,
+          numero_nf:1,codigo_operacao:operacaoPedido,total_nfs:totalNfs
+        }).select('id,codigo').single();
+        if(novo.error||!novo.data)throw new Error('Não foi possível criar o pedido: '+(novo.error?.message||'resposta vazia'));
+        pedidoId=novo.data.id;
+        const inserir=await sb.from('pedido_itens')
+          .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
+        if(inserir.error||(inserir.data||[]).length!==payload.length)
+          throw new Error('Pedido '+(novo.data.codigo||pedidoId)+' criado, mas os itens não foram confirmados: '+(inserir.error?.message||'quantidade divergente'));
+        setPedidoEditandoCodigo(novo.data.codigo||null);
+      }
+      // Só informa sucesso após consultar novamente o que está persistido.
+      const confere=await sb.from('pedidos').select('id,codigo,total_nfs,codigo_operacao,pedido_itens(id,produto_id,quantidade,numero_nf,codigo_operacao)')
+        .eq('id',pedidoId).maybeSingle();
+      if(confere.error||!confere.data)throw new Error('Não foi possível confirmar a gravação no banco: '+(confere.error?.message||'pedido não encontrado'));
+      const gravados=confere.data.pedido_itens||[];
+      if(gravados.length!==payload.length||
+        Number(confere.data.total_nfs)!==totalNfs||
+        payload.some(it=>!gravados.some(g=>String(g.produto_id)===String(it.produto_id)&&
+          Number(g.quantidade)===Number(it.quantidade)&&
+          Number(g.numero_nf)===it.numero_nf&&g.codigo_operacao===it.codigo_operacao)))
+        throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
+      const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
+      toast((confere.data.codigo||pedidoId)+' · '+clienteAtivo.razao_social+' — pedido confirmado no banco · '+fmtMoeda(total),'success');
+    }catch(err){
+      console.error('Falha ao salvar/confirmar pedido:',err);
+      toast('Pedido não confirmado: '+(err?.message||String(err)),'error');
+      return;
+    }finally{setSalvando(false);}
 
     if (bonificacoesVinculadas.length) {
       for (const b of bonificacoesVinculadas) {
