@@ -6102,6 +6102,8 @@ function PaginaPedidos({ profile }) {
   const [precosHistoricosCliente,setPrecosHistoricosCliente]=useState({});
   const [pedidoConfirmado,setPedidoConfirmado]=useState(null);
   const [exportandoTotvs,setExportandoTotvs]=useState(false);
+  const [tesItens,setTesItens]=useState({});
+  const [consultandoTes,setConsultandoTes]=useState(false);
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   // modal +
@@ -6229,7 +6231,7 @@ function PaginaPedidos({ profile }) {
     try {
     setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false);setOperacaoPedido('01'); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
     // carrega tabela de precos do cliente
-    setTabelaPrecoCliente({});setPrecosHistoricosCliente({});setPedidoConfirmado(null);
+    setTabelaPrecoCliente({});setPrecosHistoricosCliente({});setPedidoConfirmado(null);setTesItens({});
     let mapaTabelaPreco = {};
     if (cli.tabela_preco_id) {
       const { data: tpItens } = await sb.from('tabela_preco_itens')
@@ -6356,6 +6358,7 @@ function PaginaPedidos({ profile }) {
   function addItem() { setItens([...itens, { produto_id: '', codigo: '', descricao: '', unidade: '', quantidade: '', valor_unitario: '', tipo_item: 'venda',numero_nf:1,codigo_operacao:operacaoPedido }]); }
   function removeItem(idx) { setItens(itens.filter((_, i) => i !== idx)); }
   function setItem(idx, campo, valor) {
+    setTesItens({});
     setItens(itens.map((it, i) => {
       if (i !== idx) return it;
       const novo = { ...it, [campo]: valor };
@@ -6562,6 +6565,28 @@ function PaginaPedidos({ profile }) {
 
     // Permanece no cliente para permitir conferir o pedido confirmado.
     await carregar();
+  }
+
+  async function consultarTesPedido(){
+    if(!clienteAtivo||consultandoTes)return;
+    setConsultandoTes(true);
+    const resultado={};let pendentes=0;
+    try{
+      for(let i=0;i<itens.length;i++){
+        const it=itens[i];
+        if(!it.produto_id)continue;
+        const op=it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido);
+        const res=await sb.rpc('resolver_tes_inteligente',{
+          p_cliente_id:clienteAtivo.id,p_produto_id:it.produto_id,p_operacao:op
+        });
+        if(res.error)throw new Error(res.error.message);
+        resultado[i]=res.data||'Pendente';
+        if(!res.data)pendentes++;
+      }
+      setTesItens(resultado);
+      toast(pendentes?'TES: '+pendentes+' item(ns) sem regra fiscal única. Confira cadastro fiscal do cliente e grupo do produto.':'TES validada para todos os produtos.',pendentes?'error':'success');
+    }catch(e){console.error('Consulta TES:',e);toast('Consulta TES: '+e.message,'error');}
+    finally{setConsultandoTes(false);}
   }
 
   async function exportarCsvTotvs(){
@@ -6783,7 +6808,7 @@ function PaginaPedidos({ profile }) {
                    h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
                   h('div', { className: 'table-wrap' },
                     h('table', null,
-                      h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'NF'), h('th', null, 'Operação'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
+                      h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'NF'), h('th', null, 'Operação'), h('th', null, 'TES'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
                       h('tbody', null,
                         itens.map((it, i) => {
                           const vt = (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0);
@@ -6809,6 +6834,7 @@ function PaginaPedidos({ profile }) {
                                    '⚠ Produto diferente do histórico de compras. Confira peso/gramatura antes de salvar.')),
                             h('td',null,h('select',{className:'form-select',style:{minWidth:92,width:92},value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
                             h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
+                            h('td',null,h('span',{className:'badge '+(tesItens[i]&&tesItens[i]!=='Pendente'?'badge-green':'badge-yellow')},tesItens[i]||'Consultar')),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 110, minWidth:110 }, type: 'number', step: '0.01', min: 0, placeholder:'Informe preço',
@@ -6817,11 +6843,12 @@ function PaginaPedidos({ profile }) {
                             h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeItem(i) }, '\u2717')));
                         }),
                         h('tr', null,
-                          h('td', { colSpan: 7, style: { textAlign: 'right', fontWeight: 600 } }, 'Total'),
+                          h('td', { colSpan: 8, style: { textAlign: 'right', fontWeight: 600 } }, 'Total'),
                           h('td', { className: 'mono strong' }, fmtMoeda(itens.reduce((s, it) => s + (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0), 0))),
                           h('td', null))))),
                   h('div', { style: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' } },
                     h('button', { className: 'btn btn-secondary', onClick: addItem }, '+ Item'),
+                    h('button',{className:'btn btn-secondary',onClick:consultarTesPedido,disabled:consultandoTes},consultandoTes?'Consultando TES...':'Conferir TES'),
                     h('input', { className: 'form-input sm', style: { flex: 1, minWidth: 160, maxWidth: 300 }, value: obsPedido, placeholder: 'Observações do pedido...', onChange: e => setObsPedido(e.target.value) }),
                     h('button', { className: 'btn btn-primary', onClick: salvarPedido, disabled: salvando },
                       salvando ? 'Salvando...' : pedidoEditandoId ? 'Atualizar pedido' : 'Salvar pedido'),
