@@ -6506,7 +6506,7 @@ function PaginaPedidos({ profile }) {
                       h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange:e=>{const n=Number(e.target.value);setTotalNfs(n);setItens(prev=>prev.map(it=>({...it,numero_nf:Math.min(Number(it.numero_nf||1),n)})));} },
                         [1,2,3,4,5].map(n => h('option', { key: n, value: n }, n)))),
                     h('span',{className:'badge badge-blue'},'Distribua os itens entre '+totalNfs+' NF(s)'),
-                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op))))),
+                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
