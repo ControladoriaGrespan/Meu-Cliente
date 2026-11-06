@@ -6434,7 +6434,7 @@ function PaginaPedidos({ profile }) {
         setPedidoEditandoCodigo(novo.data.codigo||null);
       }
       // Só informa sucesso após consultar novamente o que está persistido.
-      const confere=await sb.from('pedidos').select('id,codigo,total_nfs,codigo_operacao,pedido_itens(id,produto_id,quantidade,numero_nf,codigo_operacao)')
+      const confere=await sb.from('pedidos').select('id,codigo,total_nfs,codigo_operacao,pedido_itens(id,produto_id,quantidade,valor_unitario,tipo_item,numero_nf,codigo_operacao)')
         .eq('id',pedidoId).maybeSingle();
       if(confere.error||!confere.data)throw new Error('Não foi possível confirmar a gravação no banco: '+(confere.error?.message||'pedido não encontrado'));
       const gravados=confere.data.pedido_itens||[];
@@ -6442,6 +6442,7 @@ function PaginaPedidos({ profile }) {
         Number(confere.data.total_nfs)!==totalNfs||
         payload.some(it=>!gravados.some(g=>String(g.produto_id)===String(it.produto_id)&&
           Number(g.quantidade)===Number(it.quantidade)&&
+          Math.abs(Number(g.valor_unitario)-Number(it.valor_unitario))<0.0001&&
           Number(g.numero_nf)===it.numero_nf&&g.codigo_operacao===it.codigo_operacao)))
         throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
       const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
@@ -6450,7 +6451,7 @@ function PaginaPedidos({ profile }) {
       // Recarrega os dados persistidos em vez de navegar para o próximo cliente.
       setItens(gravados.map(g=>{
         const anterior=validos.find(it=>String(it.produto_id)===String(g.produto_id)&&Number(it.numero_nf||1)===Number(g.numero_nf));
-        return {...(anterior||{}),item_id:g.id,produto_id:g.produto_id,quantidade:g.quantidade,numero_nf:g.numero_nf,codigo_operacao:g.codigo_operacao};
+        return {...(anterior||{}),item_id:g.id,produto_id:g.produto_id,quantidade:g.quantidade,valor_unitario:g.valor_unitario,tipo_item:g.tipo_item,numero_nf:g.numero_nf,codigo_operacao:g.codigo_operacao};
       }));
       toast((confere.data.codigo||pedidoId)+' · '+clienteAtivo.razao_social+' — pedido confirmado no banco · '+fmtMoeda(total),'success');
     }catch(err){
