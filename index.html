@@ -6209,7 +6209,7 @@ function PaginaPedidos({ profile }) {
   function statusCliente(clienteId) { return acompanhamentoMap[clienteId] || 'sem_contato'; }
   function infoStatus(status) {
     if (status === 'contato_enviado') return { label:'Contato Enviado', icon:'●', cor:'#d97706' };
-    if (status === 'pedido_fechado') return { label:'Pedido Fechado', icon:'✓', cor:'#059669' };
+    if (status === 'pedido_fechado') return { label:'Atendimento concluído (com ou sem pedido)', icon:'✓', cor:'#059669' };
     return { label:'Sem Contato', icon:'○', cor:'#64748b' };
   }
   async function alterarStatusCliente(clienteId, status) {
@@ -6601,13 +6601,16 @@ function PaginaPedidos({ profile }) {
         .eq('rota_id',lancando.rota.id).eq('data_pedido',lancando.data)
         .order('created_at',{ascending:true});
       if(error)throw new Error('Falha ao consultar pedidos: '+error.message);
-      if(!pedidos?.length)throw new Error('Nenhum pedido encontrado nesta rota/data.');
+      if(!pedidos?.length)return toast('Todos os atendimentos foram concluídos, mas não há pedidos para exportar nesta rota/data. Nenhum CSV foi criado.','info');
       const clientesPermitidos=new Set(clientesRota.map(c=>String(c.id)));
       const porCliente={};
       const erros=[];
       const linhas=[];
       for(const pedido of pedidos){
         if(!clientesPermitidos.has(String(pedido.cliente_id)))continue;
+        // Atendimento concluído sem compra não gera linha no CSV do Protheus.
+        // Mesmo que exista cabeçalho legado sem itens, não o exportar nem contar como pedido.
+        if(!(pedido.pedido_itens||[]).length)continue;
         porCliente[pedido.cliente_id]=(porCliente[pedido.cliente_id]||0)+1;
         const cli=pedido.clientes||{};
         const codigoOriginal=String(cli.codigo_totvs||'').replace(/\D/g,'');
@@ -6615,10 +6618,6 @@ function PaginaPedidos({ profile }) {
         const loja=String(cli.loja_totvs||'').trim();
         if(!codigoOriginal||codigoOriginal.length>6||!loja||!/^[0-9A-Za-z]+$/.test(loja)){
           erros.push('Cliente '+(cli.codigo_totvs||pedido.cliente_id)+': código/loja TOTVS ausente ou inválido');
-          continue;
-        }
-        if(!(pedido.pedido_itens||[]).length){
-          erros.push('Pedido '+(pedido.codigo||pedido.id)+': sem itens');
           continue;
         }
         for(const item of pedido.pedido_itens||[]){
@@ -6645,14 +6644,13 @@ function PaginaPedidos({ profile }) {
           linhas.push({nf,codigo,loja,produto:prod,qtd,operacao,tes});
         }
       }
-      for(const cliente of clientesRota)if(!porCliente[cliente.id])erros.push('Cliente '+(cliente.codigo_totvs||cliente.id)+' marcado como fechado, mas sem pedido nesta rota/data.');
       for(const [cliente,qtd] of Object.entries(porCliente))
         if(qtd>1)erros.push('Há '+qtd+' pedidos do mesmo cliente ('+cliente+') nesta rota/data. Revise duplicidades antes da exportação.');
       if(erros.length){
         console.warn('Exportação TOTVS bloqueada:',erros);
         throw new Error(erros.slice(0,4).join(' | ')+(erros.length>4?' | e mais '+(erros.length-4)+' pendência(s). Consulte o console.':''));
       }
-      if(!linhas.length)throw new Error('Não há itens válidos para exportação.');
+      if(!linhas.length)return toast('Nenhum pedido com itens para exportar nesta rota/data. Clientes sem compra foram ignorados; nenhum CSV foi criado.','info');
       const nfs=[...new Set(linhas.map(l=>l.nf))].sort((a,b)=>a-b);
       const cabecalho=['Código do Cliente','Loja do Cliente','Código do Produto','Quantidade Vendida','Código da Operação','Código da TES'];
       for(const nf of nfs){
@@ -6691,7 +6689,7 @@ function PaginaPedidos({ profile }) {
           h('div', { style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',fontSize:12} },
             h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#f8fafc',color:'#64748b'}},'○ Sem contato: '+cls.filter(c=>statusCliente(c.id)==='sem_contato').length),
             h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#fff7ed',color:'#d97706'}},'● Aguardando: '+cls.filter(c=>statusCliente(c.id)==='contato_enviado').length),
-            h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#ecfdf5',color:'#059669'}},'✓ Fechados: '+cls.filter(c=>statusCliente(c.id)==='pedido_fechado').length))),
+            h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#ecfdf5',color:'#059669'}},'✓ Concluídos: '+cls.filter(c=>statusCliente(c.id)==='pedido_fechado').length))),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
           h('button',{className:'btn btn-primary',disabled:exportandoTotvs||!cls.length||cls.some(c=>statusCliente(c.id)!=='pedido_fechado'),
             title:cls.some(c=>statusCliente(c.id)!=='pedido_fechado')?'Conclua todos os clientes antes de exportar':'Exporta por NF somente com TES fiscal validada',
@@ -6730,7 +6728,7 @@ function PaginaPedidos({ profile }) {
                     h('select',{className:'form-select',value:statusCliente(clienteAtivo.id),style:{width:200,fontWeight:700},onChange:e=>alterarStatusCliente(clienteAtivo.id,e.target.value)},
                       h('option',{value:'sem_contato'},'○ Sem Contato'),
                       h('option',{value:'contato_enviado'},'● Contato Enviado'),
-                      h('option',{value:'pedido_fechado'},'✓ Pedido Fechado'))),
+                      h('option',{value:'pedido_fechado'},'✓ Concluído (com/sem pedido)'))),
                   clienteAtivo.acordo_comercial && h('div', {
                     style: { marginTop: 10, padding: '8px 12px', background: 'var(--warning-bg)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--warning)' }
                   }, '\uD83D\uDCCB Acordo: ' + clienteAtivo.acordo_comercial),
