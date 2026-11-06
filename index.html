@@ -1107,7 +1107,7 @@ function PaginaEmissao({ profile, onSaved }) {
     if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
     if(temTecnico&&!f.tecnico_periodicidade)return toast('Informe a periodicidade do Técnico.', 'error');
-    if(moedaParaNumero(f.preco_kg)>999.99)return toast('Preço do Kg: máximo de 3 dígitos inteiros.', 'error');
+    if(moedaParaNumero(f.preco_kg)>9.99)return toast('Preço do Kg: máximo de 1 dígito inteiro e 2 decimais (ex.: 7,50).', 'error');
     if (precisaEquip && !f.equipamento_condicao) return toast('Informe se o equipamento é Novo ou Usado.', 'error');
     if(Number(f.bonificacao_percentual)<0||Number(f.bonificacao_percentual)>100)return toast('Bonificação deve estar entre 0% e 100%.','error');
     if(Number(f.bonificacao_percentual)>0&&!f.bonificacao_periodicidade)return toast('Informe a periodicidade da bonificação.','error');
@@ -1237,7 +1237,7 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
         h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
-        h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').slice(0,5))) })),
+        h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').slice(0,3))) })),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
         h(Campo, { label: 'Verbas de Introdução' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
