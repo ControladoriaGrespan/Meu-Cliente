@@ -6067,6 +6067,8 @@ function PaginaPedidos({ profile }) {
   const [totalNfs, setTotalNfs] = useState(1);
   const [operacaoPedido,setOperacaoPedido]=useState('01');
   const [tabelaPrecoCliente, setTabelaPrecoCliente] = useState({});
+  const [precosHistoricosCliente,setPrecosHistoricosCliente]=useState({});
+  const [pedidoConfirmado,setPedidoConfirmado]=useState(null);
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   // modal +
@@ -6194,7 +6196,7 @@ function PaginaPedidos({ profile }) {
     try {
     setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false);setOperacaoPedido('01'); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
     // carrega tabela de precos do cliente
-    setTabelaPrecoCliente({});
+    setTabelaPrecoCliente({});setPrecosHistoricosCliente({});setPedidoConfirmado(null);
     let mapaTabelaPreco = {};
     if (cli.tabela_preco_id) {
       const { data: tpItens } = await sb.from('tabela_preco_itens')
@@ -6239,6 +6241,7 @@ function PaginaPedidos({ profile }) {
          !Object.prototype.hasOwnProperty.call(precosHistoricos,it.produto_id))
         precosHistoricos[it.produto_id]=Number(it.valor_unitario);
     }));
+    setPrecosHistoricosCliente(precosHistoricos);
     // verifica se ja existe pedido para este cliente NESTA data
     const { data: pedidoHoje } = await sb.from('pedidos')
       .select('*, pedido_itens(*, produtos(codigo, descricao, unidade, peso_kg))')
@@ -6299,14 +6302,17 @@ function PaginaPedidos({ profile }) {
       const novo = { ...it, [campo]: valor };
       if(campo==='tipo_item'){
         novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
-        novo.valor_unitario=valor==='bonificacao'?0:(Object.prototype.hasOwnProperty.call(tabelaPrecoCliente,novo.produto_id)?tabelaPrecoCliente[novo.produto_id]:'');
+        novo.valor_unitario=valor==='bonificacao'?0:
+          (Number(tabelaPrecoCliente[novo.produto_id])>0 ? Number(tabelaPrecoCliente[novo.produto_id]) :
+           (Number(precosHistoricosCliente[novo.produto_id])>0 ? Number(precosHistoricosCliente[novo.produto_id]) : (Number(novo.valor_unitario)>0?Number(novo.valor_unitario):'')));
       }
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
         if (prod) { novo.codigo = prod.codigo; novo.descricao = prod.descricao; novo.unidade = prod.unidade; }
-        // Preco de venda sempre vem da tabela do cliente; nunca herdar preco antigo.
+        // Preço da tabela > histórico do MESMO produto. Não usar preço de outro produto.
         novo.valor_unitario = (novo.tipo_item || 'venda') === 'bonificacao' ? 0 :
-          (Object.prototype.hasOwnProperty.call(tabelaPrecoCliente, valor) ? tabelaPrecoCliente[valor] : '');
+          (Number(tabelaPrecoCliente[valor])>0 ? Number(tabelaPrecoCliente[valor]) :
+           (Number(precosHistoricosCliente[valor])>0 ? Number(precosHistoricosCliente[valor]) : ''));
       }
       return novo;
     }));
@@ -6439,6 +6445,13 @@ function PaginaPedidos({ profile }) {
           Number(g.numero_nf)===it.numero_nf&&g.codigo_operacao===it.codigo_operacao)))
         throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
       const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
+      setPedidoEditandoId(pedidoId);
+      setPedidoConfirmado({codigo:confere.data.codigo||pedidoId,quantidade:gravados.length,total,quando:new Date().toLocaleString('pt-BR')});
+      // Recarrega os dados persistidos em vez de navegar para o próximo cliente.
+      setItens(gravados.map(g=>{
+        const anterior=validos.find(it=>String(it.produto_id)===String(g.produto_id)&&Number(it.numero_nf||1)===Number(g.numero_nf));
+        return {...(anterior||{}),item_id:g.id,produto_id:g.produto_id,quantidade:g.quantidade,numero_nf:g.numero_nf,codigo_operacao:g.codigo_operacao};
+      }));
       toast((confere.data.codigo||pedidoId)+' · '+clienteAtivo.razao_social+' — pedido confirmado no banco · '+fmtMoeda(total),'success');
     }catch(err){
       console.error('Falha ao salvar/confirmar pedido:',err);
@@ -6479,9 +6492,8 @@ function PaginaPedidos({ profile }) {
 
     await alterarStatusCliente(clienteAtivo.id, 'pedido_fechado');
 
-    const idx=lancando.clientesRota.findIndex(c=>c.id===clienteAtivo.id);
-    if(idx>=0&&idx<lancando.clientesRota.length-1)selecionarCliente(lancando.clientesRota[idx+1]);
-    else {toast('Todos os clientes desta rota foram atendidos!','success');setLancando(null);carregar();}
+    // Permanece no cliente para permitir conferir o pedido confirmado.
+    await carregar();
   }
 
   function voltarCalendario() { setLancando(null); carregar(); }
@@ -6614,6 +6626,9 @@ function PaginaPedidos({ profile }) {
                             (pedidoAnterior.pedido_itens || []).reduce((s, it) => s + Number(it.valor_total || 0), 0)))))))),
 
                 h('div', { className: 'card' },
+                  pedidoConfirmado && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--success)',borderRadius:8}},
+                    h('strong',null,'Pedido confirmado no banco: '+pedidoConfirmado.codigo),
+                    h('div',{className:'page-sub'},pedidoConfirmado.quantidade+' item(ns) · '+fmtMoeda(pedidoConfirmado.total)+' · '+pedidoConfirmado.quando)),
                   h('div',{style:{fontSize:13,marginBottom:10}},'Anterior (previsto): ',h('strong',null,(pedidoAnterior?(pedidoAnterior.pedido_itens||[]).reduce((t,it)=>t+Number(it.quantidade||0)*Number((it.produtos||{}).peso_kg||0),0):0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg'),' / Atual (realizado): ',h('strong',null,itens.reduce((t,it)=>t+Number(it.quantidade||0)*Number((produtos.find(p=>p.id===it.produto_id)||{}).peso_kg||0),0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg')),
                    h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
                   h('div', { className: 'table-wrap' },
@@ -6647,7 +6662,7 @@ function PaginaPedidos({ profile }) {
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 110, minWidth:110 }, type: 'number', step: '0.01', min: 0, placeholder:'Informe preço',
-                              value: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : it.valor_unitario, disabled: (it.tipo_item || 'venda') === 'bonificacao', onChange: e => setItem(i, 'valor_unitario', e.target.value) })),
+                              value: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (it.valor_unitario??''), disabled: (it.tipo_item || 'venda') === 'bonificacao', onChange: e => setItem(i, 'valor_unitario', e.target.value) })),
                             h('td', { className: 'mono strong' }, vt > 0 ? fmtMoeda(vt) : '—'),
                             h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeItem(i) }, '\u2717')));
                         }),
