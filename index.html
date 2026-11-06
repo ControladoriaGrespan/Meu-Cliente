@@ -1051,6 +1051,7 @@ function PaginaEmissao({ profile, onSaved }) {
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   const [destinatarios, setDestinatarios] = useState([]);
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
+  const [documentosFicha,setDocumentosFicha]=useState([]);
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
@@ -1152,13 +1153,25 @@ function PaginaEmissao({ profile, onSaved }) {
       observacoes: f.observacoes.trim() || null,
     }).select().single();
 
+    if (error) {setSalvando(false); if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
+    // Documentos ficam em bucket privado, com metadados vinculados à ficha.
+    let falhasDocs=0;
+    for(const arquivo of documentosFicha){
+      const nomeSeguro=arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+      const caminho=nova.id+'/'+crypto.randomUUID()+'-'+nomeSeguro;
+      const up=await sb.storage.from('fichas-documentos').upload(caminho,arquivo,{upsert:false,contentType:arquivo.type||'application/octet-stream'});
+      if(up.error){falhasDocs++;console.error('Upload documento:',up.error);continue;}
+      const reg=await sb.from('ficha_documentos').insert({ficha_id:nova.id,nome_arquivo:arquivo.name,caminho_storage:caminho,tipo_mime:arquivo.type||null,tamanho_bytes:arquivo.size,enviado_por:profile.id});
+      if(reg.error){falhasDocs++;console.error('Registro documento:',reg.error);await sb.storage.from('fichas-documentos').remove([caminho]);}
+    }
     setSalvando(false);
-    if (error) { if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
+    if(falhasDocs)toast(falhasDocs+' documento(s) não foram anexados. A ficha foi salva; verifique o console e as políticas do Storage.','error');
 
     const varios = await avisarProximo(nova.id, 0, nova, winRef);
     setDestinatarios(varios);
     toast('Ficha enviada para aprovação!', 'success');
     setF(FORM_VAZIO);
+    setDocumentosFicha([]);
     setMesmoEnderecoEntrega(false);
     if (!varios.length) onSaved();
   }
@@ -1210,6 +1223,15 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo,{label:'Cidade',obrigatorio:true},h(Input,{value:f.entrega_cidade,disabled:mesmoEnderecoEntrega,onChange:e=>set('entrega_cidade',e.target.value)})),
         h(Campo,{label:'Estado',obrigatorio:true},h(Input,{value:f.entrega_estado,disabled:mesmoEnderecoEntrega,maxLength:2,style:{textTransform:'uppercase'},onChange:e=>set('entrega_estado',e.target.value)})),
         h(Campo,{label:'CEP',obrigatorio:true},h(Input,{value:f.entrega_cep,disabled:mesmoEnderecoEntrega,inputMode:'numeric',placeholder:'00000-000',onChange:e=>set('entrega_cep',mascaraCep(e.target.value))})))),
+    h('div',{className:'card'},
+      h('div',{className:'section-title'},'Documentos da Ficha'),
+      h('div',{className:'page-sub',style:{marginBottom:10}},'Anexe documentos em PDF ou imagem antes de salvar a ficha (máximo 10 MB por arquivo).'),
+      h('input',{type:'file',multiple:true,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
+        const arquivos=Array.from(e.target.files||[]);
+        if(arquivos.some(a=>a.size>10*1024*1024)){toast('Cada documento deve ter no máximo 10 MB.','error');e.target.value='';return;}
+        setDocumentosFicha(arquivos);
+      }}),
+      h('div',{className:'page-sub',style:{marginTop:8}},documentosFicha.length+' arquivo(s) selecionado(s)')),
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Negociação Comercial'),
       h('div', { className: 'form-grid' },
