@@ -3169,6 +3169,8 @@ function PaginaClientes({ profile, modulo }) {
   const [editandoTotvs, setEditandoTotvs] = useState({});
   const [enderecoCliente,setEnderecoCliente]=useState(null);
   const [salvandoEndereco,setSalvandoEndereco]=useState(false);
+  const [fiscalCliente,setFiscalCliente]=useState(null);
+  const [salvandoFiscal,setSalvandoFiscal]=useState(false);
   const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
@@ -3229,6 +3231,23 @@ function PaginaClientes({ profile, modulo }) {
     carregar();
   }
 
+  async function salvarFiscalCliente(){
+    const f=fiscalCliente;if(!f)return;
+    const loja=String(f.loja_totvs||'').trim();
+    if(!/^\d{2}$/.test(loja))return toast('Loja TOTVS: informe 2 dígitos (ex.: 01).','error');
+    if(!['Cons.Final','Solidario','Produtor Rural'].includes(f.tipo_cliente_tes))
+      return toast('Selecione o tipo fiscal do cliente.','error');
+    if(!['C01','C02','C03','SEM GRUPO'].includes(f.grupo_tributario_tes))
+      return toast('Selecione o grupo tributário do cliente.','error');
+    setSalvandoFiscal(true);
+    const {error}=await sb.from('clientes').update({
+      loja_totvs:loja,tipo_cliente_tes:f.tipo_cliente_tes,
+      grupo_tributario_tes:f.grupo_tributario_tes
+    }).eq('id',f.id);
+    setSalvandoFiscal(false);
+    if(error)return toast('Classificação fiscal não salva: '+error.message,'error');
+    setFiscalCliente(null);toast('Classificação fiscal atualizada.','success');carregar();
+  }
   async function salvarEnderecoCliente(){
     if(!enderecoCliente)return;
     const e=enderecoCliente;
@@ -3277,6 +3296,18 @@ function PaginaClientes({ profile, modulo }) {
         onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
       }))),
 
+    fiscalCliente&&h('div',{className:'card',style:{marginBottom:12}},
+      h('div',{className:'section-title'},'Configuração fiscal TOTVS — '+(fiscalCliente.razao_social||'')),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Dados necessários para consultar a TES Inteligente. Confirme os códigos com o departamento Fiscal.'),
+      h('div',{className:'form-grid'},
+        h(Campo,{label:'Loja TOTVS',obrigatorio:true},h('input',{className:'form-input',maxLength:2,placeholder:'01',value:fiscalCliente.loja_totvs||'',onChange:e=>setFiscalCliente(c=>({...c,loja_totvs:e.target.value.replace(/\D/g,'').slice(0,2)}))})),
+        h(Campo,{label:'Tipo de cliente',obrigatorio:true},h('select',{className:'form-select',value:fiscalCliente.tipo_cliente_tes||'',onChange:e=>setFiscalCliente(c=>({...c,tipo_cliente_tes:e.target.value}))},
+          ...[['','Selecione'],['Cons.Final','Consumidor Final'],['Solidario','Solidário'],['Produtor Rural','Produtor Rural']].map(([v,t])=>h('option',{key:v,value:v},t)))),
+        h(Campo,{label:'Grupo tributário',obrigatorio:true},h('select',{className:'form-select',value:fiscalCliente.grupo_tributario_tes||'',onChange:e=>setFiscalCliente(c=>({...c,grupo_tributario_tes:e.target.value}))},
+          ...[['','Selecione'],['C01','C01'],['C02','C02'],['C03','C03'],['SEM GRUPO','Sem grupo (confirmado pelo Fiscal)']].map(([v,t])=>h('option',{key:v,value:v},t))))),
+      h('div',{style:{display:'flex',gap:8,marginTop:12}},
+        h('button',{className:'btn btn-primary btn-sm',disabled:salvandoFiscal,onClick:salvarFiscalCliente},salvandoFiscal?'Salvando...':'Salvar classificação'),
+        h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setFiscalCliente(null)},'Cancelar'))),
     enderecoCliente&&h('div',{className:'card',style:{marginBottom:12}},
       h('div',{className:'section-title'},'Endereço de atendimento — '+(enderecoCliente.razao_social||'')),
       h('div',{className:'form-grid'},
@@ -3335,6 +3366,7 @@ function PaginaClientes({ profile, modulo }) {
                           disabled: !emEdicao,
                           onClick: () => salvarTotvs(c)
                         }, 'Salvar código'),
+                        podeEditar && h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setFiscalCliente({...c})},'Configurar fiscal'),
                         podeEditarAcordo && h('button', {
                           className: 'btn btn-secondary btn-sm',
                           disabled: !(c.id in editandoAcordo),
@@ -7021,13 +7053,13 @@ function parseArquivo(conteudo, nomeArquivo) {
 
 const MODELOS = {
   produtos: {
-    headers: ['codigo', 'descricao', 'unidade', 'peso_kg'],
+    headers: ['codigo', 'descricao', 'unidade', 'peso_kg', 'grupo_tributario_tes'],
     exemplos: [
-      ['PF080', 'Pão Francês 80g', 'PCT', '3.2'],
-      ['PL070', 'Pão de Leite 70g', 'PCT', '2.8'],
-      ['PH060', 'Pão Hot Dog 60g', 'PCT', '2.4'],
+      ['PF080', 'Pão Francês 80g', 'PCT', '3.2', 'P10'],
+      ['PL070', 'Pão de Leite 70g', 'PCT', '2.8', 'P10'],
+      ['PH060', 'Pão Hot Dog 60g', 'PCT', '2.4', 'P10'],
     ],
-    dica: 'Colunas obrigatórias: codigo, descricao. Opcionais: unidade (PCT/KG/UN, padrão PCT), peso_kg (peso de 1 unidade em kg — ex: 1 pacote com 40 pães de 80g = 3.2 kg). Se o código já existir, atualiza.',
+    dica: 'Colunas obrigatórias: codigo, descricao. Opcionais: unidade, peso_kg e grupo_tributario_tes (classificação P01, P10 etc. validada pelo Fiscal). Se o código já existir, atualiza.',
   },
   pedidos: {
     headers: ['cnpj_cpf', 'codigo_totvs', 'data_pedido', 'codigo_produto', 'quantidade', 'valor_unitario', 'tipo_item', 'rota', 'observacao'],
@@ -7206,6 +7238,7 @@ function PaginaImportacao({ profile }) {
         descricao: r.descricao,
         unidade: r.unidade || 'PCT',
         peso_kg: r.peso_kg ? Number(String(r.peso_kg).replace(',', '.')) : 0,
+        ...(r.grupo_tributario_tes?{grupo_tributario_tes:String(r.grupo_tributario_tes).trim().toUpperCase()}:{}),
         ativo: true,
       }, { onConflict: 'codigo' });
       if (error) { erros++; msgs.push(r.codigo + ': ' + error.message); } else ok++;
