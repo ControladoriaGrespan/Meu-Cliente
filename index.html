@@ -6226,7 +6226,7 @@ function PaginaPedidos({ profile }) {
     setAmostrasAbertas(amostrasAprovadas);
     setAmostrasVinculadas([]);
 
-    const {data:historico,error:erroHistorico}=await sb.from('pedidos').select('id,codigo,data_pedido,created_at,pedido_itens(quantidade,valor_total,tipo_item,produtos(codigo,descricao,peso_kg))').eq('cliente_id',cli.id).order('data_pedido',{ascending:false}).order('created_at',{ascending:false}).limit(100);
+    const {data:historico,error:erroHistorico}=await sb.from('pedidos').select('id,codigo,data_pedido,created_at,pedido_itens(produto_id,quantidade,valor_total,tipo_item,produtos(codigo,descricao,peso_kg))').eq('cliente_id',cli.id).order('data_pedido',{ascending:false}).order('created_at',{ascending:false}).limit(100);
     if(erroHistorico)toast('Histórico: '+erroHistorico.message,'error');
     setHistoricoPedidos(historico||[]);
     // verifica se ja existe pedido para este cliente NESTA data
@@ -6591,7 +6591,12 @@ function PaginaPedidos({ profile }) {
                             h('td', null, h('select', { className: 'form-select', style: { minWidth: 115 }, value: it.tipo_item || 'venda', onChange: e => {
                               const tipo = e.target.value; setItem(i, 'tipo_item', tipo); if (tipo === 'bonificacao') setItem(i, 'valor_unitario', 0);
                             } }, h('option', { value: 'venda' }, 'Compra'), h('option', { value: 'bonificacao' }, 'Bonificação'))),
-                            h('td', { style: { fontSize: 12, color: 'var(--text-muted)' } }, it.descricao || '—'),
+                            h('td',{style:{fontSize:12,color:'var(--text-muted)'}},
+                               it.descricao||'—',
+                               it.produto_id&&historicoPedidos.length>0&&
+                                 !historicoPedidos.some(p=>(p.pedido_itens||[]).some(x=>x.produto_id===it.produto_id&&(x.tipo_item||'venda')!=='bonificacao'))&&
+                                 h('div',{style:{color:'var(--warning)',fontWeight:600,marginTop:4}},
+                                   '⚠ Produto diferente do histórico de compras. Confira peso/gramatura antes de salvar.')),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 90 }, type: 'number', step: '0.01', min: 0,
