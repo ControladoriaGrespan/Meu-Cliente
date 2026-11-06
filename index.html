@@ -6253,22 +6253,41 @@ function PaginaPedidos({ profile }) {
       setPedidoEditandoId(pedidoHoje.id);
       setPedidoEditandoCodigo(pedidoHoje.codigo || null);
       setObsPedido(pedidoHoje.observacoes || '');setTotalNfs(pedidoHoje.total_nfs||1);setOperacaoPedido(pedidoHoje.codigo_operacao||'01');
-      setItens(pedidoHoje.pedido_itens.map(it => ({
-        item_id: it.id,
-        produto_id: it.produto_id,
-        codigo: it.produtos && it.produtos.codigo,
-        descricao: it.produtos && it.produtos.descricao,
-        unidade: it.produtos && it.produtos.unidade,
-        quantidade: it.quantidade,
-        valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Number(it.valor_unitario)>0 ? Number(it.valor_unitario) : (Number(mapaTabelaPreco[it.produto_id])>0 ? Number(mapaTabelaPreco[it.produto_id]) : (precosHistoricos[it.produto_id] ?? ''))),
-        tipo_item: it.tipo_item || 'venda',numero_nf:it.numero_nf||1,codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||pedidoHoje.codigo_operacao||'01'),
-      })));
-      // busca pedido anterior (o penultimo)
-      const { data: ant } = await sb.from('pedidos')
-        .select('*, pedido_itens(*, produtos(codigo, descricao, unidade, peso_kg))')
-        .eq('cliente_id', cli.id).lt('data_pedido', lancando.data)
-        .order('data_pedido', { ascending: false }).limit(1).maybeSingle();
+      // Busca o último pedido ANTERIOR e usa os preços efetivamente gravados,
+      // identificando o produto também por código quando o ID mudou.
+      const {data:ant,error:erroAnt}=await sb.from('pedidos')
+        .select('*,pedido_itens(*,produtos(codigo,descricao,unidade,peso_kg))')
+        .eq('cliente_id',cli.id).lt('data_pedido',lancando.data)
+        .order('data_pedido',{ascending:false}).limit(1).maybeSingle();
+      if(erroAnt)toast('Não foi possível ler o pedido anterior: '+erroAnt.message,'error');
       setPedidoAnterior(ant);
+      const precosPorCodigo={};
+      for(const ped of [ant,...(historico||[])])
+        for(const ref of (ped?.pedido_itens||[])){
+          const codigo=String(ref.produtos?.codigo||'').trim();
+          const valor=Number(ref.valor_unitario);
+          if(codigo&&valor>0&&!Object.prototype.hasOwnProperty.call(precosPorCodigo,codigo))
+            precosPorCodigo[codigo]=valor;
+        }
+      const obterPreco=(it)=>{
+        if((it.tipo_item||'venda')==='bonificacao')return 0;
+        const codigo=String(it.produtos?.codigo||'').trim();
+        const valorGravado=Number(it.valor_unitario);
+        if(valorGravado>0)return valorGravado;
+        const daTabela=Number(mapaTabelaPreco[it.produto_id]);
+        if(daTabela>0)return daTabela;
+        const doHistorico=Number(precosHistoricos[it.produto_id]);
+        if(doHistorico>0)return doHistorico;
+        const peloCodigo=Number(precosPorCodigo[codigo]);
+        return peloCodigo>0?peloCodigo:'';
+      };
+      setItens(pedidoHoje.pedido_itens.map(it=>({
+        item_id:it.id,produto_id:it.produto_id,
+        codigo:it.produtos?.codigo,descricao:it.produtos?.descricao,unidade:it.produtos?.unidade,
+        quantidade:it.quantidade,valor_unitario:obterPreco(it),
+        tipo_item:it.tipo_item||'venda',numero_nf:it.numero_nf||1,
+        codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||pedidoHoje.codigo_operacao||'01')
+      })));
     } else {
       // novo pedido: busca o ultimo pedido como referencia
       setPedidoEditandoId(null);
@@ -6279,13 +6298,20 @@ function PaginaPedidos({ profile }) {
         .order('data_pedido', { ascending: false }).limit(1).maybeSingle();
       setPedidoAnterior(ultPedido);
       if (ultPedido && ultPedido.pedido_itens) {
-        setItens(ultPedido.pedido_itens.map(it => ({
-          produto_id: it.produto_id,
-          codigo: it.produtos && it.produtos.codigo,
-          descricao: it.produtos && it.produtos.descricao,
-          unidade: it.produtos && it.produtos.unidade,
-          quantidade: '', valor_unitario: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (Number(mapaTabelaPreco[it.produto_id])>0 ? Number(mapaTabelaPreco[it.produto_id]) : (precosHistoricos[it.produto_id] ?? '')), tipo_item: it.tipo_item || 'venda',numero_nf:1,codigo_operacao:it.tipo_item==='bonificacao'?'04':'01',
-        })));
+        setItens(ultPedido.pedido_itens.map(it=>{
+          const precoAnterior=Number(it.valor_unitario);
+          const precoTabela=Number(mapaTabelaPreco[it.produto_id]);
+          const precoHistorico=Number(precosHistoricos[it.produto_id]);
+          return {
+            produto_id:it.produto_id,codigo:it.produtos?.codigo,
+            descricao:it.produtos?.descricao,unidade:it.produtos?.unidade,
+            quantidade:'',
+            valor_unitario:(it.tipo_item||'venda')==='bonificacao'?0:
+              (precoTabela>0?precoTabela:precoAnterior>0?precoAnterior:precoHistorico>0?precoHistorico:''),
+            tipo_item:it.tipo_item||'venda',numero_nf:1,
+            codigo_operacao:it.tipo_item==='bonificacao'?'04':'01'
+          };
+        }));
       }
     }
     } catch (err) {
@@ -6312,7 +6338,15 @@ function PaginaPedidos({ profile }) {
         // Preço da tabela > histórico do MESMO produto. Não usar preço de outro produto.
         novo.valor_unitario = (novo.tipo_item || 'venda') === 'bonificacao' ? 0 :
           (Number(tabelaPrecoCliente[valor])>0 ? Number(tabelaPrecoCliente[valor]) :
-           (Number(precosHistoricosCliente[valor])>0 ? Number(precosHistoricosCliente[valor]) : ''));
+           (Number(precosHistoricosCliente[valor])>0 ? Number(precosHistoricosCliente[valor]) :
+              (()=>{const codigo=String(prod?.codigo||'').trim();
+                for(const ped of historicoPedidos){
+                  const anterior=(ped.pedido_itens||[]).find(it=>String(it.produtos?.codigo||'').trim()===codigo&&Number(it.valor_unitario)>0);
+                  if(anterior)return Number(anterior.valor_unitario);
+                }
+                const ref=(pedidoAnterior?.pedido_itens||[]).find(it=>String(it.produtos?.codigo||'').trim()===codigo&&Number(it.valor_unitario)>0);
+                return ref?Number(ref.valor_unitario):'';
+              })()));
       }
       return novo;
     }));
