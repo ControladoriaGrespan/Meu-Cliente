@@ -1041,7 +1041,7 @@ const FORM_VAZIO = {
   verba_introducao: '', verba_manutencao_cliente: '', verba_negociacao_cliente: '', duracao_verba: '', tecnico_panificacao: '', senioridade_tecnico: '',
   precisa_equipamento: '', equipamento_condicao: '', forno_tipo: '', forno_quantidade: '',
   forno_esteiras: '', freezer_tipos: [], armario_tipo: '', camara_climatica: '',
-  esteiras_quantidade: '', assadeiras_quantidade: '', equipamentos_quantidades: {}, bonificacao_percentual: '', bonificacao_periodicidade: '', bonificacao_modalidade: 'Escolha no pedido', observacoes: ''
+  esteiras_quantidade: '', assadeiras_quantidade: '', equipamentos_quantidades: {}, bonificacao_percentual: '', bonificacao_periodicidade: '', bonificacao_modalidade: 'Produto', tecnico_periodicidade: '', observacoes: ''
 };
 
 function PaginaEmissao({ profile, onSaved }) {
@@ -1061,7 +1061,7 @@ function PaginaEmissao({ profile, onSaved }) {
 
   // limpa os dependentes quando o gatilho e desligado
   useEffect(() => { if (!temVerba && f.duracao_verba) set('duracao_verba', ''); }, [temVerba]);
-  useEffect(() => { if (!temTecnico && f.senioridade_tecnico) set('senioridade_tecnico', ''); }, [temTecnico]);
+  useEffect(() => { if (!temTecnico && (f.senioridade_tecnico || f.tecnico_periodicidade)) setF(prev=>({...prev,senioridade_tecnico:'',tecnico_periodicidade:''})); }, [temTecnico]);
   useEffect(() => {
     if (!precisaEquip) setF(prev => ({ ...prev, equipamento_condicao: '', forno_tipo: '', forno_quantidade: '',
       forno_esteiras: '', freezer_tipos: [], armario_tipo: '', camara_climatica: '',
@@ -1105,6 +1105,8 @@ function PaginaEmissao({ profile, onSaved }) {
     if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe a duração da verba em meses inteiros positivos.', 'error');
     if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
+    if(temTecnico&&!f.tecnico_periodicidade)return toast('Informe a periodicidade do Técnico.', 'error');
+    if(moedaParaNumero(f.preco_kg)>999.99)return toast('Preço do Kg: máximo de 3 dígitos inteiros.', 'error');
     if (precisaEquip && !f.equipamento_condicao) return toast('Informe se o equipamento é Novo ou Usado.', 'error');
     if(Number(f.bonificacao_percentual)<0||Number(f.bonificacao_percentual)>100)return toast('Bonificação deve estar entre 0% e 100%.','error');
     if(Number(f.bonificacao_percentual)>0&&!f.bonificacao_periodicidade)return toast('Informe a periodicidade da bonificação.','error');
@@ -1132,6 +1134,7 @@ function PaginaEmissao({ profile, onSaved }) {
       duracao_verba: temVerba ? f.duracao_verba.trim() : null,
       tecnico_panificacao: temTecnico,
       senioridade_tecnico: temTecnico ? f.senioridade_tecnico : null,
+       tecnico_periodicidade: temTecnico ? f.tecnico_periodicidade : null,
       precisa_equipamento: precisaEquip,
       equipamento_condicao: precisaEquip ? f.equipamento_condicao : null,
       forno_tipo: precisaEquip ? (Number(f.equipamentos_quantidades.forno_gas||0)>0&&Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Gás e Elétrico':Number(f.equipamentos_quantidades.forno_gas||0)>0?'Gás':Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Elétrico':null) : null,
@@ -1212,7 +1215,7 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
         h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
-        h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(e.target.value)) })),
+        h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').slice(0,5))) })),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
         h(Campo, { label: 'Verbas de Introdução' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
@@ -1224,7 +1227,8 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Total de Verbas' }, h(Input, { value: fmtMoeda(totalVerbas), disabled: true })),
         h(Campo, { label: 'Duração da Verba (meses)', obrigatorio: temVerba }, h(Input, { type:'number',min:1,step:1,value: f.duracao_verba, disabled: !temVerba, placeholder: temVerba ? 'Ex.: 12' : 'Preencha alguma verba', onChange: e => set('duracao_verba', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Técnico de Panificação?', obrigatorio: true }, h(Select, { opcoes: ['Sim','Não'], value: f.tecnico_panificacao, onChange: e => set('tecnico_panificacao', e.target.value) })),
-        h(Campo, { label: 'Senioridade do Técnico', obrigatorio: temTecnico }, h(Select, { opcoes: ['Júnior','Pleno','Sênior'], value: f.senioridade_tecnico, disabled: !temTecnico, onChange: e => set('senioridade_tecnico', e.target.value) }))),
+        h(Campo, { label: 'Senioridade do Técnico', obrigatorio: temTecnico }, h(Select, { opcoes: ['Júnior','Pleno','Sênior'], value: f.senioridade_tecnico, disabled: !temTecnico, onChange: e => set('senioridade_tecnico', e.target.value) })),
+        h(Campo,{label:'Periodicidade do Técnico',obrigatorio:temTecnico},h(Select,{opcoes:['Diário','Semanal','Quinzenal','Mensal'],value:f.tecnico_periodicidade,disabled:!temTecnico,onChange:e=>set('tecnico_periodicidade',e.target.value)}))),
       faturamento !== null && h('div', { style: { marginTop: 14, padding: '10px 14px', background: 'var(--accent-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 13 } },
         'Faturamento previsto: ',
         h('strong', { style: { fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(faturamento)),
@@ -1645,7 +1649,7 @@ function DetalheFicha({ ficha, onClose }) {
     titulo: identificacaoFichaCliente(f), sub: codigoAuditoria(f, 'FIC') + (f.cnpj_cpf ? ' · ' + f.cnpj_cpf : ''), largo: true, onClose,
     acoes: [
       h('button', { key:'pdf', className:'btn btn-secondary', onClick: () => baixarFichaPDF(f) }, '↓ Baixar Ficha'),
-      fichaAprovadaDiretoria(f) && h('button', { key:'contrato', className:'btn btn-primary', onClick: () => solicitarAssinaturaContrato(f) }, 'Enviar para assinatura'),
+      fichaAprovadaDiretoria(f) && (f.contrato || Number(f.verbas_acordo||0)>0 || Number(f.bonificacao_percentual||0)>0) && h('button',{key:'contrato',className:'btn btn-primary',onClick:()=>solicitarAssinaturaContrato(f)},f.contrato?'Contrato — assinatura':'Acordo comercial — assinatura'),
       h('button', { key:'fechar', className: 'btn btn-secondary', onClick: onClose }, 'Fechar')
     ].filter(Boolean)
   },
@@ -6025,6 +6029,7 @@ function PaginaPedidos({ profile }) {
   const [lancando, setLancando] = useState(null); // { rota, data, clientesRota }
   const [clienteAtivo, setClienteAtivo] = useState(null);
   const [pedidoAnterior, setPedidoAnterior] = useState(null);
+  const [historicoPedidos,setHistoricoPedidos]=useState([]),[mostrarHistorico,setMostrarHistorico]=useState(false);
   const [pedidoEditandoId, setPedidoEditandoId] = useState(null);
   const [pedidoEditandoCodigo, setPedidoEditandoCodigo] = useState(null);
   // Bonificações aprovadas disponíveis para vincular ao pedido.
@@ -6164,7 +6169,7 @@ function PaginaPedidos({ profile }) {
 
   async function selecionarCliente(cli) {
     try {
-    setClienteAtivo(cli); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
+    setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
     // carrega tabela de precos do cliente
     setTabelaPrecoCliente({});
     let mapaTabelaPreco = {};
@@ -6199,6 +6204,9 @@ function PaginaPedidos({ profile }) {
     setAmostrasAbertas(amostrasAprovadas);
     setAmostrasVinculadas([]);
 
+    const {data:historico,error:erroHistorico}=await sb.from('pedidos').select('id,codigo,data_pedido,created_at,pedido_itens(quantidade,valor_total,tipo_item,produtos(codigo,descricao,peso_kg))').eq('cliente_id',cli.id).order('data_pedido',{ascending:false}).order('created_at',{ascending:false}).limit(100);
+    if(erroHistorico)toast('Histórico: '+erroHistorico.message,'error');
+    setHistoricoPedidos(historico||[]);
     // verifica se ja existe pedido para este cliente NESTA data
     const { data: pedidoHoje } = await sb.from('pedidos')
       .select('*, pedido_itens(*, produtos(codigo, descricao, unidade, peso_kg))')
@@ -6508,7 +6516,19 @@ function PaginaPedidos({ profile }) {
                       h('button', { className: vinc ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm', disabled: vinc, onClick: () => vincularAmostra(a) }, vinc ? 'Apropriada' : 'Apropriar'));
                   })),
 
-                pedidoAnterior && h('div', { className: 'card', style: { marginBottom: 12 } },
+                h('div',{className:'card',style:{marginBottom:12}},
+                   h('div',{style:{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}},
+                     h('strong',null,'Histórico de pedidos ('+historicoPedidos.length+')'),
+                     h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setMostrarHistorico(v=>!v)},mostrarHistorico?'Ocultar':'Ver anteriores')),
+                   mostrarHistorico&&h('div',{className:'table-wrap',style:{maxHeight:350,overflowY:'auto',marginTop:10}},
+                     h('table',null,h('thead',null,h('tr',null,...['Pedido','Data','Produtos','Kg','Valor'].map(c=>h('th',{key:c},c)))),
+                     h('tbody',null,...historicoPedidos.map(p=>h('tr',{key:p.id},
+                       h('td',null,p.codigo||String(p.id).slice(0,8)),h('td',null,fmtData(p.data_pedido)),
+                       h('td',null,(p.pedido_itens||[]).map(it=>((it.produtos||{}).codigo||'Produto')+' × '+fmtNum(it.quantidade)).join(' | ')),
+                       h('td',null,(p.pedido_itens||[]).reduce((t,it)=>t+Number(it.quantidade||0)*Number((it.produtos||{}).peso_kg||0),0).toLocaleString('pt-BR',{maximumFractionDigits:2})),
+                       h('td',null,fmtMoeda((p.pedido_itens||[]).reduce((t,it)=>t+Number(it.valor_total||0),0)))))))),
+                   mostrarHistorico&&historicoPedidos.length===100&&h('div',{className:'page-sub'},'Exibindo os últimos 100 pedidos.')),
+                 pedidoAnterior && h('div', { className: 'card', style: { marginBottom: 12 } },
                   h('div', { className: 'section-title' }, 'Pedido anterior · ' + codigoAuditoria(pedidoAnterior, 'PED') + ' (' + fmtData(pedidoAnterior.data_pedido) + ')'),
                   h('div', { className: 'table-wrap' },
                     h('table', null,
@@ -6527,7 +6547,8 @@ function PaginaPedidos({ profile }) {
                             (pedidoAnterior.pedido_itens || []).reduce((s, it) => s + Number(it.valor_total || 0), 0)))))))),
 
                 h('div', { className: 'card' },
-                  h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
+                  h('div',{style:{fontSize:13,marginBottom:10}},'Anterior (previsto): ',h('strong',null,(pedidoAnterior?(pedidoAnterior.pedido_itens||[]).reduce((t,it)=>t+Number(it.quantidade||0)*Number((it.produtos||{}).peso_kg||0),0):0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg'),' / Atual (realizado): ',h('strong',null,itens.reduce((t,it)=>t+Number(it.quantidade||0)*Number((produtos.find(p=>p.id===it.produto_id)||{}).peso_kg||0),0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg')),
+                   h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
                   h('div', { className: 'table-wrap' },
                     h('table', null,
                       h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
