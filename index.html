@@ -4037,10 +4037,22 @@ function PaginaDashboardAdmin({profile}) {
 function PaginaGamificacaoComercial({profile}){
   const [periodo,setPeriodo]=useState('mes');
   const [categoria,setCategoria]=useState('vendedor');
+  const [aba,setAba]=useState('geral');
   const [dados,setDados]=useState([]);
   const [carregando,setCarregando]=useState(false);
   const [erro,setErro]=useState('');
   const [atualizadoEm,setAtualizadoEm]=useState('');
+  const abas=[
+    {id:'fichas',label:'Fichas',tipo:'inteiro'},
+    {id:'faturamento_previsto',label:'Faturamento Previsto',tipo:'moeda'},
+    {id:'faturamento_realizado',label:'Faturamento Realizado',tipo:'moeda'},
+    {id:'volume_previsto_ton',label:'Volume (Ton) Previsto',tipo:'ton'},
+    {id:'volume_realizado_ton',label:'Volume (Ton) Realizado',tipo:'ton'},
+    {id:'geral',label:'Ranking Geral',tipo:'pontos'}
+  ];
+  const campos=abas.slice(0,5).map(a=>a.id);
+  const num=x=>Number(x)||0;
+  const formatar=(v,t)=>t==='moeda'?fmtMoeda(num(v)):t==='ton'?num(v).toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':t==='pontos'?num(v).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' pts':num(v).toLocaleString('pt-BR');
   function intervalo(){
     const hoje=new Date(),inicio=new Date(hoje.getFullYear(),hoje.getMonth(),1);
     if(periodo==='trimestre')inicio.setMonth(Math.floor(hoje.getMonth()/3)*3);
@@ -4052,49 +4064,58 @@ function PaginaGamificacaoComercial({profile}){
     if(profile?.papel!=='admin')return;
     setCarregando(true);setErro('');
     const [p_inicio,p_fim]=intervalo();
-    const {data,error}=await sb.rpc('ranking_gamificacao_comercial',{p_inicio,p_fim});
+    const {data,error}=await sb.rpc('ranking_gamificacao_metricas',{p_inicio,p_fim});
     if(error){setErro(error.message);setDados([]);}
     else {setDados(data||[]);setAtualizadoEm(new Date().toLocaleString('pt-BR'));}
     setCarregando(false);
   }
   useEffect(()=>{carregar();},[periodo,profile?.papel]);
   if(profile?.papel!=='admin')return h('div',{className:'empty-state'},'Acesso restrito ao administrador.');
-  const filtrados=dados.filter(d=>d.papel===categoria).slice().sort((a,b)=>Number(b.pontos)-Number(a.pontos)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const titulo={vendedor:'Vendedores',supervisor:'Supervisores',coordenador:'Coordenadores'};
-  const total=filtrados.reduce((acc,d)=>acc+Number(d.pontos||0),0);
+  const participantes=dados.filter(x=>x.papel===categoria);
+  const max=Object.fromEntries(campos.map(c=>[c,Math.max(0,...participantes.map(x=>num(x[c])))]));
+  const classif=participantes.map(x=>({...x,geral:Math.round(10*campos.reduce((s,c)=>s+(max[c]>0?20*Math.max(0,num(x[c]))/max[c]:0),0))/10}));
+  const atual=abas.find(x=>x.id===aba)||abas[5];
+  const ordenados=classif.sort((a,b)=>num(b[aba])-num(a[aba])||num(b.geral)-num(a.geral)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  const soma=ordenados.reduce((v,x)=>v+num(x[aba]),0);
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'★ Gamificação Comercial'),
-        h('div',{className:'page-sub'},'Ranking experimental — acesso exclusivo do administrador')),
-      h('button',{className:'btn btn-secondary',onClick:carregar,disabled:carregando},carregando?'Atualizando...':'↻ Atualizar ranking')),
-    h('div',{className:'card',style:{marginBottom:16}},
+        h('div',{className:'page-sub'},'Rankings por indicador — exclusivo do administrador')),
+      h('button',{className:'btn btn-secondary',onClick:carregar,disabled:carregando},carregando?'Atualizando...':'↻ Atualizar')),
+    h('div',{className:'card',style:{marginBottom:14}},
       h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}},
         h(Campo,{label:'Período'},h('select',{className:'form-select',value:periodo,onChange:e=>setPeriodo(e.target.value)},
           h('option',{value:'mes'},'Mês atual'),h('option',{value:'trimestre'},'Trimestre atual'),h('option',{value:'ano'},'Ano atual'))),
-        h(Campo,{label:'Ranking'},h('select',{className:'form-select',value:categoria,onChange:e=>setCategoria(e.target.value)},
+        h(Campo,{label:'Ranking de'},h('select',{className:'form-select',value:categoria,onChange:e=>setCategoria(e.target.value)},
           h('option',{value:'vendedor'},'Vendedores'),h('option',{value:'supervisor'},'Supervisores'),h('option',{value:'coordenador'},'Coordenadores')))),
-      h('div',{className:'page-sub',style:{marginTop:12}},
-        'Pontuação: 10 pontos por ficha cadastrada + 5 por cliente distinto com pedido + 2 por pedido registrado. '+
-        'Supervisores e coordenadores recebem a soma das equipes vinculadas. Não representa faturamento Protheus.'),
-      atualizadoEm&&h('div',{className:'page-sub',style:{marginTop:7}},'Atualização: '+atualizadoEm)),
-    erro&&h('div',{className:'card',style:{color:'var(--danger)',marginBottom:14}},'Não foi possível carregar o ranking: '+erro+' · Confira a migração SQL no Supabase.'),
+      h('div',{className:'page-sub',style:{marginTop:10}},
+        'Previsto: projeções mensais das fichas cadastradas no período; toneladas previstas = consumo (pães/dia) × 0,080 kg × 26 dias / 1.000. '+
+        'Realizado: apenas pedidos de Venda (operação 01) no Meu Cliente, excluindo amostras, trocas e bonificações. '+
+        'NÃO é o faturamento ou volume efetivamente faturado no Protheus.'),
+      atualizadoEm&&h('div',{className:'page-sub',style:{marginTop:6}},'Atualizado em '+atualizadoEm)),
+    h('div',{style:{display:'flex',flexWrap:'wrap',gap:7,marginBottom:14}},
+      ...abas.map(a=>h('button',{key:a.id,className:'btn '+(aba===a.id?'btn-primary':'btn-secondary')+' btn-sm',onClick:()=>setAba(a.id)},a.label))),
+    erro&&h('div',{className:'card',style:{color:'var(--danger)'}},'Não foi possível consultar as métricas: '+erro+'. Execute a migração SQL.'),
     !erro&&h('div',{className:'kpi-grid'},
-      h(Kpi,{icon:'★',cor:'warning',valor:total,label:'Pontos do ranking '+titulo[categoria]}),
-      h(Kpi,{icon:'☺',cor:'accent',valor:filtrados.length,label:'Participantes ativos'}),
-      h(Kpi,{icon:'▣',cor:'info',valor:filtrados.reduce((v,x)=>v+Number(x.fichas||0),0),label:'Fichas contabilizadas'}),
-      h(Kpi,{icon:'≡',cor:'success',valor:filtrados.reduce((v,x)=>v+Number(x.pedidos||0),0),label:'Pedidos registrados'})),
+      h(Kpi,{icon:'★',cor:'warning',valor:aba==='geral'?'100 pts':formatar(soma,atual.tipo),label:aba==='geral'?'Pontuação máxima individual':'Total da categoria'}),
+      h(Kpi,{icon:'☺',cor:'accent',valor:ordenados.length,label:'Participantes'}),
+      h(Kpi,{icon:'▣',cor:'info',valor:ordenados.filter(x=>num(x[aba])>0).length,label:'Com resultado'})),
     !erro&&h('div',{className:'card',style:{marginTop:14}},
-      h('div',{className:'section-title'},'Classificação — '+titulo[categoria]),
+      h('div',{className:'section-title'},atual.label+' — '+titulo[categoria]),
+      aba==='geral'&&h('div',{className:'page-sub',style:{marginBottom:12}},
+        'Ranking Geral: cada um dos cinco indicadores contribui com até 20 pontos (total de 100), em proporção ao líder de cada indicador na mesma função. Indicadores sem dados recebem zero.'),
       carregando?h('div',{className:'empty-state'},'Calculando ranking...'):
-      filtrados.length===0?h('div',{className:'empty-state'},'Nenhum participante ativo encontrado.'):
+      !ordenados.length?h('div',{className:'empty-state'},'Nenhum participante ativo encontrado.'):
       h('div',{className:'table-wrap'},
         h('table',{className:'data-table'},
-          h('thead',null,h('tr',null,...['Posição','Participante','Pontos','Fichas','Clientes com pedido','Pedidos'].map(t=>h('th',{key:t},t)))),
-          h('tbody',null,...filtrados.map((x,i)=>h('tr',{key:x.usuario_id},
+          h('thead',null,h('tr',null,...['Posição','Participante',atual.label,...(aba==='geral'?abas.slice(0,5).map(a=>a.label):[])].map(t=>h('th',{key:t},t)))),
+          h('tbody',null,...ordenados.map((x,i)=>h('tr',{key:x.usuario_id},
             h('td',null,h('span',{style:{fontWeight:800,fontSize:18}},i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1)+'º')),
             h('td',null,h('strong',null,x.nome||'—')),
-            h('td',null,h('strong',null,Number(x.pontos||0).toLocaleString('pt-BR'))),
-            h('td',null,x.fichas),h('td',null,x.clientes_com_pedido),h('td',null,x.pedidos)))))))
+            h('td',null,h('strong',null,formatar(x[aba],atual.tipo))),
+            ...(aba==='geral'?abas.slice(0,5).map(a=>h('td',{key:a.id},formatar(x[a.id],a.tipo))):[])
+          ))))))
   );
 }
 
