@@ -6991,6 +6991,34 @@ function PaginaPedidos({ profile }) {
                             (pedidoAnterior.pedido_itens || []).reduce((s, it) => s + Number(it.valor_total || 0), 0)))))))),
 
                 h('div', { className: 'card' },
+                  acordosBonifPedido.length>0&&h('div',{className:'card',style:{marginBottom:14,padding:14}},
+                    h('div',{className:'section-title'},'Bonificações do acordo comercial'),
+                    h('div',{className:'page-sub',style:{marginBottom:10}},'Selecione os itens de venda e, se aplicável, de bonificação. Salve o pedido antes de apropriar. A apropriação será registrada no Conta Corrente.'),
+                    ...acordosBonifPedido.map(a=>{
+                      const relacionados=apropriacoesPedido.filter(m=>m.compromisso_id===a.id&&!m.estornado_em);
+                      const destePedido=relacionados.find(m=>m.pedido_id===pedidoEditandoId);
+                      const indisponivel=!a.ativo||!!destePedido||
+                        (a.tipo==='negociacao'&&a.periodicidade==='unica'&&relacionados.length>0)||
+                        (a.tipo==='negociacao'&&a.periodicidade==='mensal'&&relacionados.some(m=>m.competencia?.slice(0,7)===String(lancando?.data||'').slice(0,7)));
+                      const realizado=relacionados.reduce((v,m)=>v+Number(m.valor||0),0);
+                      const saldo=a.tipo==='introducao'?Math.max(0,Number(a.valor_acordado||0)-realizado):null;
+                      const vendido=itens.filter(it=>(it.tipo_item||'venda')!=='bonificacao'&&!['02','03'].includes(it.codigo_operacao||operacaoPedido))
+                        .reduce((v,it)=>v+Number(it.quantidade||0)*Number(it.valor_unitario||0),0);
+                      const valorPct=Math.round(vendido*Number(a.percentual||0))/100;
+                      return h('div',{key:a.id,style:{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:10}},
+                        h('strong',null,a.tipo==='introducao'?'Verba de Introdução':'Bonificação de Negociação'),
+                        h('div',{className:'page-sub',style:{marginTop:4,marginBottom:8}},
+                          a.tipo==='introducao'?'Acordado '+fmtMoeda(a.valor_acordado)+' · Realizado '+fmtMoeda(realizado)+' · Saldo '+fmtMoeda(saldo):
+                          fmtNum(a.percentual)+'% · '+({todos:'Todos os pedidos',mensal:'1 pedido do mês',unica:'1 parcela'}[a.periodicidade]||a.periodicidade)+' · '+a.modalidade+' · Valor calculado neste pedido: '+fmtMoeda(valorPct)),
+                        a.tipo==='introducao'&&h('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}},
+                          h('input',{className:'form-input',style:{maxWidth:140},inputMode:'decimal',placeholder:'Valor a apropriar',value:valorIntroducaoPedido,onChange:e=>setValorIntroducaoPedido(e.target.value)}),
+                          h('select',{className:'form-select',style:{maxWidth:150},value:modoIntroducaoPedido,onChange:e=>setModoIntroducaoPedido(e.target.value)},
+                            h('option',{value:'Produto'},'Produto'),h('option',{value:'Desconto'},'Desconto'))),
+                        h('button',{className:'btn btn-primary btn-sm',disabled:!pedidoEditandoId||indisponivel||aplicandoBonifPedido||salvando||!!(a.tipo==='introducao'&&saldo<=0),onClick:()=>apropriarBonificacaoComercial(a.tipo)},
+                          destePedido?'✓ Apropriado neste pedido':!a.ativo?'Bonificação encerrada':indisponivel?'Aplicação já utilizada':!pedidoEditandoId?'Salve o pedido primeiro':'Apropriar no Conta Corrente'),
+                        a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6}},'Desconto: confirmar concessão efetiva antes de apropriar. A exportação CSV TOTVS atual não transporta desconto financeiro.'));
+                    })
+                  ),
                   pedidoConfirmado && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--success)',borderRadius:8}},
                     h('strong',null,'Pedido confirmado no banco: '+pedidoConfirmado.codigo),
                     h('div',{className:'page-sub'},pedidoConfirmado.quantidade+' item(ns) · '+fmtMoeda(pedidoConfirmado.total)+' · '+pedidoConfirmado.quando)),
