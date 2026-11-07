@@ -1718,6 +1718,47 @@ function baixarPedidoPDF(cliente,pedido,itens,rotaNome,dataPedido,observacoes) {
 function DetalheFicha({ ficha, onClose }) {
   const f = ficha;
   const endereco = [f.rua, f.numero, f.bairro, f.cidade, f.estado].filter(Boolean).join(', ');
+  const [documentos, setDocumentos] = useState([]);
+  const [carregandoDocs, setCarregandoDocs] = useState(true);
+  const [enviandoDocs, setEnviandoDocs] = useState(false);
+  const [arquivosDocs, setArquivosDocs] = useState([]);
+  const [tipoDoc, setTipoDoc] = useState('outro');
+  useEffect(() => { let ativo=true;
+    (async()=>{const {data,error}=await sb.from('ficha_documentos')
+      .select('id,nome_arquivo,caminho_storage,tipo_mime,tamanho_bytes,tipo_documento,origem_documento,docusign_envelope_id,assinado_em')
+      .eq('ficha_id',f.id).order('id',{ascending:false});
+      if(ativo){setDocumentos(data||[]);setCarregandoDocs(false);if(error)toast('Não foi possível carregar os anexos: '+error.message,'error');}
+    })();
+    return ()=>{ativo=false;};
+  },[f.id]);
+  async function visualizarDocumento(doc){
+    const {data,error}=await sb.storage.from('fichas-documentos').createSignedUrl(doc.caminho_storage,120);
+    if(error||!data?.signedUrl){toast('Não foi possível abrir o documento: '+(error?.message||'acesso negado'),'error');return;}
+    window.open(data.signedUrl,'_blank','noopener,noreferrer');
+  }
+  async function enviarDocumentosFicha(){
+    if(!arquivosDocs.length||enviandoDocs)return;
+    setEnviandoDocs(true);
+    let falhas=0,novos=[];
+    const {data:authData,error:authError}=await sb.auth.getUser();
+    const usuarioId=authData?.user?.id;
+    if(authError||!usuarioId){setEnviandoDocs(false);toast('Faça login novamente para anexar documentos.','error');return;}
+    for(const arquivo of arquivosDocs){
+      const seguro=arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+      const caminho=f.id+'/'+crypto.randomUUID()+'-'+seguro;
+      const upload=await sb.storage.from('fichas-documentos').upload(caminho,arquivo,{upsert:false,contentType:arquivo.type||'application/octet-stream'});
+      if(upload.error){falhas++;console.error('Upload de documento',upload.error);continue;}
+      const registro={ficha_id:f.id,nome_arquivo:arquivo.name,caminho_storage:caminho,tipo_mime:arquivo.type||null,tamanho_bytes:arquivo.size,enviado_por:usuarioId,tipo_documento:tipoDoc,origem_documento:'manual'};
+      const {data,error}=await sb.from('ficha_documentos').insert(registro).select('id,nome_arquivo,caminho_storage,tipo_mime,tamanho_bytes,tipo_documento,origem_documento,docusign_envelope_id,assinado_em').single();
+      if(error){falhas++;console.error('Registro de documento',error);await sb.storage.from('fichas-documentos').remove([caminho]);}
+      else novos.push(data);
+    }
+    setDocumentos(anteriores=>[...novos,...anteriores]);
+    setArquivosDocs([]);
+    setEnviandoDocs(false);
+    if(novos.length)toast(novos.length+' documento(s) anexado(s) com sucesso.','success');
+    if(falhas)toast(falhas+' arquivo(s) não puderam ser anexados. Verifique permissões e migração SQL.','error');
+  }
   return h(Modal, {
     titulo: identificacaoFichaCliente(f), sub: codigoAuditoria(f, 'FIC') + (f.cnpj_cpf ? ' · ' + f.cnpj_cpf : ''), largo: true, onClose,
     acoes: [
@@ -1765,6 +1806,39 @@ function DetalheFicha({ ficha, onClose }) {
         f.observacoes && h('div', { style: { marginTop: 12 } },
           h('div', { className: 'section-title' }, 'Observações'),
           h('div', { style: { fontSize: 13 } }, f.observacoes)))),
+    h('div',{style:{marginTop:20}},
+      h('div',{className:'section-title'},'Documentos Anexados'),
+      h('div',{className:'page-sub',style:{marginBottom:10}},'Consulte e acrescente arquivos a esta ficha. Contratos e acordos assinados ficam identificados para futura integração DocuSign.'),
+      carregandoDocs ? h('div',{className:'page-sub'},'Carregando anexos...') :
+      documentos.length===0 ? h('div',{className:'page-sub'},'Nenhum documento anexado.') :
+      h('div',{style:{display:'flex',flexDirection:'column',gap:7,marginBottom:14}},
+        documentos.map(d=>h('div',{key:d.id,style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,border:'1px solid var(--border)',borderRadius:7,padding:'9px 12px'}},
+          h('div',{style:{minWidth:0,overflowWrap:'anywhere'}},
+            h('div',{style:{fontWeight:600}},d.nome_arquivo),
+            h('div',{className:'page-sub'},(d.tipo_documento==='contrato_assinado'?'Contrato/Acordo assinado':'Documento geral')+' · '+(d.origem_documento==='docusign'?'DocuSign':'Anexo manual')+' · '+((d.tamanho_bytes||0)/1024/1024).toFixed(2)+' MB')),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>visualizarDocumento(d)},'Visualizar / baixar')
+        ))
+      ),
+      h('div',{className:'form-grid',style:{alignItems:'end'}},
+        h(Campo,{label:'Tipo de documento'},
+          h('select',{className:'form-input',value:tipoDoc,onChange:e=>setTipoDoc(e.target.value)},
+            h('option',{value:'outro'},'Documento geral'),
+            h('option',{value:'contrato_assinado'},'Contrato / acordo assinado'))),
+        h(Campo,{label:'Adicionar arquivos (até 10 MB cada)'},
+          h('input',{type:'file',multiple:true,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
+            const lista=Array.from(e.target.files||[]);
+            const validos=lista.filter(a=>a.size<=10*1024*1024);
+            if(validos.length!==lista.length)toast('Arquivos acima de 10 MB foram ignorados.','error');
+            setArquivosDocs(anteriores=>{const juntos=[...anteriores];validos.forEach(a=>{if(!juntos.some(b=>b.name===a.name&&b.size===a.size&&b.lastModified===a.lastModified))juntos.push(a);});return juntos;});
+            e.target.value='';
+          }}))),
+      arquivosDocs.length>0 && h('div',{style:{marginTop:8,display:'flex',flexDirection:'column',gap:5}},
+        arquivosDocs.map((a,i)=>h('div',{key:i,style:{display:'flex',justifyContent:'space-between',gap:8}},
+          h('span',{style:{overflowWrap:'anywhere'}},a.name),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setArquivosDocs(v=>v.filter((_,j)=>j!==i))},'Remover')))),
+      h('div',{style:{marginTop:12}},
+        h('button',{type:'button',className:'btn btn-primary',disabled:enviandoDocs||!arquivosDocs.length,onClick:enviarDocumentosFicha},enviandoDocs?'Enviando...':'Salvar novos anexos'))
+    ),
     h('div', { style: { marginTop: 18 } },
       h('div', { className: 'section-title' }, 'Fluxo de Aprovação'),
       h('div', { className: 'table-wrap' },
