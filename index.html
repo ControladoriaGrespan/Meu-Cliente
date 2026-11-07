@@ -6243,6 +6243,11 @@ function PaginaPedidos({ profile }) {
   const [tabelaPrecoCliente, setTabelaPrecoCliente] = useState({});
   const [precosHistoricosCliente,setPrecosHistoricosCliente]=useState({});
   const [pedidoConfirmado,setPedidoConfirmado]=useState(null);
+  const [acordosBonifPedido,setAcordosBonifPedido]=useState([]);
+  const [apropriacoesPedido,setApropriacoesPedido]=useState([]);
+  const [valorIntroducaoPedido,setValorIntroducaoPedido]=useState('');
+  const [modoIntroducaoPedido,setModoIntroducaoPedido]=useState('Produto');
+  const [aplicandoBonifPedido,setAplicandoBonifPedido]=useState(false);
   const [exportandoTotvs,setExportandoTotvs]=useState(false);
   const [tesItens,setTesItens]=useState({});
   const [consultandoTes,setConsultandoTes]=useState(false);
@@ -6369,8 +6374,50 @@ function PaginaPedidos({ profile }) {
     return true;
   }
 
+  async function carregarBonificacoesComerciais(clienteId,pedidoId){
+    const [a,m]=await Promise.all([
+      sb.from('bonificacao_compromissos').select('*').eq('cliente_id',clienteId).order('criado_em'),
+      sb.from('bonificacao_apropriacoes').select('id,compromisso_id,pedido_id,tipo,valor,competencia,estornado_em').eq('cliente_id',clienteId)
+    ]);
+    if(a.error||m.error){console.warn('Bonificações v2:',a.error||m.error);setAcordosBonifPedido([]);setApropriacoesPedido([]);return;}
+    setAcordosBonifPedido(a.data||[]);setApropriacoesPedido(m.data||[]);
+  }
+  async function apropriarBonificacaoComercial(tipo){
+    if(!pedidoEditandoId||!clienteAtivo||aplicandoBonifPedido)return;
+    const a=acordosBonifPedido.find(a=>a.tipo===tipo&&a.ativo);
+    if(!a)return toast('Acordo não disponível. Verifique a ficha e a Conta Corrente.','error');
+    const ativos=apropriacoesPedido.filter(x=>!x.estornado_em&&x.compromisso_id===a.id);
+    if(ativos.some(x=>x.pedido_id===pedidoEditandoId))return toast('Bonificação já apropriada neste pedido.','error');
+    const competencia=String(lancando.data).slice(0,7);
+    if(tipo==='negociacao'&&a.periodicidade==='unica'&&ativos.length)
+      return toast('A parcela única já foi utilizada.','error');
+    if(tipo==='negociacao'&&a.periodicidade==='mensal'&&ativos.some(x=>x.competencia?.slice(0,7)===competencia))
+      return toast('Já houve apropriação da negociação neste mês.','error');
+    const venda=itens.filter(it=>(it.tipo_item||'venda')!=='bonificacao'&&!['02','03'].includes(it.codigo_operacao||operacaoPedido))
+      .reduce((v,it)=>v+Number(it.quantidade||0)*Number(it.valor_unitario||0),0);
+    const valor=tipo==='introducao'?
+      Number(String(valorIntroducaoPedido||'').replace(/\./g,'').replace(',','.')):
+      Math.round(venda*Number(a.percentual||0))/100;
+    if(!Number.isFinite(valor)||valor<=0)return toast('Não há valor positivo elegível para apropriar.','error');
+    const modalidade=tipo==='introducao'?modoIntroducaoPedido:a.modalidade;
+    const bonificados=itens.filter(it=>it.tipo_item==='bonificacao')
+      .reduce((v,it)=>v+Number(it.quantidade||0)*Number(tabelaPrecoCliente[it.produto_id]||0),0);
+    if(modalidade==='Produto'&&bonificados+0.001<valor)
+      return toast('Adicione produtos como Bonificação (operação 04) com valor de tabela suficiente para cobrir '+fmtMoeda(valor)+'. Salve o pedido antes de apropriar.','error');
+    const descricao=(modalidade==='Produto'?'[PRODUTO] ':'[DESCONTO] ')+(tipo==='introducao'?'Verba de Introdução':'Negociação '+a.percentual+'%');
+    if(!window.confirm('Confirmar '+fmtMoeda(valor)+' de '+(tipo==='introducao'?'Verba de Introdução':'Bonificação de Negociação')+' no pedido '+(pedidoEditandoCodigo||pedidoEditandoId)+'?'+(modalidade==='Desconto'?' Confirme que o desconto foi efetivamente concedido; o CSV TOTVS não possui coluna de desconto.':'')))return;
+    setAplicandoBonifPedido(true);
+    const {error}=await sb.rpc('bonif_v2_apropriar',{p_pedido_id:pedidoEditandoId,p_tipo:tipo,p_valor:valor,p_descricao:descricao});
+    setAplicandoBonifPedido(false);
+    if(error)return toast('Bonificação não apropriada: '+error.message,'error');
+    toast('Bonificação apropriada no Conta Corrente.','success');
+    await carregarBonificacoesComerciais(clienteAtivo.id,pedidoEditandoId);
+  }
+
   async function selecionarCliente(cli) {
     try {
+    setAcordosBonifPedido([]);setApropriacoesPedido([]);setValorIntroducaoPedido('');setModoIntroducaoPedido('Produto');
+    await carregarBonificacoesComerciais(cli.id,null);
     setClienteAtivo(cli);setHistoricoPedidos([]);setMostrarHistorico(false);setOperacaoPedido('01'); setItens([]); setObsPedido(''); setPedidoEditandoId(null); setPedidoEditandoCodigo(null); setNumeroNf(1); setTotalNfs(1);
     // carrega tabela de precos do cliente
     setTabelaPrecoCliente({});setPrecosHistoricosCliente({});setPedidoConfirmado(null);setTesItens({});
@@ -6589,6 +6636,7 @@ function PaginaPedidos({ profile }) {
 
   async function salvarPedido() {
     if(salvando)return;
+    if(pedidoEditandoId&&apropriacoesPedido.some(x=>x.pedido_id===pedidoEditandoId&&!x.estornado_em))return toast('Este pedido já possui bonificação apropriada. Solicite estorno gerencial antes de editar seus itens.','error');
     const preenchidos=itens.filter(it=>it.produto_id);
     if(!preenchidos.length)return toast('Adicione pelo menos um produto ao pedido.','error');
     const incompletos=preenchidos.filter(it=>!(Number(it.quantidade)>0)||
@@ -6659,6 +6707,7 @@ function PaginaPedidos({ profile }) {
         throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
       const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
       setPedidoEditandoId(pedidoId);
+      await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
       setPedidoConfirmado({codigo:confere.data.codigo||pedidoId,quantidade:gravados.length,total,quando:new Date().toLocaleString('pt-BR')});
       // Recarrega os dados persistidos em vez de navegar para o próximo cliente.
       setItens(gravados.map(g=>{
