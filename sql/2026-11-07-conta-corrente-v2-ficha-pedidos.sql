@@ -182,7 +182,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS
 DECLARE a record; v_papel text;
 BEGIN
  SELECT papel::text INTO v_papel FROM public.usuarios WHERE id=auth.uid() AND ativo=true;
- IF v_papel NOT IN('admin','financeiro','gestao_adm_vendas') THEN RAISE EXCEPTION 'Somente gestores podem estornar'; END IF;
+ IF v_papel IS NULL OR v_papel NOT IN('admin','financeiro','gestao_adm_vendas') THEN RAISE EXCEPTION 'Somente gestores podem estornar'; END IF;
  IF length(trim(COALESCE(p_motivo,'')))<5 THEN RAISE EXCEPTION 'Informe motivo do estorno (mínimo 5 caracteres)'; END IF;
  SELECT id INTO a FROM public.bonificacao_apropriacoes WHERE id=p_apropriacao_id AND estornado_em IS NULL FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Apropriação não encontrada ou já estornada'; END IF;
@@ -196,7 +196,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS
 DECLARE v_papel text;
 BEGIN
  SELECT papel::text INTO v_papel FROM public.usuarios WHERE id=auth.uid() AND ativo=true;
- IF v_papel NOT IN('admin','adm_vendas','gestao_adm_vendas','financeiro') THEN RAISE EXCEPTION 'Sem permissão para encerrar'; END IF;
+ IF v_papel IS NULL OR v_papel NOT IN('admin','adm_vendas','gestao_adm_vendas','financeiro') THEN RAISE EXCEPTION 'Sem permissão para encerrar'; END IF;
  UPDATE public.bonificacao_compromissos SET ativo=false WHERE id=p_compromisso_id AND tipo='negociacao';
  IF NOT FOUND THEN RAISE EXCEPTION 'Negociação não encontrada'; END IF;
 END $$;
