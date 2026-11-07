@@ -6992,9 +6992,10 @@ function PaginaPedidos({ profile }) {
         throw new Error(erros.slice(0,4).join(' | ')+(erros.length>4?' | e mais '+(erros.length-4)+' pendência(s). Consulte o console.':''));
       }
       if(!linhas.length)return toast('Nenhum pedido com itens para exportar nesta rota/data. Clientes sem compra foram ignorados; nenhum CSV foi criado.','info');
-      if(avisosDesconto.length){
-        const totalDesconto=avisosDesconto.reduce((v,d)=>v+Number(d.valor||0),0);
-        if(!window.confirm('ATENÇÃO: '+avisosDesconto.length+' pedido(s) possuem desconto financeiro de '+fmtMoeda(totalDesconto)+' registrado(s) no Meu Cliente. O CSV NÃO contém esses descontos. Após importar no Protheus, será necessário editar cada pedido e aplicar o desconto manualmente. Deseja gerar os CSVs e assumir essa pendência operacional?')){
+      const descontosPendentes=avisosDesconto.flatMap(d=>(d.apropriacoes||[]).filter(ap=>!ap.confirmacao));
+      if(descontosPendentes.length){
+        const totalDesconto=descontosPendentes.reduce((v,ap)=>v+Number(ap.valor||0),0);
+        if(!window.confirm('ATENÇÃO: '+descontosPendentes.length+' desconto(s) ainda não confirmado(s) no Protheus, totalizando '+fmtMoeda(totalDesconto)+'. O CSV NÃO contém esses descontos. Após a importação, será necessário aplicar os descontos manualmente. Deseja gerar os arquivos e assumir essa pendência operacional?')){
           return toast('Exportação cancelada. Descontos aguardam aplicação manual no Protheus.','info');
         }
       }
