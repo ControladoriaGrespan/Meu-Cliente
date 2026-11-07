@@ -6895,6 +6895,21 @@ function PaginaPedidos({ profile }) {
         .order('created_at',{ascending:true});
       if(error)throw new Error('Falha ao consultar pedidos: '+error.message);
       if(!pedidos?.length){setPreviaTotvs({linhas:[],erros:['Não há pedidos nesta rota/data.'],nfs:[],rota:lancando.rota.id,data:lancando.data});return toast('Não há pedidos com itens para faturamento nesta rota/data.','info');}
+      // Bonificações como desconto não têm campo correspondente no CSV atual.
+      // Conferir antes da exportação para impedir divergências silenciosas.
+      const idsPedidos=(pedidos||[]).map(p=>p.id);
+      const descontos=idsPedidos.length?await sb.from('bonificacao_apropriacoes')
+        .select('pedido_id,valor,tipo,modalidade')
+        .in('pedido_id',idsPedidos).eq('modalidade','Desconto').is('estornado_em',null)
+        :{data:[],error:null};
+      if(descontos.error)throw new Error('Não foi possível conferir os descontos financeiros: '+descontos.error.message);
+      const descontosPorPedido={};
+      (descontos.data||[]).forEach(d=>{
+        const chave=String(d.pedido_id);
+        if(!descontosPorPedido[chave])descontosPorPedido[chave]={valor:0,tipos:[]};
+        descontosPorPedido[chave].valor+=Number(d.valor||0);
+        descontosPorPedido[chave].tipos.push(d.tipo);
+      });
       const clientesPermitidos=new Set(clientesRota.map(c=>String(c.id)));
       const porCliente={};
       const erros=[];
@@ -6904,6 +6919,10 @@ function PaginaPedidos({ profile }) {
         // Atendimento concluído sem compra não gera linha no CSV do Protheus.
         // Mesmo que exista cabeçalho legado sem itens, não o exportar nem contar como pedido.
         if(!(pedido.pedido_itens||[]).length)continue;
+        const descontoPedido=descontosPorPedido[String(pedido.id)];
+        if(descontoPedido){
+          erros.push('Pedido '+(pedido.codigo||pedido.id)+': desconto financeiro de '+fmtMoeda(descontoPedido.valor)+' apropriado no Conta Corrente, mas não representado no CSV TOTVS. Concilie a aplicação com o Faturamento antes de exportar.');
+        }
         porCliente[pedido.cliente_id]=(porCliente[pedido.cliente_id]||0)+1;
         const cli=pedido.clientes||{};
         const codigoOriginal=String(cli.codigo_totvs||'').replace(/\D/g,'');
@@ -7194,7 +7213,7 @@ function PaginaPedidos({ profile }) {
                             h('option',{value:'Produto'},'Produto'),h('option',{value:'Desconto'},'Desconto'))),
                         h('button',{className:'btn btn-primary btn-sm',disabled:!pedidoEditandoId||indisponivel||aplicandoBonifPedido||salvando||!!(a.tipo==='introducao'&&saldo<=0),onClick:()=>apropriarBonificacaoComercial(a.tipo)},
                           destePedido?'✓ Apropriado neste pedido':!a.ativo?'Bonificação encerrada':indisponivel?'Aplicação já utilizada':!pedidoEditandoId?'Salve o pedido primeiro':'Apropriar no Conta Corrente'),
-                        a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6}},'Desconto: confirmar concessão efetiva antes de apropriar. A exportação CSV TOTVS atual não transporta desconto financeiro.'));
+                        a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6,color:'var(--warning)'}},'Atenção: o CSV TOTVS atual não transporta desconto financeiro. Uma apropriação como Desconto bloqueará a exportação deste pedido até que exista conciliação com o Faturamento.'));
                     })
                   ),
                   pedidoConfirmado && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--success)',borderRadius:8}},
