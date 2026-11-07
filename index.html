@@ -7553,32 +7553,75 @@ function PaginaImportacao({ profile }) {
     if(atualizados+novos>0) toast((atualizados+novos)+' cliente(s) conciliado(s)!','success');
   }
 
-  // ---------- TABELAS DE PRECO ----------
-  async function importarTabelaPreco(rows) {
-    const obrig = rows.every(r => r.cod_tabela && r.codigo_produto && r.preco_unitario);
-    if (!obrig) return toast('Colunas obrigatórias: cod_tabela, codigo_produto, preco_unitario.', 'error');
-    setImportando(true);
-    const { data: prods } = await sb.from('produtos').select('id, codigo').limit(10000);
-    const prodMap = {};
-    (prods || []).forEach(p => { prodMap[p.codigo.toLowerCase().trim()] = p.id; prodMap[p.codigo.replace(/^0+/,'').toLowerCase()] = p.id; });
-    const tabelas = {};
-    rows.forEach(r => { const cod = (r.cod_tabela || '').trim(); if (!tabelas[cod]) tabelas[cod] = []; tabelas[cod].push(r); });
-    let okTab = 0, okItens = 0, erros = 0;
-    for (const [cod, itens] of Object.entries(tabelas)) {
-      const { data: tab, error: errTab } = await sb.from('tabelas_preco').upsert({ codigo: cod, descricao: 'Tabela ' + cod, ativo: true }, { onConflict: 'codigo' }).select().single();
-      if (errTab) { erros++; continue; } okTab++;
-      for (const it of itens) {
-        const codProd = (it.codigo_produto || '').trim();
-        const prodId = prodMap[codProd.toLowerCase()] || prodMap[codProd.replace(/^0+/,'').toLowerCase()];
-        if (!prodId) { erros++; continue; }
-        const preco = Number(String(it.preco_unitario || '0').replace(',', '.'));
-        const { error } = await sb.from('tabela_preco_itens').upsert({ tabela_id: tab.id, produto_id: prodId, preco_unitario: preco }, { onConflict: 'tabela_id,produto_id' });
-        if (error) erros++; else okItens++;
+  // ---------- CADASTRO DE TABELAS (DA0) ----------
+  async function importarCadastroTabelas(rows) {
+    const validas=rows.filter(r=>String(r.cod_tabela||'').trim()&&String(r.descricao||'').trim());
+    if(validas.length!==rows.length)return toast('DA0: código e descrição obrigatórios em todas as linhas.','error');
+    const chaves=validas.map(r=>String(r.cod_tabela).trim());
+    if(new Set(chaves).size!==chaves.length)return toast('DA0: há códigos de tabela duplicados; revise o arquivo.','error');
+    setImportando(true);iniciarProgresso(rows.length,'Importando cadastro DA0...');
+    try{
+      let salvos=0;
+      for(let i=0;i<validas.length;i+=100){
+        const lote=validas.slice(i,i+100).map(r=>({
+          codigo:String(r.cod_tabela).trim(),
+          descricao:String(r.descricao).trim(),
+          ativo:!['false','0','nao','não','n'].includes(String(r.ativo??'true').trim().toLowerCase())
+        }));
+        const {error}=await sb.from('tabelas_preco').upsert(lote,{onConflict:'codigo'});
+        if(error)throw new Error('Lote '+(Math.floor(i/100)+1)+': '+error.message);
+        salvos+=lote.length;atualizarProgresso(salvos,validas.length,'Importando cadastro DA0...');
       }
-    }
-    setImportando(false);
-    setResultado('\u2713 ' + okTab + ' tabela(s) \u00B7 ' + okItens + ' pre\u00E7o(s) importado(s)' + (erros ? ' \u00B7 \u2717 ' + erros + ' erro(s)' : ''));
-    if (okItens > 0) toast(okItens + ' pre\u00E7o(s) importado(s)!', 'success');
+      finalizarProgresso(validas.length);
+      setResultado('✓ '+salvos+' cadastro(s) de tabelas conciliados pela DA0. Descrição e status atualizados, vínculos e preços preservados.');
+      toast(salvos+' tabelas DA0 importadas!','success');
+    }catch(e){setResultado('DA0: '+e.message);toast('Erro ao importar DA0: '+e.message,'error');}
+    finally{setImportando(false);}
+  }
+
+  // ---------- ITENS DAS TABELAS (DA1) ----------
+  async function importarTabelaPreco(rows) {
+    if(rows.some(r=>!String(r.cod_tabela||'').trim()||!String(r.codigo_produto||'').trim()||String(r.preco_unitario??'').trim()===''))
+      return toast('DA1: cod_tabela, codigo_produto e preco_unitario são obrigatórios.','error');
+    const norm=v=>String(v??'').trim().replace(/^0+(?=\d)/,'');
+    const vistos=new Set(),duplicados=[];
+    rows.forEach((r,i)=>{const chave=norm(r.cod_tabela)+'|'+norm(r.codigo_produto);if(vistos.has(chave))duplicados.push(i+2);vistos.add(chave);});
+    if(duplicados.length)return toast('DA1: par tabela/produto duplicado nas linhas '+duplicados.slice(0,8).join(', ')+'. Revise os preços.','error');
+    setImportando(true);iniciarProgresso(rows.length,'Conciliando DA1 com produtos...');
+    try{
+      const [rp,rt]=await Promise.all([
+        sb.from('produtos').select('id,codigo').limit(10000),
+        sb.from('tabelas_preco').select('id,codigo').limit(10000)
+      ]);
+      if(rp.error||rt.error)throw new Error((rp.error||rt.error).message);
+      const prods=new Map(),tabs=new Map(),prodDuplicados=new Set();
+      (rp.data||[]).forEach(p=>{const k=norm(p.codigo);if(prods.has(k))prodDuplicados.add(k);else prods.set(k,p.id);});
+      (rt.data||[]).forEach(t=>tabs.set(norm(t.codigo),t.id));
+      const payload=[],ignorados=[],faltandoTabela=new Set();
+      for(let i=0;i<rows.length;i++){
+        const r=rows[i],codTab=norm(r.cod_tabela),codProd=norm(r.codigo_produto);
+        const tabId=tabs.get(codTab),prodId=prods.get(codProd);
+        if(!tabId){faltandoTabela.add(codTab);continue;}
+        if(!prodId||prodDuplicados.has(codProd)){ignorados.push(codTab+'/'+codProd);continue;}
+        const preco=Number(String(r.preco_unitario).trim().replace(/\s/g,'').replace(',','.'));
+        if(!Number.isFinite(preco)||preco<0){ignorados.push(codTab+'/'+codProd+' (preço inválido)');continue;}
+        payload.push({tabela_id:tabId,produto_id:prodId,preco_unitario:preco});
+      }
+      if(faltandoTabela.size)throw new Error('Tabelas não cadastradas: '+[...faltandoTabela].slice(0,12).join(', ')+'. Importe a DA0 primeiro. Nenhum item foi gravado.');
+      let salvos=0;
+      for(let i=0;i<payload.length;i+=100){
+        const lote=payload.slice(i,i+100);
+        const {error}=await sb.from('tabela_preco_itens').upsert(lote,{onConflict:'tabela_id,produto_id'});
+        if(error)throw new Error('Lote '+(Math.floor(i/100)+1)+': '+error.message+'; '+salvos+' itens processados antes da falha.');
+        salvos+=lote.length;atualizarProgresso(salvos,rows.length,'Importando preços DA1 em lotes...');
+      }
+      finalizarProgresso(rows.length);
+      setResultado('✓ '+salvos+' preço(s) DA1 conciliados · '+ignorados.length+' linha(s) ignorada(s) por produto não cadastrado/ambíguo ou preço inválido.'+
+        (ignorados.length?'\nExemplos: '+ignorados.slice(0,15).join(', '):'')+
+        '\nNenhum produto novo foi criado; descrições DA0 preservadas.');
+      toast(salvos+' preço(s) de tabelas importados!','success');
+    }catch(e){setResultado('DA1: '+e.message);toast('Erro ao importar DA1: '+e.message,'error');}
+    finally{setImportando(false);}
   }
 
   // ---------- CLIENTE x TABELA ----------
@@ -7632,13 +7675,19 @@ function PaginaImportacao({ profile }) {
     else if (tipo === 'pedidos') importarPedidos(preview.rows);
     else if (tipo === 'clientes') importarClientes(preview.rows);
     else if (tipo === 'tabela_preco') importarTabelaPreco(preview.rows);
+    else if (tipo === 'tabela_cadastro') importarCadastroTabelas(preview.rows);
     else if (tipo === 'cliente_tabela') importarClienteTabela(preview.rows);
   }
 
+  if (!MODELOS['tabela_cadastro']) MODELOS['tabela_cadastro'] = {
+    headers: ['cod_tabela', 'descricao', 'ativo'],
+    exemplos: [['186','FRANCES 7,95 KG - REAJUSTE 15%','true'],['187','FRANCES 7,80 KG - REAJUSTE 15%','true']],
+    dica: 'Importe primeiro a DA0: cadastro das tabelas (código, descrição e status). Atualiza pelo código sem apagar preços ou vínculos com clientes.'
+  };
   if (!MODELOS['tabela_preco']) MODELOS['tabela_preco'] = {
     headers: ['cod_tabela', 'codigo_produto', 'preco_unitario'],
     exemplos: [['TAB_7.00', '10000122', '56.00'], ['TAB_7.00', '10000220', '55.00'], ['TAB_8.00', '10000122', '64.00']],
-    dica: 'Colunas obrigat\u00F3rias: cod_tabela, codigo_produto, preco_unitario. Se a tabela j\u00E1 existir, atualiza os pre\u00E7os. Importe os produtos antes.'
+    dica: 'Importe depois da DA0. Apenas produtos já cadastrados recebem preços; importação em lotes. Não cria novos produtos e não sobrescreve a descrição das tabelas.'
   };
   if (!MODELOS['cliente_tabela']) MODELOS['cliente_tabela'] = {
     headers: ['codigo_totvs', 'cod_tabela'],
@@ -7651,7 +7700,8 @@ function PaginaImportacao({ profile }) {
     { id: 'produtos', label: 'Produtos' },
     { id: 'pedidos', label: 'Pedidos' },
     { id: 'clientes', label: 'Clientes' },
-    { id: 'tabela_preco', label: 'Tabelas de Preço' },
+    { id: 'tabela_cadastro', label: 'Cadastro de Tabelas (DA0)' },
+    { id: 'tabela_preco', label: 'Preços por Produto (DA1)' },
     { id: 'cliente_tabela', label: 'Cliente x Tabela' },
     { id: 'rotas', label: 'Rotas' },
   ];
