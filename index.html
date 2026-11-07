@@ -6336,6 +6336,7 @@ function PaginaPedidos({ profile }) {
   const [modoIntroducaoPedido,setModoIntroducaoPedido]=useState('Produto');
   const [aplicandoBonifPedido,setAplicandoBonifPedido]=useState(false);
   const [exportandoTotvs,setExportandoTotvs]=useState(false);
+  const [previaTotvs,setPreviaTotvs]=useState(null);
   const [tesItens,setTesItens]=useState({});
   const [consultandoTes,setConsultandoTes]=useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -6435,6 +6436,7 @@ function PaginaPedidos({ profile }) {
     const mapaAcomp = {};
     (acs || []).forEach(a => { mapaAcomp[a.cliente_id] = a.status; });
     setAcompanhamentoMap(mapaAcomp);
+    setPreviaTotvs(null);
     setLancando({ rota, data: dataStr, clientesRota: cls });
     } catch (err) { console.error('Erro ao abrir lançamento:', err); toast('Erro ao carregar rota: ' + err.message, 'error'); }
     setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
@@ -6873,7 +6875,7 @@ function PaginaPedidos({ profile }) {
     finally{setConsultandoTes(false);}
   }
 
-  async function exportarCsvTotvs(){
+  async function exportarCsvTotvs(somentePrevia=false){
     if(exportandoTotvs||!lancando)return;
     const clientesRota=lancando.clientesRota||[];
     const pendentes=clientesRota.filter(c=>statusCliente(c.id)!=='pedido_fechado');
@@ -6881,11 +6883,11 @@ function PaginaPedidos({ profile }) {
     setExportandoTotvs(true);
     try{
       const {data:pedidos,error}=await sb.from('pedidos')
-        .select('id,codigo,cliente_id,rota_id,data_pedido,total_nfs,clientes(codigo_totvs,loja_totvs),pedido_itens(id,produto_id,quantidade,numero_nf,tipo_item,codigo_operacao,produtos(codigo))')
+        .select('id,codigo,cliente_id,rota_id,data_pedido,total_nfs,clientes(razao_social,codigo_totvs,loja_totvs),pedido_itens(id,produto_id,quantidade,numero_nf,tipo_item,codigo_operacao,produtos(codigo,descricao))')
         .eq('rota_id',lancando.rota.id).eq('data_pedido',lancando.data)
         .order('created_at',{ascending:true});
       if(error)throw new Error('Falha ao consultar pedidos: '+error.message);
-      if(!pedidos?.length)return toast('Todos os atendimentos foram concluídos, mas não há pedidos para exportar nesta rota/data. Nenhum CSV foi criado.','info');
+      if(!pedidos?.length){setPreviaTotvs({linhas:[],erros:['Não há pedidos nesta rota/data.'],nfs:[],rota:lancando.rota.id,data:lancando.data});return toast('Não há pedidos com itens para faturamento nesta rota/data.','info');}
       const clientesPermitidos=new Set(clientesRota.map(c=>String(c.id)));
       const porCliente={};
       const erros=[];
@@ -6925,11 +6927,27 @@ function PaginaPedidos({ profile }) {
             erros.push('TES sem correspondência única: cliente '+codigo+', produto '+prod+', operação '+operacao);
             continue;
           }
-          linhas.push({nf,codigo,loja,produto:prod,qtd,operacao,tes});
+          linhas.push({nf,codigo,loja,produto:prod,descricao:item.produtos?.descricao||'',cliente:cli.razao_social||codigo,pedido:pedido.codigo||pedido.id,qtd,operacao,tes});
         }
       }
       for(const [cliente,qtd] of Object.entries(porCliente))
         if(qtd>1)erros.push('Há '+qtd+' pedidos do mesmo cliente ('+cliente+') nesta rota/data. Revise duplicidades antes da exportação.');
+      const nfsPrevia=[...new Set(linhas.map(l=>l.nf))].sort((a,b)=>a-b);
+      const novaPrevia={linhas,erros,nfs:nfsPrevia,rota:lancando.rota.id,data:lancando.data};
+      if(somentePrevia){
+        setPreviaTotvs(novaPrevia);
+        toast(erros.length?'Prévia gerada com '+erros.length+' pendência(s). Corrija antes de exportar.':'Prévia validada: '+linhas.length+' item(ns), '+nfsPrevia.length+' NF(s).',erros.length?'error':'success');
+        return;
+      }
+      // Uma nova conferência é sempre executada na exportação, mesmo após visualizar a prévia.
+      if(!previaTotvs||previaTotvs.rota!==lancando.rota.id||previaTotvs.data!==lancando.data){
+        setPreviaTotvs(novaPrevia);
+        return toast('Confira a prévia de faturamento antes de gerar o CSV.','info');
+      }
+      if(JSON.stringify(previaTotvs.linhas)!==JSON.stringify(linhas)||JSON.stringify(previaTotvs.erros)!==JSON.stringify(erros)){
+        setPreviaTotvs(novaPrevia);
+        return toast('Os pedidos ou as regras fiscais mudaram após a prévia. Revise a conferência atualizada.','error');
+      }
       if(erros.length){
         console.warn('Exportação TOTVS bloqueada:',erros);
         throw new Error(erros.slice(0,4).join(' | ')+(erros.length>4?' | e mais '+(erros.length-4)+' pendência(s). Consulte o console.':''));
@@ -6950,7 +6968,7 @@ function PaginaPedidos({ profile }) {
     }finally{setExportandoTotvs(false);}
   }
 
-  function voltarCalendario() { setLancando(null); carregar(); }
+  function voltarCalendario() { setPreviaTotvs(null); setLancando(null); carregar(); }
 
   // ---- modal novo pedido (data + rota) ----
   function abrirModalNovo() { setNovoRota(''); setNovoData(hojeStr); setModalNovo(true); }
@@ -6975,11 +6993,28 @@ function PaginaPedidos({ profile }) {
             h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#fff7ed',color:'#d97706'}},'● Aguardando: '+cls.filter(c=>statusCliente(c.id)==='contato_enviado').length),
             h('span',{style:{padding:'4px 8px',borderRadius:12,background:'#ecfdf5',color:'#059669'}},'✓ Concluídos: '+cls.filter(c=>statusCliente(c.id)==='pedido_fechado').length))),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-          h('button',{className:'btn btn-primary',disabled:exportandoTotvs||!cls.length||cls.some(c=>statusCliente(c.id)!=='pedido_fechado'),
-            title:cls.some(c=>statusCliente(c.id)!=='pedido_fechado')?'Conclua todos os clientes antes de exportar':'Exporta por NF somente com TES fiscal validada',
-            onClick:exportarCsvTotvs},exportandoTotvs?'Conferindo TES...':'↓ Exportar TOTVS CSV'),
+          h('button',{className:'btn btn-secondary',disabled:exportandoTotvs||!cls.length||cls.some(c=>statusCliente(c.id)!=='pedido_fechado'),
+            onClick:()=>exportarCsvTotvs(true)},exportandoTotvs?'Conferindo TES...':'Conferir faturamento'),
+          h('button',{className:'btn btn-primary',disabled:exportandoTotvs||!previaTotvs||previaTotvs.erros.length>0||!previaTotvs.linhas.length||!cls.length||cls.some(c=>statusCliente(c.id)!=='pedido_fechado'),
+            title:'É necessário conferir e validar a prévia antes de exportar. O sistema valida novamente ao gerar.',
+            onClick:()=>exportarCsvTotvs(false)},exportandoTotvs?'Conferindo TES...':'↓ Exportar TOTVS CSV'),
           h('button', { className: 'btn btn-secondary', onClick: voltarCalendario }, '← Voltar ao calendário'))),
 
+      previaTotvs&&h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{className:'section-title'},'Prévia de Faturamento — TOTVS'),
+        h('div',{className:'page-sub',style:{marginBottom:12}},
+          previaTotvs.linhas.length+' item(ns) · '+previaTotvs.nfs.length+' NF(s) · '+previaTotvs.erros.length+' pendência(s). Os códigos de TES são consultados em tempo real.'),
+        previaTotvs.erros.length>0&&h('div',{style:{padding:12,border:'1px solid var(--danger)',borderRadius:6,marginBottom:12}},
+          h('strong',null,'Pendências que impedem a exportação'),
+          h('ul',{style:{marginTop:8,paddingLeft:22}},...previaTotvs.erros.map((erro,i)=>h('li',{key:i},erro)))),
+        previaTotvs.linhas.length>0&&h('div',{className:'table-wrap',style:{maxHeight:360,overflow:'auto'}},
+          h('table',null,
+            h('thead',null,h('tr',null,...['NF','Pedido','Cliente','Código','Loja','Produto','Descrição','Qtd','Operação','TES'].map(c=>h('th',{key:c},c)))),
+            h('tbody',null,...previaTotvs.linhas.map((l,i)=>h('tr',{key:i},
+              h('td',null,l.nf),h('td',null,l.pedido),h('td',null,l.cliente),
+              h('td',null,l.codigo),h('td',null,l.loja),h('td',null,l.produto),
+              h('td',null,l.descricao),h('td',null,fmtNum(l.qtd)),h('td',null,l.operacao),h('td',null,l.tes)))))),
+        !previaTotvs.erros.length&&previaTotvs.linhas.length>0&&h('div',{className:'page-sub',style:{marginTop:8}},'Conferência aprovada. Clique em Exportar TOTVS CSV. Os dados serão validados novamente antes de gerar os arquivos.')),
       h('div', { style: { display: 'flex', gap: 16 } },
         // lista de clientes
         h('div', { className: 'card', style: { width: 250, flexShrink: 0, padding: 8, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } },
