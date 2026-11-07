@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.bonificacao_apropriacoes (
  modalidade text NOT NULL CHECK(modalidade IN('Produto','Desconto')),
  valor numeric(15,2) NOT NULL CHECK(valor>0),
  data_pedido date NOT NULL,
- competencia date GENERATED ALWAYS AS (date_trunc('month',data_pedido)::date) STORED,
+ competencia date GENERATED ALWAYS AS (date_trunc('month',data_pedido::timestamp without time zone)::date) STORED,
  descricao text,
  criado_por uuid NOT NULL DEFAULT auth.uid(),
  criado_em timestamptz NOT NULL DEFAULT now(),
