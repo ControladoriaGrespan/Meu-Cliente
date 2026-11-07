@@ -6409,7 +6409,7 @@ function PaginaPedidos({ profile }) {
         novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
         novo.valor_unitario=valor==='bonificacao'?0:
           (Number(tabelaPrecoCliente[novo.produto_id])>0 ? Number(tabelaPrecoCliente[novo.produto_id]) :
-           (Number(precosHistoricosCliente[novo.produto_id])>0 ? Number(precosHistoricosCliente[novo.produto_id]) : (Number(novo.valor_unitario)>0?Number(novo.valor_unitario):'')));
+           (clienteAtivo?.tabela_preco_id ? '' : (Number(precosHistoricosCliente[novo.produto_id])>0 ? Number(precosHistoricosCliente[novo.produto_id]) : (Number(novo.valor_unitario)>0?Number(novo.valor_unitario):''))));
       }
       if (campo === 'produto_id' && valor) {
         const prod = produtos.find(p => p.id === valor);
@@ -6417,7 +6417,7 @@ function PaginaPedidos({ profile }) {
         // Preço da tabela > histórico do MESMO produto. Não usar preço de outro produto.
         novo.valor_unitario = (novo.tipo_item || 'venda') === 'bonificacao' ? 0 :
           (Number(tabelaPrecoCliente[valor])>0 ? Number(tabelaPrecoCliente[valor]) :
-           (Number(precosHistoricosCliente[valor])>0 ? Number(precosHistoricosCliente[valor]) :
+           (clienteAtivo?.tabela_preco_id ? '' : (Number(precosHistoricosCliente[valor])>0 ? Number(precosHistoricosCliente[valor]) :
               (()=>{const codigo=String(prod?.codigo||'').trim();
                 for(const ped of historicoPedidos){
                   const anterior=(ped.pedido_itens||[]).find(it=>String(it.produtos?.codigo||'').trim()===codigo&&Number(it.valor_unitario)>0);
@@ -6425,7 +6425,7 @@ function PaginaPedidos({ profile }) {
                 }
                 const ref=(pedidoAnterior?.pedido_itens||[]).find(it=>String(it.produtos?.codigo||'').trim()===codigo&&Number(it.valor_unitario)>0);
                 return ref?Number(ref.valor_unitario):'';
-              })()));
+              })())));
       }
       return novo;
     }));
