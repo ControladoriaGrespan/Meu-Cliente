@@ -6337,6 +6337,8 @@ function PaginaPedidos({ profile }) {
   const [aplicandoBonifPedido,setAplicandoBonifPedido]=useState(false);
   const [exportandoTotvs,setExportandoTotvs]=useState(false);
   const [previaTotvs,setPreviaTotvs]=useState(null);
+  const [historicoExportacoesTotvs,setHistoricoExportacoesTotvs]=useState([]);
+  const [erroHistoricoTotvs,setErroHistoricoTotvs]=useState('');
   const [tesItens,setTesItens]=useState({});
   const [consultandoTes,setConsultandoTes]=useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -6437,6 +6439,11 @@ function PaginaPedidos({ profile }) {
     (acs || []).forEach(a => { mapaAcomp[a.cliente_id] = a.status; });
     setAcompanhamentoMap(mapaAcomp);
     setPreviaTotvs(null);
+    const historico=await sb.from('totvs_exportacoes')
+      .select('id,tentativa,tipo,gerado_em,usuario_id,motivo_reexportacao,arquivos,pedidos,itens_quantidade,status')
+      .eq('rota_id',rota.id).eq('data_pedido',dataStr).order('tentativa',{ascending:false}).limit(50);
+    setHistoricoExportacoesTotvs(historico.data||[]);
+    setErroHistoricoTotvs(historico.error?.message||'');
     setLancando({ rota, data: dataStr, clientesRota: cls });
     } catch (err) { console.error('Erro ao abrir lançamento:', err); toast('Erro ao carregar rota: ' + err.message, 'error'); }
     setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
@@ -6955,20 +6962,46 @@ function PaginaPedidos({ profile }) {
       if(!linhas.length)return toast('Nenhum pedido com itens para exportar nesta rota/data. Clientes sem compra foram ignorados; nenhum CSV foi criado.','info');
       const nfs=[...new Set(linhas.map(l=>l.nf))].sort((a,b)=>a-b);
       const cabecalho=['Código do Cliente','Loja do Cliente','Código do Produto','Quantidade Vendida','Código da Operação','Código da TES'];
+      const nomeSeguro=String(lancando.rota.nome||'rota').replace(/[^a-zA-Z0-9_-]/g,'_');
+      const arquivos=nfs.map(nf=>'TOTVS_'+nomeSeguro+'_'+lancando.data+'_NF'+nf+'.csv');
+      const pedidosIncluidos=[...new Set(linhas.map(l=>String(l.pedido)))].sort();
+      // Registra ANTES de disponibilizar os arquivos: se a auditoria falhar, não exporta.
+      const ultima=await sb.from('totvs_exportacoes').select('id,tentativa')
+        .eq('rota_id',lancando.rota.id).eq('data_pedido',lancando.data)
+        .order('tentativa',{ascending:false}).limit(1);
+      if(ultima.error)throw new Error('Histórico de exportações indisponível: '+ultima.error.message+'. Execute a migração SQL.');
+      let motivo=null;
+      if((ultima.data||[]).length){
+        motivo=window.prompt('Esta rota/data já possui exportação TOTVS. Informe a justificativa da REEXPORTAÇÃO (mínimo 10 caracteres):','');
+        if(motivo===null)return toast('Reexportação cancelada. Nenhum CSV gerado.','info');
+        if(motivo.trim().length<10)return toast('Justificativa da reexportação deve ter pelo menos 10 caracteres.','error');
+      }
+      // A assinatura preserva o conteúdo da prévia, sem incluir nomes ou dados confidenciais em logs externos.
+      const assinatura=JSON.stringify(linhas.map(l=>[l.nf,l.pedido,l.codigo,l.loja,l.produto,l.qtd,l.operacao,l.tes]));
+      const registro=await sb.rpc('registrar_exportacao_totvs',{
+        p_rota_id:lancando.rota.id,p_data_pedido:lancando.data,
+        p_arquivos:arquivos,p_pedidos:pedidosIncluidos,
+        p_itens_quantidade:linhas.length,p_assinatura_conteudo:assinatura,
+        p_motivo_reexportacao:motivo
+      });
+      if(registro.error)throw new Error('Exportação bloqueada: não foi possível registrar o histórico: '+registro.error.message);
+      const novoHistorico=await sb.from('totvs_exportacoes')
+        .select('id,tentativa,tipo,gerado_em,usuario_id,motivo_reexportacao,arquivos,pedidos,itens_quantidade,status')
+        .eq('rota_id',lancando.rota.id).eq('data_pedido',lancando.data).order('tentativa',{ascending:false}).limit(50);
+      if(!novoHistorico.error)setHistoricoExportacoesTotvs(novoHistorico.data||[]);
       for(const nf of nfs){
         const registros=linhas.filter(l=>l.nf===nf).sort((a,b)=>a.codigo.localeCompare(b.codigo))
           .map(l=>[l.codigo,l.loja,l.produto,String(l.qtd).replace('.',','),l.operacao,l.tes]);
-        const nomeSeguro=String(lancando.rota.nome||'rota').replace(/[^a-zA-Z0-9_-]/g,'_');
         downloadCsv('TOTVS_'+nomeSeguro+'_'+lancando.data+'_NF'+nf,cabecalho,registros);
       }
-      toast('Exportação TOTVS concluída: '+linhas.length+' item(ns), '+nfs.length+' arquivo(s) CSV.','success');
+      toast('CSV(s) preparados para download e registrados no histórico: '+linhas.length+' item(ns), '+nfs.length+' arquivo(s). Confirme o recebimento dos arquivos no navegador.','success');
     }catch(e){
       console.error('Falha exportação TOTVS:',e);
       toast('CSV não gerado: '+(e?.message||String(e)),'error');
     }finally{setExportandoTotvs(false);}
   }
 
-  function voltarCalendario() { setPreviaTotvs(null); setLancando(null); carregar(); }
+  function voltarCalendario() { setPreviaTotvs(null); setHistoricoExportacoesTotvs([]); setErroHistoricoTotvs(''); setLancando(null); carregar(); }
 
   // ---- modal novo pedido (data + rota) ----
   function abrirModalNovo() { setNovoRota(''); setNovoData(hojeStr); setModalNovo(true); }
@@ -7000,6 +7033,23 @@ function PaginaPedidos({ profile }) {
             onClick:()=>exportarCsvTotvs(false)},exportandoTotvs?'Conferindo TES...':'↓ Exportar TOTVS CSV'),
           h('button', { className: 'btn btn-secondary', onClick: voltarCalendario }, '← Voltar ao calendário'))),
 
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{className:'section-title'},'Histórico de Exportações TOTVS'),
+        h('div',{className:'page-sub',style:{marginBottom:10}},'Registra os lotes preparados para download. Não comprova importação ou faturamento no Protheus.'),
+        erroHistoricoTotvs&&h('div',{style:{color:'var(--danger)',marginBottom:10}},'Histórico indisponível: '+erroHistoricoTotvs+' (execute a migração SQL).'),
+        !erroHistoricoTotvs&&(historicoExportacoesTotvs.length===0
+          ?h('div',{className:'page-sub'},'Nenhuma exportação registrada para esta rota/data.')
+          :h('div',{className:'table-wrap'},
+            h('table',null,
+              h('thead',null,h('tr',null,...['Tentativa','Gerado em','Usuário (ID)','Itens','Arquivos preparados','Justificativa'].map(c=>h('th',{key:c},c)))),
+              h('tbody',null,...historicoExportacoesTotvs.map(e=>h('tr',{key:e.id},
+                h('td',null,(e.tentativa===1?'Inicial':'Reexportação')+' #'+e.tentativa),
+                h('td',null,new Date(e.gerado_em).toLocaleString('pt-BR')),
+                h('td',null,String(e.usuario_id||'—').slice(0,8)+'…'),
+                h('td',null,e.itens_quantidade),
+                h('td',null,Array.isArray(e.arquivos)?e.arquivos.join(' · '):'—'),
+                h('td',null,e.motivo_reexportacao||'—'))))))),
+      ),
       previaTotvs&&h('div',{className:'card',style:{marginBottom:14}},
         h('div',{className:'section-title'},'Prévia de Faturamento — TOTVS'),
         h('div',{className:'page-sub',style:{marginBottom:12}},
