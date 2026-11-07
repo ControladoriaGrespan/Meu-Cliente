@@ -6730,6 +6730,12 @@ function PaginaPedidos({ profile }) {
       ((it.tipo_item||'venda')!=='bonificacao'&&!(Number(it.valor_unitario)>0)));
     if(incompletos.length)return toast('Preencha quantidade e valor de todos os produtos antes de salvar. '+incompletos.length+' item(ns) incompleto(s).','error');
     const validos=preenchidos;
+    if(validos.some(it=>it.tipo_item==='bonificacao' && it.codigo_operacao!=='04'))
+      return toast('Bonificações devem utilizar a operação 04.','error');
+    if(validos.some(it=>(it.tipo_item||'venda')!=='bonificacao' && (it.codigo_operacao||operacaoPedido)==='04'))
+      return toast('Operação 04 é exclusiva de Bonificação. Corrija o tipo ou a operação do item.','error');
+    if(validos.some(it=>!['01','02','03','04'].includes(it.codigo_operacao||operacaoPedido)))
+      return toast('Há itens com operação inválida.','error');
     if(validos.some(it=>!Number.isInteger(Number(it.numero_nf||1))||
       Number(it.numero_nf||1)<1||Number(it.numero_nf||1)>totalNfs))
       return toast('Confira a NF atribuída a cada item.','error');
@@ -7016,7 +7022,7 @@ function PaginaPedidos({ profile }) {
                       h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange:e=>{const n=Number(e.target.value);setTotalNfs(n);setItens(prev=>prev.map(it=>({...it,numero_nf:Math.min(Number(it.numero_nf||1),n)})));} },
                         [1,2,3,4,5].map(n => h('option', { key: n, value: n }, n)))),
                     h('span',{className:'badge badge-blue'},'Distribua os itens entre '+totalNfs+' NF(s)'),
-                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
+                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']].map(([op,nome])=>h('option',{key:op,value:op},nome)))),
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
@@ -7111,6 +7117,21 @@ function PaginaPedidos({ profile }) {
                     h('div',{className:'page-sub'},pedidoConfirmado.quantidade+' item(ns) · '+fmtMoeda(pedidoConfirmado.total)+' · '+pedidoConfirmado.quando)),
                   h('div',{style:{fontSize:13,marginBottom:10}},'Anterior (previsto): ',h('strong',null,(pedidoAnterior?(pedidoAnterior.pedido_itens||[]).reduce((t,it)=>t+Number(it.quantidade||0)*Number((it.produtos||{}).peso_kg||0),0):0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg'),' / Atual (realizado): ',h('strong',null,itens.reduce((t,it)=>t+Number(it.quantidade||0)*Number((produtos.find(p=>p.id===it.produto_id)||{}).peso_kg||0),0).toLocaleString('pt-BR',{maximumFractionDigits:2})+' Kg')),
                    h('div', { className: 'section-title' }, pedidoEditandoId ? 'Editar pedido · ' + (pedidoEditandoCodigo || '—') : 'Novo pedido · código gerado ao salvar'),
+                  h('div',{className:'card',style:{marginBottom:12,padding:12}},
+                    h('div',{className:'section-title'},'Conferência por Nota Fiscal'),
+                    h('div',{className:'page-sub',style:{marginBottom:8}},'Prévia da distribuição; a TES definitiva será conferida na exportação TOTVS.'),
+                    h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+                      ...Array.from({length:totalNfs},(_,indice)=>{
+                        const nf=indice+1;
+                        const itensNf=itens.filter(it=>it.produto_id&&Number(it.numero_nf||1)===nf);
+                        const totalNf=itensNf.reduce((valor,it)=>valor+Number(it.quantidade||0)*Number(it.valor_unitario||0),0);
+                        const operacoes=[...new Set(itensNf.map(it=>it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido)))];
+                        return h('div',{key:nf,style:{border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',minWidth:180,flex:'1 1 180px'}},
+                          h('div',{style:{fontWeight:700}},'NF '+nf+' · '+itensNf.length+' item(ns)'),
+                          h('div',{style:{fontSize:13,marginTop:5}},fmtMoeda(totalNf)),
+                          h('div',{className:'page-sub',style:{marginTop:5}},'Operações: '+(operacoes.join(', ')||'nenhuma')));
+                      })
+                    )),
                   h('div', { className: 'table-wrap' },
                     h('table', null,
                       h('thead', null, h('tr', null, h('th', null, 'Produto'), h('th', null, 'Tipo'), h('th', null, 'Descrição'), h('th', null, 'NF'), h('th', null, 'Operação'), h('th', null, 'TES'), h('th', null, 'Qtd'), h('th', null, 'V.Unit'), h('th', null, 'V.Total'), h('th', null, ''))),
@@ -7138,7 +7159,7 @@ function PaginaPedidos({ profile }) {
                                  h('div',{style:{color:'var(--warning)',fontWeight:600,marginTop:4}},
                                    '⚠ Produto diferente do histórico de compras. Confira peso/gramatura antes de salvar.')),
                             h('td',null,h('select',{className:'form-select',style:{minWidth:92,width:92},value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
-                            h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...['01','02','03','04'].map(op=>h('option',{key:op,value:op},op)))),
+                            h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...((it.tipo_item==='bonificacao'?[['04','04 · Bonificação']]:[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']]).map(([op,nome])=>h('option',{key:op,value:op},nome))))),
                             h('td',null,h('span',{className:'badge '+(tesItens[i]&&tesItens[i]!=='Pendente'?'badge-green':'badge-yellow')},tesItens[i]||'Consultar')),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
                               value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
