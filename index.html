@@ -6501,7 +6501,7 @@ function PaginaPedidos({ profile }) {
     if(modalidade==='Produto'&&bonificados+0.001<valor)
       return toast('Adicione produtos como Bonificação (operação 04) com valor de tabela suficiente para cobrir '+fmtMoeda(valor)+'. Salve o pedido antes de apropriar.','error');
     const descricao=(modalidade==='Produto'?'[PRODUTO] ':'[DESCONTO] ')+(tipo==='introducao'?'Verba de Introdução':'Negociação '+a.percentual+'%');
-    if(!window.confirm('Confirmar '+fmtMoeda(valor)+' de '+(tipo==='introducao'?'Verba de Introdução':'Bonificação de Negociação')+' no pedido '+(pedidoEditandoCodigo||pedidoEditandoId)+'?'+(modalidade==='Desconto'?' Confirme que o desconto foi efetivamente concedido; o CSV TOTVS não possui coluna de desconto.':'')))return;
+    if(!window.confirm('Confirmar '+fmtMoeda(valor)+' de '+(tipo==='introducao'?'Verba de Introdução':'Bonificação de Negociação')+' no pedido '+(pedidoEditandoCodigo||pedidoEditandoId)+'?'+(modalidade==='Desconto'?' O desconto ficará registrado no Meu Cliente; a aplicação no Protheus deverá ser feita manualmente após a importação do CSV.':'')))return;
     setAplicandoBonifPedido(true);
     const {error}=await sb.rpc('bonif_v2_apropriar',{p_pedido_id:pedidoEditandoId,p_tipo:tipo,p_valor:valor,p_descricao:descricao});
     setAplicandoBonifPedido(false);
@@ -6913,6 +6913,7 @@ function PaginaPedidos({ profile }) {
       const clientesPermitidos=new Set(clientesRota.map(c=>String(c.id)));
       const porCliente={};
       const erros=[];
+      const avisosDesconto=[];
       const linhas=[];
       for(const pedido of pedidos){
         if(!clientesPermitidos.has(String(pedido.cliente_id)))continue;
@@ -6921,7 +6922,7 @@ function PaginaPedidos({ profile }) {
         if(!(pedido.pedido_itens||[]).length)continue;
         const descontoPedido=descontosPorPedido[String(pedido.id)];
         if(descontoPedido){
-          erros.push('Pedido '+(pedido.codigo||pedido.id)+': desconto financeiro de '+fmtMoeda(descontoPedido.valor)+' apropriado no Conta Corrente, mas não representado no CSV TOTVS. Concilie a aplicação com o Faturamento antes de exportar.');
+          avisosDesconto.push({pedido:pedido.codigo||pedido.id,cliente:pedido.clientes?.razao_social||'Cliente',valor:descontoPedido.valor});
         }
         porCliente[pedido.cliente_id]=(porCliente[pedido.cliente_id]||0)+1;
         const cli=pedido.clientes||{};
@@ -6959,7 +6960,7 @@ function PaginaPedidos({ profile }) {
       for(const [cliente,qtd] of Object.entries(porCliente))
         if(qtd>1)erros.push('Há '+qtd+' pedidos do mesmo cliente ('+cliente+') nesta rota/data. Revise duplicidades antes da exportação.');
       const nfsPrevia=[...new Set(linhas.map(l=>l.nf))].sort((a,b)=>a-b);
-      const novaPrevia={linhas,erros,nfs:nfsPrevia,rota:lancando.rota.id,data:lancando.data};
+      const novaPrevia={linhas,erros,avisosDesconto,nfs:nfsPrevia,rota:lancando.rota.id,data:lancando.data};
       if(somentePrevia){
         setPreviaTotvs(novaPrevia);
         toast(erros.length?'Prévia gerada com '+erros.length+' pendência(s). Corrija antes de exportar.':'Prévia validada: '+linhas.length+' item(ns), '+nfsPrevia.length+' NF(s).',erros.length?'error':'success');
@@ -6970,7 +6971,7 @@ function PaginaPedidos({ profile }) {
         setPreviaTotvs(novaPrevia);
         return toast('Confira a prévia de faturamento antes de gerar o CSV.','info');
       }
-      if(JSON.stringify(previaTotvs.linhas)!==JSON.stringify(linhas)||JSON.stringify(previaTotvs.erros)!==JSON.stringify(erros)){
+      if(JSON.stringify(previaTotvs.linhas)!==JSON.stringify(linhas)||JSON.stringify(previaTotvs.erros)!==JSON.stringify(erros)||JSON.stringify(previaTotvs.avisosDesconto||[])!==JSON.stringify(avisosDesconto)){
         setPreviaTotvs(novaPrevia);
         return toast('Os pedidos ou as regras fiscais mudaram após a prévia. Revise a conferência atualizada.','error');
       }
@@ -6979,6 +6980,12 @@ function PaginaPedidos({ profile }) {
         throw new Error(erros.slice(0,4).join(' | ')+(erros.length>4?' | e mais '+(erros.length-4)+' pendência(s). Consulte o console.':''));
       }
       if(!linhas.length)return toast('Nenhum pedido com itens para exportar nesta rota/data. Clientes sem compra foram ignorados; nenhum CSV foi criado.','info');
+      if(avisosDesconto.length){
+        const totalDesconto=avisosDesconto.reduce((v,d)=>v+Number(d.valor||0),0);
+        if(!window.confirm('ATENÇÃO: '+avisosDesconto.length+' pedido(s) possuem desconto financeiro de '+fmtMoeda(totalDesconto)+' registrado(s) no Meu Cliente. O CSV NÃO contém esses descontos. Após importar no Protheus, será necessário editar cada pedido e aplicar o desconto manualmente. Deseja gerar os CSVs e assumir essa pendência operacional?')){
+          return toast('Exportação cancelada. Descontos aguardam aplicação manual no Protheus.','info');
+        }
+      }
       const nfs=[...new Set(linhas.map(l=>l.nf))].sort((a,b)=>a-b);
       const cabecalho=['Código do Cliente','Loja do Cliente','Código do Produto','Quantidade Vendida','Código da Operação','Código da TES'];
       const nomeSeguro=String(lancando.rota.nome||'rota').replace(/[^a-zA-Z0-9_-]/g,'_');
@@ -7073,6 +7080,10 @@ function PaginaPedidos({ profile }) {
         h('div',{className:'section-title'},'Prévia de Faturamento — TOTVS'),
         h('div',{className:'page-sub',style:{marginBottom:12}},
           previaTotvs.linhas.length+' item(ns) · '+previaTotvs.nfs.length+' NF(s) · '+previaTotvs.erros.length+' pendência(s). Os códigos de TES são consultados em tempo real.'),
+        (previaTotvs.avisosDesconto||[]).length>0&&h('div',{style:{padding:12,border:'1px solid var(--warning)',borderRadius:6,marginBottom:12}},
+          h('strong',null,'Descontos para aplicar manualmente no Protheus — não incluídos no CSV'),
+          h('ul',{style:{marginTop:8,paddingLeft:22}},...(previaTotvs.avisosDesconto||[]).map((d,i)=>h('li',{key:i},'Pedido '+d.pedido+' · '+d.cliente+' · '+fmtMoeda(d.valor)))),
+          h('div',{className:'page-sub'},'Após importar os pedidos no Protheus, edite os descontos manualmente antes do faturamento. A exportação não comprova que o desconto foi aplicado.')),
         previaTotvs.erros.length>0&&h('div',{style:{padding:12,border:'1px solid var(--danger)',borderRadius:6,marginBottom:12}},
           h('strong',null,'Pendências que impedem a exportação'),
           h('ul',{style:{marginTop:8,paddingLeft:22}},...previaTotvs.erros.map((erro,i)=>h('li',{key:i},erro)))),
@@ -7213,7 +7224,7 @@ function PaginaPedidos({ profile }) {
                             h('option',{value:'Produto'},'Produto'),h('option',{value:'Desconto'},'Desconto'))),
                         h('button',{className:'btn btn-primary btn-sm',disabled:!pedidoEditandoId||indisponivel||aplicandoBonifPedido||salvando||!!(a.tipo==='introducao'&&saldo<=0),onClick:()=>apropriarBonificacaoComercial(a.tipo)},
                           destePedido?'✓ Apropriado neste pedido':!a.ativo?'Bonificação encerrada':indisponivel?'Aplicação já utilizada':!pedidoEditandoId?'Salve o pedido primeiro':'Apropriar no Conta Corrente'),
-                        a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6,color:'var(--warning)'}},'Atenção: o CSV TOTVS atual não transporta desconto financeiro. Uma apropriação como Desconto bloqueará a exportação deste pedido até que exista conciliação com o Faturamento.'));
+                        a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6,color:'var(--warning)'}},'Desconto registrado no Meu Cliente: após importar o CSV no Protheus, o usuário deverá editar o pedido e conceder o desconto manualmente antes do faturamento.'));
                     })
                   ),
                   pedidoConfirmado && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--success)',borderRadius:8}},
