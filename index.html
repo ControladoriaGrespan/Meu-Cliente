@@ -3176,7 +3176,13 @@ function PaginaClientes({ profile, modulo }) {
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
   useEffect(() => { const timer = setTimeout(() => carregar(), 300); return () => clearTimeout(timer); }, [paginaClientes, busca, somenteSemCodigo]);
-  useEffect(() => { (async () => { const { data, error } = await sb.from('tabelas_preco').select('id,codigo,nome').limit(10000); if (!error) setTabelasPrecoClientes(Object.fromEntries((data || []).map(x => [x.id, [x.codigo,x.nome].filter(Boolean).join(' — ')]))); })(); }, []);
+  useEffect(() => { (async () => {
+    // O cadastro DA0 grava a descrição na coluna 'descricao', não 'nome'.
+    // A consulta anterior falhava silenciosamente e ocultava todos os vínculos na tela de Clientes.
+    const { data, error } = await sb.from('tabelas_preco').select('id,codigo,descricao').limit(10000);
+    if (error) { console.error('Falha ao carregar tabelas de preço dos clientes:', error); toast('Não foi possível consultar as tabelas de preço: '+error.message,'error'); return; }
+    setTabelasPrecoClientes(Object.fromEntries((data || []).map(x => [x.id, [x.codigo,x.descricao].filter(Boolean).join(' — ')])));
+  })(); }, []);
 
   async function carregar() {
     const idsVisiveis = await vendedoresVisiveis(profile);
