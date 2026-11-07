@@ -1056,8 +1056,8 @@ function PaginaEmissao({ profile, onSaved }) {
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
-  const totalVerbas = (moedaParaNumero(f.verba_introducao) || 0) + (moedaParaNumero(f.verba_manutencao_cliente) || 0) + (moedaParaNumero(f.verba_negociacao_cliente) || 0);
-  const temVerba = totalVerbas > 0 || Number(f.bonificacao_percentual)>0;
+  const totalVerbas = (moedaParaNumero(f.verba_introducao) || 0);
+  const temVerba = totalVerbas > 0;
   const temTecnico = f.tecnico_panificacao === 'Sim';
   const precisaEquip = f.precisa_equipamento === 'Sim';
 
@@ -1139,7 +1139,7 @@ function PaginaEmissao({ profile, onSaved }) {
     ];
     const faltando = obrig.filter(([k]) => !String(f[k] || '').trim()).map(([, l]) => l);
     if (faltando.length) return toast('Preencha: ' + faltando.join(', '), 'error');
-    if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe a duração da verba em meses inteiros positivos.', 'error');
+    if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe o prazo da Verba de Introdução em meses inteiros positivos.', 'error');
     if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
     if(temTecnico&&!f.tecnico_periodicidade)return toast('Informe a periodicidade do Técnico.', 'error');
@@ -1165,8 +1165,8 @@ function PaginaEmissao({ profile, onSaved }) {
       prazo_pagamento: f.prazo_pagamento.trim(),
       consumo_previsto: num(f.consumo_previsto),
       verba_introducao: moedaParaNumero(f.verba_introducao) || 0,
-      verba_manutencao_cliente: moedaParaNumero(f.verba_manutencao_cliente) || 0,
-      verba_negociacao_cliente: moedaParaNumero(f.verba_negociacao_cliente) || 0,
+      verba_manutencao_cliente: 0,
+      verba_negociacao_cliente: 0,
       verbas_acordo: totalVerbas,
       duracao_verba: temVerba ? f.duracao_verba.trim() : null,
       tecnico_panificacao: temTecnico,
@@ -1277,14 +1277,14 @@ function PaginaEmissao({ profile, onSaved }) {
         tabelaSugeridaFicha.texto && h('div',{style:{gridColumn:'1 / -1',fontSize:12,padding:'8px 12px',borderRadius:6,background:tabelaSugeridaFicha.estado==='encontrada'?'#ecfdf5':'#fff7ed',color:tabelaSugeridaFicha.estado==='encontrada'?'#047857':'#9a3412'}},tabelaSugeridaFicha.texto),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
-        h(Campo, { label: 'Verbas de Introdução' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
-        h(Campo,{label:'Bonificação (%)'},h(Input,{type:'number',min:0,max:100,step:'0.01',value:f.bonificacao_percentual,onChange:e=>set('bonificacao_percentual',e.target.value)})),
-        h(Campo,{label:'Periodicidade da Bonificação'},h(Select,{opcoes:['Todos os pedidos','Mensal','Bonificação única'],value:f.bonificacao_periodicidade,disabled:!(Number(f.bonificacao_percentual)>0),onChange:e=>set('bonificacao_periodicidade',e.target.value)})),
-        h(Campo,{label:'Forma de Bonificação'},h(Select,{opcoes:['Escolha no pedido','Desconto financeiro','Produto'],value:f.bonificacao_modalidade,disabled:!(Number(f.bonificacao_percentual)>0),onChange:e=>set('bonificacao_modalidade',e.target.value)})),
-        h(Campo, { label: 'Verbas de Manutenção de Cliente' }, h(Input, { value: f.verba_manutencao_cliente, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_manutencao_cliente', mascaraMoeda(e.target.value)) })),
-        h(Campo, { label: 'Verbas de Negociação de Cliente' }, h(Input, { value: f.verba_negociacao_cliente, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_negociacao_cliente', mascaraMoeda(e.target.value)) })),
-        h(Campo, { label: 'Total de Verbas' }, h(Input, { value: fmtMoeda(totalVerbas), disabled: true })),
-        h(Campo, { label: 'Duração da Verba (meses)', obrigatorio: temVerba }, h(Input, { type:'number',min:1,step:1,value: f.duracao_verba, disabled: !temVerba, placeholder: temVerba ? 'Ex.: 12' : 'Preencha alguma verba', onChange: e => set('duracao_verba', e.target.value.replace(/\D/g,'')) })),
+        h(Campo, { label: 'Verba de Introdução — Quantia (R$)' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
+        h(Campo, { label: 'Prazo da Introdução (meses)', obrigatorio: temVerba }, h(Input, { type:'number',min:1,step:1,value:f.duracao_verba,disabled:!temVerba,placeholder:'Ex.: 12',onChange:e=>set('duracao_verba',e.target.value.replace(/\D/g,'')) })),
+        h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'Verba de Introdução: dívida de valor fixo firmada na aprovação da ficha. O valor será baixado ao ser apropriado nos pedidos.'),
+        h(Campo,{label:'Bonificação de Negociação (%)'},h(Input,{type:'number',min:0,max:100,step:'0.01',value:f.bonificacao_percentual,onChange:e=>set('bonificacao_percentual',e.target.value)})),
+        h(Campo,{label:'Periodicidade da Negociação'},h(Select,{opcoes:['Todos os pedidos','Mensal','Bonificação única'],value:f.bonificacao_periodicidade,disabled:!(Number(f.bonificacao_percentual)>0),onChange:e=>set('bonificacao_periodicidade',e.target.value)})),
+        h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'Mensal = 1 pedido do mês. Bonificação única = 1 parcela. Todos os pedidos = a cada pedido elegível, até encerramento autorizado.'),
+        h(Campo,{label:'Aplicação da Negociação'},h(Select,{opcoes:['Produto','Desconto financeiro'],value:f.bonificacao_modalidade,disabled:!(Number(f.bonificacao_percentual)>0),onChange:e=>set('bonificacao_modalidade',e.target.value)})),
+        h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'A negociação percentual não gera dívida fixa antecipada; o realizado será apurado a partir dos pedidos.'),
         h(Campo, { label: 'Técnico de Panificação?', obrigatorio: true }, h(Select, { opcoes: ['Sim','Não'], value: f.tecnico_panificacao, onChange: e => set('tecnico_panificacao', e.target.value) })),
         h(Campo, { label: 'Senioridade do Técnico', obrigatorio: temTecnico }, h(Select, { opcoes: ['Júnior','Pleno','Sênior'], value: f.senioridade_tecnico, disabled: !temTecnico, onChange: e => set('senioridade_tecnico', e.target.value) })),
         h(Campo,{label:'Periodicidade do Técnico',obrigatorio:temTecnico},h(Select,{opcoes:['Diário','Semanal','Quinzenal','Mensal'],value:f.tecnico_periodicidade,disabled:!temTecnico,onChange:e=>set('tecnico_periodicidade',e.target.value)}))),
@@ -1733,8 +1733,8 @@ function DetalheFicha({ ficha, onClose }) {
         linhaInfo('Faturamento previsto', fmtMoeda(f.faturamento_previsto) + ' / mês'),
         linhaInfo('Prazo pagamento', f.prazo_pagamento),
         linhaInfo('Verba introdução', fmtMoeda(f.verba_introducao || 0)),
-        linhaInfo('Verba manutenção', fmtMoeda(f.verba_manutencao_cliente || 0)),
-        linhaInfo('Verba negociação', fmtMoeda(f.verba_negociacao_cliente || 0)),
+        
+        
         linhaInfo('Total de verbas', f.verbas_acordo ? fmtMoeda(f.verbas_acordo) + (f.duracao_verba ? ' · ' + f.duracao_verba : '') : fmtMoeda(0)),
         linhaInfo('Técnico panificação', f.tecnico_panificacao ? 'Sim' + (f.senioridade_tecnico ? ' · ' + f.senioridade_tecnico : '') : 'Não')),
       h('div', null,
