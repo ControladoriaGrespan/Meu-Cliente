@@ -1261,13 +1261,27 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo,{label:'CEP',obrigatorio:true},h(Input,{value:f.entrega_cep,disabled:mesmoEnderecoEntrega,inputMode:'numeric',placeholder:'00000-000',onChange:e=>set('entrega_cep',mascaraCep(e.target.value))})))),
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Documentos da Ficha'),
-      h('div',{className:'page-sub',style:{marginBottom:10}},'Anexe documentos em PDF ou imagem antes de salvar a ficha (máximo 10 MB por arquivo).'),
+      h('div',{className:'page-sub',style:{marginBottom:10}},'Adicione quantos documentos forem necessários, de uma vez ou em seleções separadas (PDF ou imagem, até 10 MB por arquivo).'),
       h('input',{type:'file',multiple:true,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
         const arquivos=Array.from(e.target.files||[]);
-        if(arquivos.some(a=>a.size>10*1024*1024)){toast('Cada documento deve ter no máximo 10 MB.','error');e.target.value='';return;}
-        setDocumentosFicha(arquivos);
+        const validos=arquivos.filter(a=>a.size<=10*1024*1024);
+        if(validos.length!==arquivos.length)toast('Arquivos acima de 10 MB foram ignorados.','error');
+        setDocumentosFicha(anteriores=>{
+          const combinados=[...anteriores];
+          validos.forEach(a=>{
+            if(!combinados.some(b=>b.name===a.name&&b.size===a.size&&b.lastModified===a.lastModified))combinados.push(a);
+          });
+          return combinados;
+        });
+        e.target.value='';
       }}),
-      h('div',{className:'page-sub',style:{marginTop:8}},documentosFicha.length+' arquivo(s) selecionado(s)')),
+      h('div',{className:'page-sub',style:{marginTop:8}},documentosFicha.length+' arquivo(s) anexado(s) para envio'),
+      documentosFicha.length>0 && h('div',{style:{display:'flex',flexDirection:'column',gap:6,marginTop:10}},
+        documentosFicha.map((arquivo,i)=>h('div',{key:arquivo.name+'-'+arquivo.lastModified+'-'+i,style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'8px 10px',border:'1px solid var(--border)',borderRadius:6}},
+          h('span',{style:{overflowWrap:'anywhere',minWidth:0}},arquivo.name+' ('+(arquivo.size/1024/1024).toFixed(2)+' MB)'),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setDocumentosFicha(anteriores=>anteriores.filter((_,idx)=>idx!==i))},'Remover')
+        ))
+      )),
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Negociação Comercial'),
       h('div', { className: 'form-grid' },
