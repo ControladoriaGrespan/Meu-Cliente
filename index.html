@@ -656,6 +656,7 @@ function menuForModulo(modulo, papel) {
   if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'entregas_equipamentos',label:'Entregas e Rotas',icon:'⌖'}];
   if(modulo==='administracao') return [
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
+    ...(papel==='admin'?[{id:'gamificacao',label:'Gamificação Comercial',icon:'★'}]:[]),
     {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
     {id:'config_modulos',label:'Módulos e Carteiras',icon:'▦'},
     {id:'importacao',label:'Importações',icon:'⇧'},
@@ -4027,6 +4028,73 @@ function PaginaDashboardAdmin({profile}) {
         h('div',null,h('b',null,'Supervisores'),h('div',{style:{fontSize:24,fontWeight:900}},d.supervisores)),
         h('div',null,h('b',null,'Coordenadores'),h('div',{style:{fontSize:24,fontWeight:900}},d.coordenadores)),
         h('div',null,h('b',null,'Usuários cadastrados'),h('div',{style:{fontSize:24,fontWeight:900}},d.usuarios))))
+  );
+}
+
+// =====================================================================
+// GAMIFICACAO COMERCIAL — exclusivo do administrador
+// =====================================================================
+function PaginaGamificacaoComercial({profile}){
+  const [periodo,setPeriodo]=useState('mes');
+  const [categoria,setCategoria]=useState('vendedor');
+  const [dados,setDados]=useState([]);
+  const [carregando,setCarregando]=useState(false);
+  const [erro,setErro]=useState('');
+  const [atualizadoEm,setAtualizadoEm]=useState('');
+  function intervalo(){
+    const hoje=new Date(),inicio=new Date(hoje.getFullYear(),hoje.getMonth(),1);
+    if(periodo==='trimestre')inicio.setMonth(Math.floor(hoje.getMonth()/3)*3);
+    if(periodo==='ano')inicio.setMonth(0);
+    const iso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+    return [iso(inicio),iso(hoje)];
+  }
+  async function carregar(){
+    if(profile?.papel!=='admin')return;
+    setCarregando(true);setErro('');
+    const [p_inicio,p_fim]=intervalo();
+    const {data,error}=await sb.rpc('ranking_gamificacao_comercial',{p_inicio,p_fim});
+    if(error){setErro(error.message);setDados([]);}
+    else {setDados(data||[]);setAtualizadoEm(new Date().toLocaleString('pt-BR'));}
+    setCarregando(false);
+  }
+  useEffect(()=>{carregar();},[periodo,profile?.papel]);
+  if(profile?.papel!=='admin')return h('div',{className:'empty-state'},'Acesso restrito ao administrador.');
+  const filtrados=dados.filter(d=>d.papel===categoria).slice().sort((a,b)=>Number(b.pontos)-Number(a.pontos)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  const titulo={vendedor:'Vendedores',supervisor:'Supervisores',coordenador:'Coordenadores'};
+  const total=filtrados.reduce((acc,d)=>acc+Number(d.pontos||0),0);
+  return h('div',null,
+    h('div',{className:'page-head'},
+      h('div',null,h('div',{className:'page-title'},'★ Gamificação Comercial'),
+        h('div',{className:'page-sub'},'Ranking experimental — acesso exclusivo do administrador')),
+      h('button',{className:'btn btn-secondary',onClick:carregar,disabled:carregando},carregando?'Atualizando...':'↻ Atualizar ranking')),
+    h('div',{className:'card',style:{marginBottom:16}},
+      h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}},
+        h(Campo,{label:'Período'},h('select',{className:'form-select',value:periodo,onChange:e=>setPeriodo(e.target.value)},
+          h('option',{value:'mes'},'Mês atual'),h('option',{value:'trimestre'},'Trimestre atual'),h('option',{value:'ano'},'Ano atual'))),
+        h(Campo,{label:'Ranking'},h('select',{className:'form-select',value:categoria,onChange:e=>setCategoria(e.target.value)},
+          h('option',{value:'vendedor'},'Vendedores'),h('option',{value:'supervisor'},'Supervisores'),h('option',{value:'coordenador'},'Coordenadores')))),
+      h('div',{className:'page-sub',style:{marginTop:12}},
+        'Pontuação: 10 pontos por ficha cadastrada + 5 por cliente distinto com pedido + 2 por pedido registrado. '+
+        'Supervisores e coordenadores recebem a soma das equipes vinculadas. Não representa faturamento Protheus.'),
+      atualizadoEm&&h('div',{className:'page-sub',style:{marginTop:7}},'Atualização: '+atualizadoEm)),
+    erro&&h('div',{className:'card',style:{color:'var(--danger)',marginBottom:14}},'Não foi possível carregar o ranking: '+erro+' · Confira a migração SQL no Supabase.'),
+    !erro&&h('div',{className:'kpi-grid'},
+      h(Kpi,{icon:'★',cor:'warning',valor:total,label:'Pontos do ranking '+titulo[categoria]}),
+      h(Kpi,{icon:'☺',cor:'accent',valor:filtrados.length,label:'Participantes ativos'}),
+      h(Kpi,{icon:'▣',cor:'info',valor:filtrados.reduce((v,x)=>v+Number(x.fichas||0),0),label:'Fichas contabilizadas'}),
+      h(Kpi,{icon:'≡',cor:'success',valor:filtrados.reduce((v,x)=>v+Number(x.pedidos||0),0),label:'Pedidos registrados'})),
+    !erro&&h('div',{className:'card',style:{marginTop:14}},
+      h('div',{className:'section-title'},'Classificação — '+titulo[categoria]),
+      carregando?h('div',{className:'empty-state'},'Calculando ranking...'):
+      filtrados.length===0?h('div',{className:'empty-state'},'Nenhum participante ativo encontrado.'):
+      h('div',{className:'table-wrap'},
+        h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,...['Posição','Participante','Pontos','Fichas','Clientes com pedido','Pedidos'].map(t=>h('th',{key:t},t)))),
+          h('tbody',null,...filtrados.map((x,i)=>h('tr',{key:x.usuario_id},
+            h('td',null,h('span',{style:{fontWeight:800,fontSize:18}},i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1)+'º')),
+            h('td',null,h('strong',null,x.nome||'—')),
+            h('td',null,h('strong',null,Number(x.pontos||0).toLocaleString('pt-BR'))),
+            h('td',null,x.fichas),h('td',null,x.clientes_com_pedido),h('td',null,x.pedidos)))))))
   );
 }
 
@@ -8455,6 +8523,7 @@ function App() {
     ? h(DashboardComercialV38,{profile,visao,modulo})
     : h(PaginaDashboard,{profile,visao,ehPreview,modulo});
   else if (paginaAtual === 'dashboard_admin') conteudo = h(PaginaDashboardAdmin,{profile});
+  else if (paginaAtual === 'gamificacao') conteudo = profile.papel==='admin'?h(PaginaGamificacaoComercial,{profile}):h('div',{className:'empty-state'},'Acesso restrito ao administrador.');
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
   else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile, modulo });
