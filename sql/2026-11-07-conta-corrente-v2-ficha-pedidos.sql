@@ -196,7 +196,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS
 DECLARE v_papel text;
 BEGIN
  SELECT papel::text INTO v_papel FROM public.usuarios WHERE id=auth.uid() AND ativo=true;
- IF v_papel NOT IN('admin','gestao_adm_vendas','financeiro') THEN RAISE EXCEPTION 'Sem permissão para encerrar'; END IF;
+ IF v_papel NOT IN('admin','adm_vendas','gestao_adm_vendas','financeiro') THEN RAISE EXCEPTION 'Sem permissão para encerrar'; END IF;
  UPDATE public.bonificacao_compromissos SET ativo=false WHERE id=p_compromisso_id AND tipo='negociacao';
  IF NOT FOUND THEN RAISE EXCEPTION 'Negociação não encontrada'; END IF;
 END $$;
