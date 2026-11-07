@@ -1052,6 +1052,7 @@ function PaginaEmissao({ profile, onSaved }) {
   const [destinatarios, setDestinatarios] = useState([]);
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
   const [documentosFicha,setDocumentosFicha]=useState([]);
+  const [tabelaSugeridaFicha,setTabelaSugeridaFicha]=useState({estado:'vazio',texto:''});
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
@@ -1086,6 +1087,41 @@ function PaginaEmissao({ profile, onSaved }) {
     const p = moedaParaNumero(f.preco_kg), c = Number(f.consumo_previsto);
     return (p && c) ? p * c * PESO_PAO_KG * DIAS_MES : null;
   }, [f.preco_kg, f.consumo_previsto]);
+
+  // Sugestão comercial, baseada no preço real do pacote de 8kg do produto 10000122 na DA1.
+  // A vinculação definitiva é feita no Supabase quando o cliente nasce da ficha.
+  useEffect(() => {
+    const preco=moedaParaNumero(f.preco_kg);
+    if(!(preco>0)){setTabelaSugeridaFicha({estado:'vazio',texto:''});return;}
+    let ativo=true;
+    setTabelaSugeridaFicha({estado:'consultando',texto:'Consultando tabelas pelo preço do Francês...'});
+    (async()=>{
+      try{
+        const pr=await sb.from('produtos').select('id').eq('codigo','10000122').maybeSingle();
+        if(pr.error)throw pr.error;
+        if(!pr.data){if(ativo)setTabelaSugeridaFicha({estado:'pendente',texto:'Produto referência 10000122 não cadastrado. Tabela será definida manualmente.'});return;}
+        const rs=await sb.from('tabela_preco_itens')
+          .select('preco_unitario,tabelas_preco(id,codigo,descricao,ativo)')
+          .eq('produto_id',pr.data.id).limit(1000);
+        if(rs.error)throw rs.error;
+        const precoPacote=Math.round(preco*800)/100;
+        const candidatas=(rs.data||[]).filter(i=>i.tabelas_preco?.ativo===true &&
+          Math.abs(Math.round(Number(i.preco_unitario)*100)-Math.round(precoPacote*100))===0)
+          .map(i=>i.tabelas_preco);
+        const unicas=[...new Map(candidatas.map(t=>[t.id,t])).values()];
+        if(!ativo)return;
+        if(unicas.length===1){
+          const t=unicas[0];
+          setTabelaSugeridaFicha({estado:'encontrada',texto:'Tabela sugerida: '+t.codigo+' — '+(t.descricao||'')+' (R$ '+preco.toFixed(2).replace('.',',')+'/kg). Será vinculada ao cadastro do cliente após a aprovação da ficha.'});
+        }else if(unicas.length>1){
+          setTabelaSugeridaFicha({estado:'pendente',texto:'Mais de uma tabela corresponde a R$ '+preco.toFixed(2).replace('.',',')+'/kg ('+unicas.map(t=>t.codigo).join(', ')+'). O vínculo precisará ser definido pelo Adm. de Vendas.'});
+        }else{
+          setTabelaSugeridaFicha({estado:'pendente',texto:'Nenhuma tabela ativa tem o Francês a R$ '+preco.toFixed(2).replace('.',',')+'/kg. Cadastre os preços da DA1 ou solicite a criação da tabela antes do primeiro pedido.'});
+        }
+      }catch(e){if(ativo)setTabelaSugeridaFicha({estado:'erro',texto:'Não foi possível consultar as tabelas: '+e.message});}
+    })();
+    return ()=>{ativo=false;};
+  },[f.preco_kg]);
 
   function toggleFreezer(tipo) {
     setF(prev => ({ ...prev, freezer_tipos: prev.freezer_tipos.includes(tipo)
@@ -1238,6 +1274,7 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
         h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
         h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').replace(/^0+(?=\d)/,'').slice(0,3))) })),
+        tabelaSugeridaFicha.texto && h('div',{style:{gridColumn:'1 / -1',fontSize:12,padding:'8px 12px',borderRadius:6,background:tabelaSugeridaFicha.estado==='encontrada'?'#ecfdf5':'#fff7ed',color:tabelaSugeridaFicha.estado==='encontrada'?'#047857':'#9a3412'}},tabelaSugeridaFicha.texto),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
         h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
         h(Campo, { label: 'Verbas de Introdução' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
