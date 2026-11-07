@@ -7624,48 +7624,52 @@ function PaginaImportacao({ profile }) {
     finally{setImportando(false);}
   }
 
-  // ---------- CLIENTE x TABELA ----------
+  // ---------- CLIENTE x TABELA (SA1) ----------
   async function importarClienteTabela(rows) {
-    const valorCodigo = v => String(v == null ? '' : v).replace(/\u00a0/g, ' ').trim();
-    const norm = v => valorCodigo(v).toLowerCase().replace(/^0+(?=\d)/, '');
-    const linhas = rows.filter(r => Object.values(r).some(v => valorCodigo(v) !== ''));
-    const invalidas = linhas.map((r, i) => (!valorCodigo(r.codigo_totvs) || !valorCodigo(r.cod_tabela)) ? i + 2 : null).filter(Boolean);
-    if (invalidas.length) return toast('Código TOTVS ou código da tabela vazio nas linhas: ' + invalidas.slice(0, 10).join(', '), 'error');
-    if (!linhas.length) return toast('Nenhuma linha válida encontrada.', 'error');
-    setImportando(true);
-    try {
-      const { data: tabs, error: erroTabs } = await sb.from('tabelas_preco').select('id, codigo');
-      if (erroTabs) throw erroTabs;
-      const tabMap = {};
-      (tabs || []).forEach(t => { tabMap[norm(t.codigo)] = t.id; });
-      const codigos = [...new Set(linhas.map(r => norm(r.codigo_totvs)))];
-      const cliMap = {};
-      // Consulta paginada: evita truncamento silencioso do limite padrão do PostgREST.
-      for (let inicio = 0; ; inicio += 1000) {
-        const { data: clis, error: erroClis } = await sb.from('clientes').select('id, codigo_totvs').order('id').range(inicio, inicio + 999);
-        if (erroClis) throw erroClis;
-        (clis || []).forEach(c => { if (valorCodigo(c.codigo_totvs)) cliMap[norm(c.codigo_totvs)] = c.id; });
-        if (!clis || clis.length < 1000) break;
+    const normal=v=>String(v==null?'':v).replace(/\u00a0/g,' ').trim().replace(/^0+(?=\d)/,'');
+    const validas=rows.filter(r=>String(r.codigo_totvs||'').trim()&&String(r.cod_tabela||'').trim());
+    if(validas.length!==rows.length)return toast('Cliente x Tabela: código de cliente e tabela obrigatórios.','error');
+    const rep=new Set(),vistos=new Set();
+    validas.forEach(r=>{const k=normal(r.codigo_totvs);if(vistos.has(k))rep.add(k);vistos.add(k);});
+    if(rep.size)return toast('Cliente x Tabela: clientes repetidos no CSV: '+[...rep].slice(0,10).join(', ')+'. Revise antes de importar.','error');
+    setImportando(true);iniciarProgresso(rows.length,'Vinculando clientes às tabelas...');
+    try{
+      const {data:tabs,error:et}=await sb.from('tabelas_preco').select('id,codigo').limit(10000);
+      if(et)throw et;
+      const tabMap=new Map((tabs||[]).map(t=>[normal(t.codigo),t.id]));
+      const cliMap=new Map();
+      for(let offset=0;;offset+=1000){
+        const {data,error}=await sb.from('clientes').select('id,codigo_totvs').order('id').range(offset,offset+999);
+        if(error)throw error;
+        (data||[]).forEach(c=>{const k=normal(c.codigo_totvs);if(!k)return;if(!cliMap.has(k))cliMap.set(k,[]);cliMap.get(k).push(c.id);});
+        if(!data||data.length<1000)break;
       }
-      let ok = 0, erros = 0, msgs = [];
-      for (const r of linhas) {
-        const codCli = valorCodigo(r.codigo_totvs);
-        const cliId = cliMap[norm(codCli)];
-        if (!cliId) { erros++; msgs.push(codCli + ': cliente não encontrado ou sem acesso'); continue; }
-        const codTab = valorCodigo(r.cod_tabela);
-        const tabId = tabMap[norm(codTab)];
-        if (!tabId) { erros++; msgs.push(codTab + ': tabela não encontrada'); continue; }
-        const { error } = await sb.from('clientes').update({ tabela_preco_id: tabId }).eq('id', cliId);
-        if (error) { erros++; msgs.push(codCli + ': ' + error.message); } else ok++;
+      const grupos=new Map(),ignorados=[];
+      for(const r of validas){
+        const cli=normal(r.codigo_totvs),tab=normal(r.cod_tabela);
+        const ids=cliMap.get(cli)||[],tabId=tabMap.get(tab);
+        if(ids.length!==1){ignorados.push(cli+' (cliente não encontrado ou ambíguo)');continue;}
+        if(!tabId){ignorados.push(cli+' (tabela '+tab+' não cadastrada)');continue;}
+        if(!grupos.has(tabId))grupos.set(tabId,[]);
+        grupos.get(tabId).push(ids[0]);
       }
-      setResultado('✓ ' + ok + ' cliente(s) vinculado(s)' + (erros ? ' · ✗ ' + erros + ' erro(s)\n' + msgs.slice(0, 20).join('\n') : ''));
-      if (ok > 0) toast(ok + ' vínculo(s) atualizado(s)!', 'success');
-      if (erros) toast(erros + ' linha(s) não importadas. Consulte o resultado.', 'error');
-    } catch (e) {
-      toast('Erro ao importar Cliente x Tabela: ' + e.message, 'error');
-    } finally {
-      setImportando(false);
-    }
+      let salvos=0;
+      for(const [tabelaId,ids] of grupos){
+        for(let i=0;i<ids.length;i+=80){
+          const lote=ids.slice(i,i+80);
+          const {data,error}=await sb.from('clientes').update({tabela_preco_id:tabelaId}).in('id',lote).select('id');
+          if(error)throw new Error('Vínculos após '+salvos+' confirmados: '+error.message);
+          salvos+=(data||[]).length;
+          if((data||[]).length!==lote.length)ignorados.push((lote.length-(data||[]).length)+' cliente(s) sem permissão de atualização na tabela');
+          atualizarProgresso(salvos,rows.length,'Vinculando clientes às tabelas...');
+        }
+      }
+      finalizarProgresso(rows.length);
+      setResultado('✓ '+salvos+' cliente(s) vinculados à tabela de preços · '+ignorados.length+' pendência(s)'+
+        (ignorados.length?'\n'+ignorados.slice(0,25).join('\n'):''));
+      toast(salvos+' cliente(s) vinculados!','success');
+    }catch(e){setResultado('Vínculo Cliente x Tabela: '+e.message);toast('Erro ao vincular tabelas: '+e.message,'error');}
+    finally{setImportando(false);}
   }
 
   function executar() {
