@@ -58,7 +58,8 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ficha_aprovacoes WHERE ficha_id=p_ficha_id AND etapa='diretoria' AND status='aprovado') THEN RETURN; END IF;
  -- Não adivinhar o cliente por CNPJ; vínculo exclusivo ficha_id.
  FOR c IN SELECT id FROM public.clientes WHERE ficha_id=p_ficha_id LOOP
-   v_inicio=date_trunc('month',current_date)::date;
+   SELECT date_trunc('month',COALESCE(MAX(ap.decidido_em),now()))::date INTO v_inicio
+   FROM public.ficha_aprovacoes ap WHERE ap.ficha_id=p_ficha_id AND ap.etapa='diretoria' AND ap.status='aprovado';
    IF COALESCE(f.verba_introducao,0)>0 AND f.duracao_verba::text ~ '^[0-9]+$' THEN
      INSERT INTO public.bonificacao_compromissos(cliente_id,ficha_id,tipo,valor_acordado,meses,data_inicio)
      VALUES(c.id,f.id,'introducao',f.verba_introducao,f.duracao_verba::integer,v_inicio)
@@ -161,8 +162,11 @@ BEGIN
     JOIN public.clientes c ON c.id=p.cliente_id
     JOIN public.tabela_preco_itens tpi ON tpi.tabela_id=c.tabela_preco_id AND tpi.produto_id=pi.produto_id
     WHERE pi.pedido_id=p_pedido_id AND pi.tipo_item='bonificacao';
-    IF v_bonificado < p_valor THEN
-       RAISE EXCEPTION 'Bonificação em produtos exige itens bonificados na NF com valor na tabela (disponível R$ %)',v_bonificado; END IF;
+    SELECT v_bonificado-COALESCE(SUM(x.valor),0) INTO v_bonificado
+   FROM public.bonificacao_apropriacoes x WHERE x.pedido_id=p_pedido_id
+      AND x.estornado_em IS NULL AND x.modalidade='Produto';
+   IF v_bonificado < p_valor THEN
+       RAISE EXCEPTION 'Itens bonificados insuficientes após outras apropriações no pedido (disponível R$ %)',v_bonificado; END IF;
  END IF;
  INSERT INTO public.bonificacao_apropriacoes(compromisso_id,cliente_id,pedido_id,tipo,modalidade,valor,data_pedido,descricao,criado_por)
  VALUES(a.id,p.cliente_id,p_pedido_id,p_tipo,CASE WHEN p_tipo='negociacao' THEN a.modalidade ELSE
