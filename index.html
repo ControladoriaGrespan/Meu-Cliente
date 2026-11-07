@@ -3197,7 +3197,7 @@ function ContaCorrenteBonificacoes({cliente,profile,onClose}) {
  const toast=useToast();
  const [acordos,A]=useState([]),[mov,M]=useState([]),[pedidos,P]=useState([]),[abertos,E]=useState({});
  const [loading,L]=useState(true),[busy,B]=useState(false);
- const gestor=['admin','financeiro','gestao_adm_vendas'].includes(profile.papel);
+ const gestor=['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
  const hoje=new Date(),anoAtual=hoje.getFullYear(),mesAtual=hoje.getMonth()+1;
  useEffect(()=>{
    let live=true;
