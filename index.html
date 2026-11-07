@@ -3195,65 +3195,102 @@ async function vendedoresVisiveis(profile) {
 }
 
 function ContaCorrenteBonificacoes({cliente,profile,onClose}) {
- const toast=useToast(),autorizado=['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
- const [acordos,S]=useState([]),[id,I]=useState(''),[mov,M]=useState([]),[prov,P]=useState([]),[pedidos,D]=useState([]),[ficha,F]=useState(null),[busy,B]=useState(false);
- const [novo,N]=useState({descricao:'Acordo de bonificação',valor_total:'',meses:'12',data_inicio:new Date().toISOString().slice(0,7),modalidade:'Produto'});
- const [reg,R]=useState({valor:'',data_movimento:new Date().toISOString().slice(0,10),pedido_id:'',descricao:'',modalidade:'Produto'});
- const moeda=v=>{let x=String(v||'');return Number(x.includes(',')?x.replace(/\./g,'').replace(',','.'):x);};
- const field=(label,val,setter,key,type='text')=>h('label',{style:{display:'block',margin:'8px 0',fontSize:12}},label,h('input',{className:'form-input',type,value:val[key],onChange:e=>setter(x=>({...x,[key]:e.target.value}))}));
- const seletor=(label,val,setter,key,items)=>h('label',{style:{display:'block',margin:'8px 0',fontSize:12}},label,h('select',{className:'form-select',value:val[key],onChange:e=>setter(x=>({...x,[key]:e.target.value}))},...items.map(o=>h('option',{key:o[0],value:o[0]},o[1]))));
- const tipos=['Produto','Desconto financeiro','Escolha no pedido'].map(x=>[x,x]);
- async function carregar(){
-   const [a,p,f]=await Promise.all([sb.from('bonificacao_acordos').select('*').eq('cliente_id',cliente.id).order('criado_em',{ascending:false}),sb.from('pedidos').select('id,codigo,data_pedido').eq('cliente_id',cliente.id).order('data_pedido',{ascending:false}).limit(100),cliente.ficha_id?sb.from('fichas_clientes').select('id,verbas_acordo,duracao_verba,bonificacao_modalidade').eq('id',cliente.ficha_id).maybeSingle():Promise.resolve({data:null})]);
-   if(a.error)return toast('Conta corrente: '+a.error.message,'error');
-   S(a.data||[]);I(x=>(a.data||[]).some(y=>y.id===x)?x:(a.data?.[0]?.id||''));D(p.data||[]);
-   if(f.data){F(f.data);N(x=>({...x,valor_total:Number(f.data.verbas_acordo)>0?String(f.data.verbas_acordo):x.valor_total,meses:String(f.data.duracao_verba||x.meses),modalidade:tipos.some(t=>t[0]===f.data.bonificacao_modalidade)?f.data.bonificacao_modalidade:x.modalidade}));}
- }
- async function recarregar(){if(!id)return;const [a,b]=await Promise.all([sb.from('bonificacao_movimentos').select('*').eq('acordo_id',id).order('data_movimento').order('criado_em'),sb.from('bonificacao_provisoes').select('*').eq('acordo_id',id).order('competencia')]);if(a.error||b.error)toast((a.error||b.error).message,'error');M(a.data||[]);P(b.data||[]);}
- useEffect(()=>{carregar();},[cliente.id]);useEffect(()=>{if(id)recarregar();else{M([]);P([]);}},[id]);
- const acordo=acordos.find(a=>a.id===id),realizado=mov.reduce((v,m)=>v+Number(m.valor)*(m.tipo==='estorno'?-1:1),0),saldo=Number(acordo?.valor_total||0)-realizado;
- async function criar(){
-  const valor=moeda(novo.valor_total),meses=Number(novo.meses);
-  if(!(valor>0)||!Number.isInteger(meses)||meses<1||meses>120||!/^\d{4}-\d{2}$/.test(novo.data_inicio))return toast('Preencha valor, prazo e competência inicial.','error');
-  if(!window.confirm('Cadastrar acordo de '+fmtMoeda(valor)+'?'))return;
-  B(true);const {error}=await sb.from('bonificacao_acordos').insert({cliente_id:cliente.id,ficha_id:ficha?.id||null,descricao:novo.descricao,valor_total:valor,meses,data_inicio:novo.data_inicio+'-01',modalidade:novo.modalidade,criado_por:profile.id});B(false);
-  if(error)return toast(error.message,'error');carregar();toast('Acordo provisionado.','success');
- }
- async function realizar(){
-  const valor=moeda(reg.valor);
-  if(!(valor>0)||Math.round(valor*100)>Math.round(saldo*100)||!reg.descricao.trim())return toast('Informe valor até o saldo e descrição/comprovante.','error');
-  if(!window.confirm('Confirmar realização de '+fmtMoeda(valor)+'?'))return;
-  B(true);const {error}=await sb.from('bonificacao_movimentos').insert({acordo_id:id,pedido_id:reg.pedido_id||null,tipo:'realizacao',modalidade:reg.modalidade,valor,data_movimento:reg.data_movimento,descricao:reg.descricao,criado_por:profile.id});B(false);
-  if(error)return toast(error.message,'error');R(x=>({...x,valor:'',descricao:'',pedido_id:''}));recarregar();toast('Realização registrada.','success');
- }
- async function estornar(m){
-  if(!window.confirm('Estornar '+fmtMoeda(m.valor)+'?'))return;
-  B(true);const {error}=await sb.from('bonificacao_movimentos').insert({acordo_id:id,pedido_id:m.pedido_id,tipo:'estorno',modalidade:m.modalidade,valor:m.valor,data_movimento:new Date().toISOString().slice(0,10),descricao:'Estorno: '+m.descricao,movimento_origem_id:m.id,criado_por:profile.id});B(false);
-  if(error)return toast(error.message,'error');recarregar();toast('Estorno registrado.','success');
- }
- const ui=[h('p',{className:'page-sub'},'Conta corrente gerencial; não gera lançamentos no TOTVS.')];
- if(acordos.length)ui.push(h('select',{className:'form-select',value:id,onChange:e=>I(e.target.value)},...acordos.map(a=>h('option',{key:a.id,value:a.id},a.descricao+' — '+fmtMoeda(a.valor_total)))));
- if(acordo){
-  ui.push(h('div',{className:'card'},'Acordado: '+fmtMoeda(acordo.valor_total)+' | Realizado: '+fmtMoeda(realizado)+' | Saldo: '+fmtMoeda(saldo)));
-  const meses={};mov.forEach(m=>{const k=m.data_movimento.slice(0,7);meses[k]=(meses[k]||0)+(m.tipo==='estorno'?-1:1)*Number(m.valor);});
-  let ap=0,ar=0;ui.push(h('h4',null,'Provisões por mês'));
-  prov.forEach(p=>{const mes=p.competencia.slice(0,7),v=Number(p.valor_provisionado),r=meses[mes]||0;ap+=v;ar+=r;ui.push(h('p',{style:{fontSize:12}},mes+' — Provisão '+fmtMoeda(v)+' | Realizado '+fmtMoeda(r)+' | Diferença acumulada '+fmtMoeda(ap-ar)));});
-  const extra=Object.keys(meses).filter(k=>!prov.some(p=>p.competencia.slice(0,7)===k));if(extra.length)ui.push(h('p',null,'Movimentos fora do período: '+extra.join(', ')));
-  if(autorizado){
-   ui.push(h('h4',null,'Registrar realização'),field('Valor (R$)',reg,R,'valor'),field('Data',reg,R,'data_movimento','date'),seletor('Modalidade',reg,R,'modalidade',tipos));
-   ui.push(seletor('Pedido associado (opcional)',reg,R,'pedido_id',[['','Sem pedido'],...pedidos.map(p=>[p.id,(p.codigo||p.id)+' — '+p.data_pedido])]));
-   ui.push(field('Descrição / comprovante',reg,R,'descricao'),h('button',{className:'btn btn-primary btn-sm',disabled:busy||saldo<=0,onClick:realizar},'Registrar realização'));
+ const toast=useToast();
+ const [acordos,A]=useState([]),[mov,M]=useState([]),[pedidos,P]=useState([]),[abertos,E]=useState({});
+ const [loading,L]=useState(true),[busy,B]=useState(false);
+ const gestor=['admin','financeiro','gestao_adm_vendas'].includes(profile.papel);
+ const hoje=new Date(),anoAtual=hoje.getFullYear(),mesAtual=hoje.getMonth()+1;
+ useEffect(()=>{
+   let live=true;
+   (async()=>{
+    const [a,m,p]=await Promise.all([
+     sb.from('bonificacao_compromissos').select('*').eq('cliente_id',cliente.id).order('criado_em'),
+     sb.from('bonificacao_apropriacoes').select('*').eq('cliente_id',cliente.id).order('data_pedido'),
+     sb.from('pedidos').select('id,codigo,data_pedido,pedido_itens(quantidade,tipo_item,produtos(peso_kg))').eq('cliente_id',cliente.id).order('data_pedido',{ascending:false}).limit(1000)
+    ]);
+    if(!live)return;
+    L(false);
+    if(a.error||m.error||p.error)return toast('Conta Corrente: '+(a.error||m.error||p.error).message+' (verifique a migração v2)','error');
+    A(a.data||[]);M(m.data||[]);P(p.data||[]);
+   })();
+   return ()=>{live=false;};
+ },[cliente.id]);
+ const fmtMes=x=>x.slice(5,7)+'/'+x.slice(0,4);
+ const resumo=(titulo,valor)=>h('div',{style:{padding:12,border:'1px solid var(--border)',borderRadius:8,flex:'1 1 150px'}},
+  h('div',{className:'page-sub'},titulo),h('strong',{style:{fontSize:17}},valor));
+ const tabelinha=(head,rows)=>h('div',{className:'table-wrap',style:{maxHeight:360,overflowY:'auto'}},
+  h('table',null,h('thead',null,h('tr',null,...head.map((x,i)=>h('th',{key:i},x)))),
+    h('tbody',null,...rows)));
+ const secoes=[];
+ for(const a of acordos){
+  const intro=a.tipo==='introducao';
+  const ativos=mov.filter(x=>x.compromisso_id===a.id&&!x.estornado_em);
+  const total=ativos.reduce((v,x)=>v+Number(x.valor||0),0);
+  const inicioAno=Number(a.data_inicio.slice(0,4)),inicioMes=Number(a.data_inicio.slice(5,7));
+  const count=intro?Number(a.meses||0):Math.max(0,(anoAtual-inicioAno)*12+mesAtual-inicioMes+1);
+  const meses=[];
+  let saldo=Number(a.valor_acordado||0);
+  const centavos=Math.round(saldo*100),mesesTotal=Math.max(1,count),base=Math.floor(centavos/mesesTotal);
+  for(let n=0;n<Math.min(120,count);n++){
+   const d=new Date(inicioAno,inicioMes+n-1,1),ano=d.getFullYear(),periodo=ano+'-'+String(d.getMonth()+1).padStart(2,'0');
+   const realizado=ativos.filter(m=>m.competencia.slice(0,7)===periodo).reduce((v,m)=>v+Number(m.valor),0);
+   const previsto=intro?(n===count-1?(centavos-base*(count-1))/100:base/100)
+       :Number(a.faturamento_previsto||0)*Number(a.percentual||0)/100;
+   const kgPrev=Number(a.kg_previsto_mes||0);
+   const kgReal=pedidos.filter(p=>p.data_pedido?.slice(0,7)===periodo).reduce((v,p)=>
+       v+(p.pedido_itens||[]).filter(i=>(i.tipo_item||'venda')!=='bonificacao')
+       .reduce((z,i)=>z+Number(i.quantidade||0)*Number(i.produtos?.peso_kg||0),0),0);
+   saldo-=realizado;
+   meses.push({ano,periodo,previsto,realizado,saldo,kgPrev,kgReal});
   }
-  ui.push(h('h4',null,'Extrato'));
-  mov.forEach(m=>ui.push(h('div',{style:{fontSize:12,padding:6,borderBottom:'1px solid #ddd'}},m.data_movimento+' | '+m.tipo+' | '+fmtMoeda(m.valor)+' | '+m.descricao+' | Pedido '+(pedidos.find(p=>p.id===m.pedido_id)?.codigo||'—'),autorizado&&m.tipo==='realizacao'&&!mov.some(x=>x.movimento_origem_id===m.id)?h('button',{className:'btn btn-secondary btn-sm',disabled:busy,onClick:()=>estornar(m)},'Estornar'):null)));
+  const agrup={};
+  meses.forEach(m=>{if(!agrup[m.ano])agrup[m.ano]=[];agrup[m.ano].push(m);});
+  const rows=[],fmt=fmtMoeda;
+  for(const [ano,items] of Object.entries(agrup)){
+   const key=a.id+'-'+ano,expand=abertos[key]??(Number(ano)===anoAtual);
+   const soma=k=>items.reduce((v,x)=>v+Number(x[k]||0),0);
+   const vals=intro?[fmt(soma('previsto')),fmt(soma('realizado')),fmt(items.at(-1).saldo)]:
+      [fmt(soma('previsto')),fmt(soma('realizado')),fmtNum(soma('kgPrev'))+' kg',fmtNum(soma('kgReal'))+' kg'];
+   rows.push(h('tr',{key:key+'-ano',style:{fontWeight:700}},
+     h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>E(x=>({...x,[key]:!expand}))},(expand?'▾ ':'▸ ')+ano)),
+     ...vals.map((v,i)=>h('td',{key:i},v))));
+   if(expand)items.forEach(m=>{
+     const valsMes=intro?[fmt(m.previsto),fmt(m.realizado),fmt(m.saldo)]:
+       [fmt(m.previsto),fmt(m.realizado),fmtNum(m.kgPrev)+' kg',fmtNum(m.kgReal)+' kg'];
+     rows.push(h('tr',{key:m.periodo},h('td',null,fmtMes(m.periodo)),...valsMes.map((v,i)=>h('td',{key:i},v))));
+   });
+  }
+  const titulo=intro?'Verba de Introdução':'Bonificação de Negociação';
+  const info=intro?'Prazo '+a.meses+' meses':fmtNum(a.percentual)+'% · '+({todos:'Todos os pedidos',mensal:'1 pedido do mês',unica:'1 parcela'}[a.periodicidade]||a.periodicidade)+' · '+a.modalidade;
+  const topo=[h('h3',null,titulo),h('p',{className:'page-sub'},info)];
+  if(!intro)topo.push(h('span',{className:'badge '+(a.ativo?'badge-green':'badge-gray')},a.ativo?'Ativa':'Encerrada'));
+  if(!intro&&gestor&&a.ativo)topo.push(h('button',{className:'btn btn-secondary btn-sm',disabled:busy,onClick:async()=>{
+   if(!window.confirm('Encerrar a bonificação percentual deste cliente?'))return;
+   B(true);const {error}=await sb.rpc('bonif_v2_encerrar',{p_compromisso_id:a.id});B(false);
+   if(error)return toast(error.message,'error');A(xs=>xs.map(x=>x.id===a.id?{...x,ativo:false}:x));toast('Bonificação encerrada.','success');
+  }},'Encerrar bonificação'));
+  const sums=intro?[
+   resumo('Acordado',fmt(a.valor_acordado)),resumo('Realizado',fmt(total)),resumo('Saldo da dívida',fmt(Number(a.valor_acordado)-total))
+  ]:[
+   resumo('Previsto acumulado',fmt(meses.reduce((v,x)=>v+x.previsto,0))),
+   resumo('Realizado',fmt(total)),resumo('Diferença',fmt(meses.reduce((v,x)=>v+x.previsto,0)-total))
+  ];
+  const head=intro?['Mês','Previsto','Realizado','Saldo']:['Mês','Previsto (R$)','Realizado (R$)','Kg previsto','Kg realizado'];
+  const linhasExtrato=mov.filter(x=>x.compromisso_id===a.id).map(x=>
+   h('tr',{key:x.id},h('td',null,x.data_pedido),h('td',null,pedidos.find(p=>p.id===x.pedido_id)?.codigo||String(x.pedido_id).slice(0,8)),
+    h('td',null,x.modalidade),h('td',null,fmt(x.valor)),h('td',null,x.estornado_em?'Estornado':'Realizado')));
+  const conteudo=[...topo,h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},...sums),
+    tabelinha(head,rows)];
+  if(linhasExtrato.length){conteudo.push(h('h4',null,'Extrato de apropriações'));conteudo.push(tabelinha(['Data','Pedido','Aplicação','Valor','Situação'],linhasExtrato));}
+  secoes.push(h('div',{className:'card',key:a.id,style:{marginBottom:16}},...conteudo));
  }
- if(autorizado){
-  ui.push(h('h4',null,'Novo acordo e provisão'),h('p',{className:'page-sub'},ficha?'Valores sugeridos da ficha, confirme antes de registrar.':'Informe somente verbas aprovadas.'));
-  ui.push(field('Descrição',novo,N,'descricao'),field('Valor acordado R$',novo,N,'valor_total'),field('Prazo em meses',novo,N,'meses','number'),field('Mês inicial',novo,N,'data_inicio','month'),seletor('Modalidade',novo,N,'modalidade',tipos));
-  ui.push(h('button',{className:'btn btn-primary btn-sm',disabled:busy||!!(ficha&&acordos.some(a=>a.ficha_id===ficha.id)),onClick:criar},'Criar acordo'));
- }
- return h(Modal,{titulo:'Conta Corrente de Bonificações',sub:(cliente.codigo_totvs||'')+' — '+cliente.razao_social,largo:true,onClose,acoes:[h('button',{className:'btn btn-secondary',onClick:onClose},'Fechar')]},h('div',null,...ui));
+ return h(Modal,{titulo:'Conta Corrente de Bonificações',sub:(cliente.codigo_totvs||'')+' — '+cliente.razao_social,largo:true,onClose,
+  acoes:[h('button',{className:'btn btn-secondary',onClick:onClose},'Fechar')]},
+  h('div',null,h('p',{className:'page-sub'},'Acordos nascem da ficha aprovada. A verba fixa gera dívida; negociação varia conforme os pedidos. Valores gerenciais, sem integração contábil automática.'),
+   loading?h('p',null,'Carregando...'):secoes.length?h('div',null,...secoes):
+   h('div',{className:'empty-state'},'Nenhum acordo de bonificação vinculado à ficha aprovada deste cliente.')));
 }
+
 function PaginaClientes({ profile, modulo }) {
   const toast = useToast();
   const [clientes, setClientes] = useState(null);
