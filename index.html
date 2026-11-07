@@ -4040,6 +4040,9 @@ function DashboardComercialV38({profile,visao,modulo}) {
   const [fichas,setFichas]=useState([]);
   const [sols,setSols]=useState([]);
   const [titulos,setTitulos]=useState([]); // reservado para integração Protheus / financeiro
+  const [atividadePedidos,setAtividadePedidos]=useState([]);
+  const [erroAtividade,setErroAtividade]=useState('');
+  const [carregandoAtividade,setCarregandoAtividade]=useState(false);
 
   useEffect(()=>{carregarEstrutura();},[profile.id,visao,modulo]);
   useEffect(()=>{if(vendedores.length||visao==='vendedor')carregarDados();},[filtroSup,filtroVend,vendedores.length]);
@@ -4088,12 +4091,22 @@ function DashboardComercialV38({profile,visao,modulo}) {
 
   async function carregarDados(){
     const ids=idsSelecionados();
-    if(!ids.length){setClientes([]);setFichas([]);setSols([]);return;}
+    if(!ids.length){setClientes([]);setFichas([]);setSols([]);setAtividadePedidos([]);setErroAtividade('');return;}
     const [rc,rf]=await Promise.all([
       sb.from('clientes').select('id,codigo_totvs,razao_social,vendedor_id').in('vendedor_id',ids),
       sb.from('fichas_clientes').select('id,vendedor_id,faturamento_previsto,created_at,ficha_aprovacoes(status)').in('vendedor_id',ids)
     ]);
     const cls=rc.data||[]; setClientes(cls); setFichas(rf.data||[]);
+    setCarregandoAtividade(true);
+    const atividade=await sb.rpc('comercial_atividade_pedidos',{p_vendedores:ids});
+    setCarregandoAtividade(false);
+    if(atividade.error){
+      setErroAtividade('Indicadores de pedidos indisponíveis. Verifique a migração SQL e as permissões: '+atividade.error.message);
+      setAtividadePedidos([]);
+    }else{
+      setErroAtividade('');
+      setAtividadePedidos(atividade.data||[]);
+    }
     const cliIds=cls.map(c=>c.id);
     if(cliIds.length){
       const {data:ss}=await sb.from('solicitacoes')
@@ -4123,6 +4136,14 @@ function DashboardComercialV38({profile,visao,modulo}) {
   const fr=fichas.filter(x=>fichaStatus(x)==='reprovada').length;
   const fw=fichas.length-fa-fr;
   const media=fichas.length?fichas.reduce((a,x)=>a+Number(x.faturamento_previsto||0),0)/fichas.length:0;
+  const atividadePorCliente=new Map(atividadePedidos.map(a=>[String(a.cliente_id),a]));
+  const clientesSemPedido30=clientes.filter(c=>Number(atividadePorCliente.get(String(c.id))?.pedidos_30d||0)===0);
+  const hojeCarteira=new Date();hojeCarteira.setHours(0,0,0,0);
+  function diasDesdePedido(data){
+    if(!data)return null;
+    const d=new Date(String(data).slice(0,10)+'T00:00:00');
+    return Math.max(0,Math.floor((hojeCarteira-d)/86400000));
+  }
 
   const porVendedor=vendedores.filter(v=>idsSelecionados().includes(v.id)).map(v=>{
     const fc=fichas.filter(f=>f.vendedor_id===v.id), cc=clientes.filter(c=>c.vendedor_id===v.id);
@@ -4157,7 +4178,32 @@ function DashboardComercialV38({profile,visao,modulo}) {
       h(Kpi,{icon:'≡',cor:'info',valor:fichas.length,label:'Fichas cadastradas'}),
       h(Kpi,{icon:'✓',cor:'success',valor:fa,label:'Fichas aprovadas'}),
       h(Kpi,{icon:'✗',cor:'danger',valor:fr,label:'Fichas reprovadas'}),
-      h(Kpi,{icon:'R$',cor:'warning',valor:fmtMoeda(media),label:'Faturamento médio esperado'})),
+      h(Kpi,{icon:'R$',cor:'warning',valor:fmtMoeda(media),label:'Faturamento médio esperado'}),
+      !erroAtividade&&!carregandoAtividade&&h(Kpi,{icon:'!',cor:'warning',valor:clientesSemPedido30.length,label:'Sem pedidos há 30 dias (Meu Cliente)'})),
+    h('div',{className:'card',style:{marginTop:18}},
+      h('div',{className:'section-title'},'Acompanhamento da carteira — Pedidos nos últimos 30 dias'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},
+        'Somente pedidos cadastrados no Meu Cliente. Não representa faturamento, notas fiscais ou vendas no Protheus.'),
+      carregandoAtividade?h('div',{className:'page-sub'},'Consultando pedidos...'):
+      erroAtividade?h('div',{style:{color:'var(--danger)'}},erroAtividade):
+      clientesSemPedido30.length===0?h('div',{className:'page-sub'},'Todos os clientes da carteira filtrada possuem pedido nos últimos 30 dias.'):
+      h('div',null,
+        h('div',{className:'page-sub',style:{marginBottom:8}},clientesSemPedido30.length+' cliente(s) sem pedidos registrados no período.'),
+        h('div',{className:'table-wrap',style:{maxHeight:340,overflowY:'auto'}},
+          h('table',{className:'data-table'},
+            h('thead',null,h('tr',null,...['Código TOTVS','Cliente','Vendedor','Último pedido','Dias sem pedido'].map(t=>h('th',{key:t},t)))),
+            h('tbody',null,...clientesSemPedido30.map(c=>{
+              const a=atividadePorCliente.get(String(c.id));
+              const dias=diasDesdePedido(a?.ultimo_pedido);
+              const vend=vendedores.find(v=>v.id===c.vendedor_id);
+              return h('tr',{key:c.id},
+                h('td',null,c.codigo_totvs||'—'),
+                h('td',null,c.razao_social||'—'),
+                h('td',null,vend?.nome||'—'),
+                h('td',null,a?.ultimo_pedido?new Date(a.ultimo_pedido+'T00:00:00').toLocaleDateString('pt-BR'):'Nunca registrado'),
+                h('td',null,dias===null?'Sem histórico':dias));
+            })))))),
+
     h('div',{className:'card',style:{marginTop:18}},
       h('div',{className:'section-title'},'Solicitações da Carteira'),
       h('div',{style:{overflowX:'auto'}},h('table',{className:'data-table'},
