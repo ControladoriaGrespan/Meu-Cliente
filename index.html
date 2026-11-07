@@ -3194,6 +3194,66 @@ async function vendedoresVisiveis(profile) {
   return null;
 }
 
+function ContaCorrenteBonificacoes({cliente,profile,onClose}) {
+ const toast=useToast(),autorizado=['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
+ const [acordos,S]=useState([]),[id,I]=useState(''),[mov,M]=useState([]),[prov,P]=useState([]),[pedidos,D]=useState([]),[ficha,F]=useState(null),[busy,B]=useState(false);
+ const [novo,N]=useState({descricao:'Acordo de bonificação',valor_total:'',meses:'12',data_inicio:new Date().toISOString().slice(0,7),modalidade:'Produto'});
+ const [reg,R]=useState({valor:'',data_movimento:new Date().toISOString().slice(0,10),pedido_id:'',descricao:'',modalidade:'Produto'});
+ const moeda=v=>{let x=String(v||'');return Number(x.includes(',')?x.replace(/\./g,'').replace(',','.'):x);};
+ const field=(label,val,setter,key,type='text')=>h('label',{style:{display:'block',margin:'8px 0',fontSize:12}},label,h('input',{className:'form-input',type,value:val[key],onChange:e=>setter(x=>({...x,[key]:e.target.value}))}));
+ const seletor=(label,val,setter,key,items)=>h('label',{style:{display:'block',margin:'8px 0',fontSize:12}},label,h('select',{className:'form-select',value:val[key],onChange:e=>setter(x=>({...x,[key]:e.target.value}))},...items.map(o=>h('option',{key:o[0],value:o[0]},o[1]))));
+ const tipos=['Produto','Desconto financeiro','Escolha no pedido'].map(x=>[x,x]);
+ async function carregar(){
+   const [a,p,f]=await Promise.all([sb.from('bonificacao_acordos').select('*').eq('cliente_id',cliente.id).order('criado_em',{ascending:false}),sb.from('pedidos').select('id,codigo,data_pedido').eq('cliente_id',cliente.id).order('data_pedido',{ascending:false}).limit(100),cliente.ficha_id?sb.from('fichas_clientes').select('id,verbas_acordo,duracao_verba,bonificacao_modalidade').eq('id',cliente.ficha_id).maybeSingle():Promise.resolve({data:null})]);
+   if(a.error)return toast('Conta corrente: '+a.error.message,'error');
+   S(a.data||[]);I(x=>(a.data||[]).some(y=>y.id===x)?x:(a.data?.[0]?.id||''));D(p.data||[]);
+   if(f.data){F(f.data);N(x=>({...x,valor_total:Number(f.data.verbas_acordo)>0?String(f.data.verbas_acordo):x.valor_total,meses:String(f.data.duracao_verba||x.meses),modalidade:tipos.some(t=>t[0]===f.data.bonificacao_modalidade)?f.data.bonificacao_modalidade:x.modalidade}));}
+ }
+ async function recarregar(){if(!id)return;const [a,b]=await Promise.all([sb.from('bonificacao_movimentos').select('*').eq('acordo_id',id).order('data_movimento').order('criado_em'),sb.from('bonificacao_provisoes').select('*').eq('acordo_id',id).order('competencia')]);if(a.error||b.error)toast((a.error||b.error).message,'error');M(a.data||[]);P(b.data||[]);}
+ useEffect(()=>{carregar();},[cliente.id]);useEffect(()=>{if(id)recarregar();else{M([]);P([]);}},[id]);
+ const acordo=acordos.find(a=>a.id===id),realizado=mov.reduce((v,m)=>v+Number(m.valor)*(m.tipo==='estorno'?-1:1),0),saldo=Number(acordo?.valor_total||0)-realizado;
+ async function criar(){
+  const valor=moeda(novo.valor_total),meses=Number(novo.meses);
+  if(!(valor>0)||!Number.isInteger(meses)||meses<1||meses>120||!/^\d{4}-\d{2}$/.test(novo.data_inicio))return toast('Preencha valor, prazo e competência inicial.','error');
+  if(!window.confirm('Cadastrar acordo de '+fmtMoeda(valor)+'?'))return;
+  B(true);const {error}=await sb.from('bonificacao_acordos').insert({cliente_id:cliente.id,ficha_id:ficha?.id||null,descricao:novo.descricao,valor_total:valor,meses,data_inicio:novo.data_inicio+'-01',modalidade:novo.modalidade,criado_por:profile.id});B(false);
+  if(error)return toast(error.message,'error');carregar();toast('Acordo provisionado.','success');
+ }
+ async function realizar(){
+  const valor=moeda(reg.valor);
+  if(!(valor>0)||Math.round(valor*100)>Math.round(saldo*100)||!reg.descricao.trim())return toast('Informe valor até o saldo e descrição/comprovante.','error');
+  if(!window.confirm('Confirmar realização de '+fmtMoeda(valor)+'?'))return;
+  B(true);const {error}=await sb.from('bonificacao_movimentos').insert({acordo_id:id,pedido_id:reg.pedido_id||null,tipo:'realizacao',modalidade:reg.modalidade,valor,data_movimento:reg.data_movimento,descricao:reg.descricao,criado_por:profile.id});B(false);
+  if(error)return toast(error.message,'error');R(x=>({...x,valor:'',descricao:'',pedido_id:''}));recarregar();toast('Realização registrada.','success');
+ }
+ async function estornar(m){
+  if(!window.confirm('Estornar '+fmtMoeda(m.valor)+'?'))return;
+  B(true);const {error}=await sb.from('bonificacao_movimentos').insert({acordo_id:id,pedido_id:m.pedido_id,tipo:'estorno',modalidade:m.modalidade,valor:m.valor,data_movimento:new Date().toISOString().slice(0,10),descricao:'Estorno: '+m.descricao,movimento_origem_id:m.id,criado_por:profile.id});B(false);
+  if(error)return toast(error.message,'error');recarregar();toast('Estorno registrado.','success');
+ }
+ const ui=[h('p',{className:'page-sub'},'Conta corrente gerencial; não gera lançamentos no TOTVS.')];
+ if(acordos.length)ui.push(h('select',{className:'form-select',value:id,onChange:e=>I(e.target.value)},...acordos.map(a=>h('option',{key:a.id,value:a.id},a.descricao+' — '+fmtMoeda(a.valor_total)))));
+ if(acordo){
+  ui.push(h('div',{className:'card'},'Acordado: '+fmtMoeda(acordo.valor_total)+' | Realizado: '+fmtMoeda(realizado)+' | Saldo: '+fmtMoeda(saldo)));
+  const meses={};mov.forEach(m=>{const k=m.data_movimento.slice(0,7);meses[k]=(meses[k]||0)+(m.tipo==='estorno'?-1:1)*Number(m.valor);});
+  let ap=0,ar=0;ui.push(h('h4',null,'Provisões por mês'));
+  prov.forEach(p=>{const mes=p.competencia.slice(0,7),v=Number(p.valor_provisionado),r=meses[mes]||0;ap+=v;ar+=r;ui.push(h('p',{style:{fontSize:12}},mes+' — Provisão '+fmtMoeda(v)+' | Realizado '+fmtMoeda(r)+' | Diferença acumulada '+fmtMoeda(ap-ar)));});
+  const extra=Object.keys(meses).filter(k=>!prov.some(p=>p.competencia.slice(0,7)===k));if(extra.length)ui.push(h('p',null,'Movimentos fora do período: '+extra.join(', ')));
+  if(autorizado){
+   ui.push(h('h4',null,'Registrar realização'),field('Valor (R$)',reg,R,'valor'),field('Data',reg,R,'data_movimento','date'),seletor('Modalidade',reg,R,'modalidade',tipos));
+   ui.push(seletor('Pedido associado (opcional)',reg,R,'pedido_id',[['','Sem pedido'],...pedidos.map(p=>[p.id,(p.codigo||p.id)+' — '+p.data_pedido])]));
+   ui.push(field('Descrição / comprovante',reg,R,'descricao'),h('button',{className:'btn btn-primary btn-sm',disabled:busy||saldo<=0,onClick:realizar},'Registrar realização'));
+  }
+  ui.push(h('h4',null,'Extrato'));
+  mov.forEach(m=>ui.push(h('div',{style:{fontSize:12,padding:6,borderBottom:'1px solid #ddd'}},m.data_movimento+' | '+m.tipo+' | '+fmtMoeda(m.valor)+' | '+m.descricao+' | Pedido '+(pedidos.find(p=>p.id===m.pedido_id)?.codigo||'—'),autorizado&&m.tipo==='realizacao'&&!mov.some(x=>x.movimento_origem_id===m.id)?h('button',{className:'btn btn-secondary btn-sm',disabled:busy,onClick:()=>estornar(m)},'Estornar'):null)));
+ }
+ if(autorizado){
+  ui.push(h('h4',null,'Novo acordo e provisão'),h('p',{className:'page-sub'},ficha?'Valores sugeridos da ficha, confirme antes de registrar.':'Informe somente verbas aprovadas.'));
+  ui.push(field('Descrição',novo,N,'descricao'),field('Valor acordado R$',novo,N,'valor_total'),field('Prazo em meses',novo,N,'meses','number'),field('Mês inicial',novo,N,'data_inicio','month'),seletor('Modalidade',novo,N,'modalidade',tipos));
+  ui.push(h('button',{className:'btn btn-primary btn-sm',disabled:busy||!!(ficha&&acordos.some(a=>a.ficha_id===ficha.id)),onClick:criar},'Criar acordo'));
+ }
+ return h(Modal,{titulo:'Conta Corrente de Bonificações',sub:(cliente.codigo_totvs||'')+' — '+cliente.razao_social,largo:true,onClose,acoes:[h('button',{className:'btn btn-secondary',onClick:onClose},'Fechar')]},h('div',null,...ui));
+}
 function PaginaClientes({ profile, modulo }) {
   const toast = useToast();
   const [clientes, setClientes] = useState(null);
@@ -3207,6 +3267,7 @@ function PaginaClientes({ profile, modulo }) {
   const [enderecoCliente,setEnderecoCliente]=useState(null);
   const [salvandoEndereco,setSalvandoEndereco]=useState(false);
   const [fiscalCliente,setFiscalCliente]=useState(null);
+  const [contaCorrenteCliente,setContaCorrenteCliente]=useState(null);
   const [salvandoFiscal,setSalvandoFiscal]=useState(false);
   const [editandoAcordo, setEditandoAcordo] = useState({});
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
@@ -3339,6 +3400,7 @@ function PaginaClientes({ profile, modulo }) {
         onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
       }))),
 
+    contaCorrenteCliente&&h(ContaCorrenteBonificacoes,{cliente:contaCorrenteCliente,profile,onClose:()=>setContaCorrenteCliente(null)}),
     fiscalCliente&&h('div',{className:'card',style:{marginBottom:12}},
       h('div',{className:'section-title'},'Configuração fiscal TOTVS — '+(fiscalCliente.razao_social||'')),
       h('div',{className:'page-sub',style:{marginBottom:12}},'Dados necessários para consultar a TES Inteligente. Confirme os códigos com o departamento Fiscal.'),
@@ -3381,7 +3443,7 @@ function PaginaClientes({ profile, modulo }) {
                           })
                         : h('span', { className: 'mono' }, c.codigo_totvs || '—')),
                     h('td', null, !String(c.codigo_totvs || '').trim() ? h('span', { className: 'badge badge-yellow' }, 'Sem Código') : h('span', { className: 'badge badge-green' }, 'Com Código')),
-                    h('td', { className: 'strong' }, c.razao_social || '—'),
+                    h('td',{className:'strong'},h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setContaCorrenteCliente(c),title:'Abrir conta corrente'},c.razao_social||'—')),
                     h('td', null, c.nome_fantasia || '—'),
                     h('td', { className: 'mono' }, c.cnpj_cpf || '—'),
                     h('td', null, (c.cidade || '—') + (c.estado ? '/' + c.estado : '')),
