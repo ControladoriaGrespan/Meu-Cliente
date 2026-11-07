@@ -6337,6 +6337,7 @@ function PaginaPedidos({ profile }) {
   const [aplicandoBonifPedido,setAplicandoBonifPedido]=useState(false);
   const [exportandoTotvs,setExportandoTotvs]=useState(false);
   const [previaTotvs,setPreviaTotvs]=useState(null);
+  const [confirmandoDescontoTotvs,setConfirmandoDescontoTotvs]=useState(null);
   const [historicoExportacoesTotvs,setHistoricoExportacoesTotvs]=useState([]);
   const [erroHistoricoTotvs,setErroHistoricoTotvs]=useState('');
   const [tesItens,setTesItens]=useState({});
@@ -6899,16 +6900,27 @@ function PaginaPedidos({ profile }) {
       // Conferir antes da exportação para impedir divergências silenciosas.
       const idsPedidos=(pedidos||[]).map(p=>p.id);
       const descontos=idsPedidos.length?await sb.from('bonificacao_apropriacoes')
-        .select('pedido_id,valor,tipo,modalidade')
+        .select('id,pedido_id,valor,tipo,modalidade')
         .in('pedido_id',idsPedidos).eq('modalidade','Desconto').is('estornado_em',null)
         :{data:[],error:null};
       if(descontos.error)throw new Error('Não foi possível conferir os descontos financeiros: '+descontos.error.message);
+      const idsApropriacoes=(descontos.data||[]).map(d=>d.id);
+      const confirmacoes=idsApropriacoes.length?await sb.from('bonificacao_descontos_protheus')
+        .select('apropriacao_id,pedido_protheus,confirmado_em,confirmado_por,valor_confirmado')
+        .in('apropriacao_id',idsApropriacoes)
+        :{data:[],error:null};
+      if(confirmacoes.error)throw new Error('Não foi possível consultar confirmações do Protheus: '+confirmacoes.error.message+'. Execute a nova migração SQL.');
+      const confirmados=new Map((confirmacoes.data||[]).map(c=>[String(c.apropriacao_id),c]));
       const descontosPorPedido={};
       (descontos.data||[]).forEach(d=>{
         const chave=String(d.pedido_id);
-        if(!descontosPorPedido[chave])descontosPorPedido[chave]={valor:0,tipos:[]};
+        if(!descontosPorPedido[chave])descontosPorPedido[chave]={valor:0,tipos:[],apropriacoes:[]};
         descontosPorPedido[chave].valor+=Number(d.valor||0);
         descontosPorPedido[chave].tipos.push(d.tipo);
+        descontosPorPedido[chave].apropriacoes.push({
+          id:d.id,tipo:d.tipo,valor:Number(d.valor||0),
+          confirmacao:confirmados.get(String(d.id))||null
+        });
       });
       const clientesPermitidos=new Set(clientesRota.map(c=>String(c.id)));
       const porCliente={};
@@ -6922,7 +6934,7 @@ function PaginaPedidos({ profile }) {
         if(!(pedido.pedido_itens||[]).length)continue;
         const descontoPedido=descontosPorPedido[String(pedido.id)];
         if(descontoPedido){
-          avisosDesconto.push({pedido:pedido.codigo||pedido.id,cliente:pedido.clientes?.razao_social||'Cliente',valor:descontoPedido.valor});
+          avisosDesconto.push({pedido:pedido.codigo||pedido.id,cliente:pedido.clientes?.razao_social||'Cliente',valor:descontoPedido.valor,apropriacoes:descontoPedido.apropriacoes});
         }
         porCliente[pedido.cliente_id]=(porCliente[pedido.cliente_id]||0)+1;
         const cli=pedido.clientes||{};
@@ -7027,6 +7039,26 @@ function PaginaPedidos({ profile }) {
     }finally{setExportandoTotvs(false);}
   }
 
+  async function confirmarDescontoManual(ap){
+    if(confirmandoDescontoTotvs||!lancando||!ap?.id||ap.confirmacao)return;
+    const numero=window.prompt('Informe o número do pedido já importado no Protheus (o desconto deve estar aplicado manualmente):','');
+    if(numero===null)return;
+    if(!numero.trim())return toast('Informe o número do pedido no Protheus.','error');
+    if(!window.confirm('Confirma que o desconto de '+fmtMoeda(ap.valor)+' já foi aplicado manualmente no pedido '+numero.trim()+' do Protheus? Esta confirmação ficará registrada com usuário e data.'))return;
+    setConfirmandoDescontoTotvs(ap.id);
+    try{
+      const {error}=await sb.rpc('confirmar_desconto_protheus',{
+        p_apropriacao_id:ap.id,p_pedido_protheus:numero.trim(),p_observacao:null
+      });
+      if(error)throw error;
+      toast('Desconto confirmado. A confirmação ficará registrada com usuário, data e pedido Protheus.','success');
+      // Recarregar a prévia a partir do banco e não alterar apenas o estado local.
+      setPreviaTotvs(null);
+      await exportarCsvTotvs(true);
+    }catch(e){toast('Não foi possível confirmar desconto: '+(e?.message||e),'error');}
+    finally{setConfirmandoDescontoTotvs(null);}
+  }
+
   function voltarCalendario() { setPreviaTotvs(null); setHistoricoExportacoesTotvs([]); setErroHistoricoTotvs(''); setLancando(null); carregar(); }
 
   // ---- modal novo pedido (data + rota) ----
@@ -7082,8 +7114,20 @@ function PaginaPedidos({ profile }) {
           previaTotvs.linhas.length+' item(ns) · '+previaTotvs.nfs.length+' NF(s) · '+previaTotvs.erros.length+' pendência(s). Os códigos de TES são consultados em tempo real.'),
         (previaTotvs.avisosDesconto||[]).length>0&&h('div',{style:{padding:12,border:'1px solid var(--warning)',borderRadius:6,marginBottom:12}},
           h('strong',null,'Descontos para aplicar manualmente no Protheus — não incluídos no CSV'),
-          h('ul',{style:{marginTop:8,paddingLeft:22}},...(previaTotvs.avisosDesconto||[]).map((d,i)=>h('li',{key:i},'Pedido '+d.pedido+' · '+d.cliente+' · '+fmtMoeda(d.valor)))),
-          h('div',{className:'page-sub'},'Após importar os pedidos no Protheus, edite os descontos manualmente antes do faturamento. A exportação não comprova que o desconto foi aplicado.')),
+          h('div',{className:'page-sub',style:{marginBottom:8}},'Primeiro importe o CSV no Protheus, aplique o desconto manualmente e só então confirme abaixo.'),
+          ...(previaTotvs.avisosDesconto||[]).flatMap((d,i)=>
+            (d.apropriacoes||[]).map(ap=>h('div',{key:ap.id,style:{padding:'10px 0',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}},
+              h('div',null,
+                h('strong',null,'Pedido '+d.pedido+' · '+d.cliente),
+                h('div',{style:{fontSize:13}},(ap.tipo==='introducao'?'Verba de Introdução':'Negociação')+' · '+fmtMoeda(ap.valor)),
+                h('div',{className:'page-sub'},ap.confirmacao
+                  ? 'Confirmado manualmente · Pedido Protheus '+ap.confirmacao.pedido_protheus+' · '+new Date(ap.confirmacao.confirmado_em).toLocaleString('pt-BR')+' · Usuário '+String(ap.confirmacao.confirmado_por).slice(0,8)+'…'
+                  : 'Pendente de confirmação no Protheus')),
+              ap.confirmacao
+                ?h('span',{className:'badge badge-green'},'Confirmado')
+                :h('button',{className:'btn btn-secondary btn-sm',disabled:!!confirmandoDescontoTotvs,onClick:()=>confirmarDescontoManual(ap)},confirmandoDescontoTotvs===ap.id?'Confirmando...':'Confirmar desconto aplicado')
+            ))
+          )),
         previaTotvs.erros.length>0&&h('div',{style:{padding:12,border:'1px solid var(--danger)',borderRadius:6,marginBottom:12}},
           h('strong',null,'Pendências que impedem a exportação'),
           h('ul',{style:{marginTop:8,paddingLeft:22}},...previaTotvs.erros.map((erro,i)=>h('li',{key:i},erro)))),
