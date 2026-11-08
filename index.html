@@ -1505,25 +1505,44 @@ function pdfSec(ctx,titulo) {
 }
 function pdfLinha2(ctx,l1,v1,l2,v2) {
   if((v1===null||v1===undefined||v1==='') && (v2===null||v2===undefined||v2==='')) return;
-  pdfGarantir(ctx,11); const d=ctx.doc, x1=18,x2=108;
-  function campo(x,label,val,w){
-    d.setFont('helvetica','bold'); d.setFontSize(7.2); d.setTextColor(90,94,100); d.text(String(label||''),x,ctx.y);
-    d.setFont('helvetica','normal'); d.setFontSize(8.7); d.setTextColor(25,25,25);
-    const lines=d.splitTextToSize(val===null||val===undefined||val===''?'—':String(val),w);
-    d.text(lines,x,ctx.y+4.2); return lines.length;
+  const d=ctx.doc,x1=18,x2=108;
+  d.setFont('helvetica','normal');d.setFontSize(8.7);
+  const preparar=(val,w)=>d.splitTextToSize(val===null||val===undefined||val===''?'—':String(val),w);
+  const a=preparar(v1,82),b=preparar(v2,84);
+  // Reserva o espaço real das linhas quebradas, inclusive antes de nova página.
+  pdfGarantir(ctx,Math.max(a.length,b.length)*4+7);
+  function campo(x,label,lines){
+    d.setFont('helvetica','bold');d.setFontSize(7.2);d.setTextColor(90,94,100);
+    d.text(String(label||''),x,ctx.y);
+    d.setFont('helvetica','normal');d.setFontSize(8.7);d.setTextColor(25,25,25);
+    d.text(lines,x,ctx.y+4.2);
   }
-  const a=campo(x1,l1,v1,82), b=campo(x2,l2,v2,84);
-  ctx.y+=Math.max(a,b)*4+7;
+  campo(x1,l1,a);campo(x2,l2,b);
+  ctx.y+=Math.max(a.length,b.length)*4+7;
 }
 function pdfTxt(ctx,label,valor,opts={}) {
   if(valor===null||valor===undefined||valor==='') return;
-  pdfGarantir(ctx,10); const d=ctx.doc;
-  d.setFont('helvetica','bold'); d.setFontSize(7.2); d.setTextColor(90,94,100);
-  if(label)d.text(String(label),18,ctx.y);
-  d.setFont('helvetica',opts.bold?'bold':'normal'); d.setFontSize(opts.size||8.7);
+  const d=ctx.doc;
+  d.setFont('helvetica',opts.bold?'bold':'normal');d.setFontSize(opts.size||8.7);
+  const lines=d.splitTextToSize(String(valor),174);
+  const passo=4,incremento=label?7:3;
+  // Texto extenso pode atravessar páginas; desenhe cada linha respeitando o rodapé.
+  if(label){
+    pdfGarantir(ctx,12);
+    d.setFont('helvetica','bold');d.setFontSize(7.2);d.setTextColor(90,94,100);
+    d.text(String(label),18,ctx.y);
+    ctx.y+=4.2;
+  }
+  d.setFont('helvetica',opts.bold?'bold':'normal');d.setFontSize(opts.size||8.7);
   d.setTextColor(opts.muted?105:25,opts.muted?108:25,opts.muted?113:25);
-  const lines=d.splitTextToSize(String(valor),174); d.text(lines,18,ctx.y+(label?4.2:0));
-  ctx.y+=lines.length*4+(label?7:3);
+  lines.forEach(line=>{
+    pdfGarantir(ctx,passo+2);
+    d.setFont('helvetica',opts.bold?'bold':'normal');d.setFontSize(opts.size||8.7);
+    d.setTextColor(opts.muted?105:25,opts.muted?108:25,opts.muted?113:25);
+    d.text(String(line),18,ctx.y);
+    ctx.y+=passo;
+  });
+  ctx.y+=incremento;
 }
 function pdfTabela(ctx,colunas,linhas) {
   const d=ctx.doc, widths=colunas.map(c=>c.w), totalH=8;
@@ -5927,14 +5946,26 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)return toast('Erro ao carregar relatório: '+error.message,'error');
     if(!registro?.conteudo)return toast('O relatório assinado ainda não está disponível para esta visita.','error');
     const r=registro.conteudo,c=v.clientes||{},doc=new window.jspdf.jsPDF(),W=210;
-    const novaPagina=()=>{doc.addPage();y=22;};
+    const novaPagina=()=>{doc.addPage();y=22;doc.setTextColor(30,36,44);};
     let y=22;
     const verificar=h=>{if(y+h>277)novaPagina();};
     doc.setFillColor(190,30,38);doc.rect(0,0,W,12,'F');
     doc.setTextColor(30,36,44);doc.setFont('helvetica','bold');doc.setFontSize(19);doc.text('GRESPAN',14,27);
     doc.setFontSize(11);doc.text('RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
     const secao=t=>{verificar(16);doc.setFillColor(242,243,245);doc.rect(14,y-5,182,10,'F');doc.setTextColor(150,25,32);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(t,18,y+1);y+=13;};
-    const linha=(label,val)=>{const texto=String(val||'—');doc.setFont('helvetica','bold');doc.setFontSize(9);verificar(7);doc.text(label+':',16,y);y+=5;doc.setFont('helvetica','normal');const linhas=doc.splitTextToSize(texto,176);verificar(linhas.length*5+5);doc.text(linhas,18,y);y+=linhas.length*5+5;};
+    const linha=(label,val)=>{
+      const texto=String(val??'—');verificar(12);
+      doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(30,36,44);
+      doc.text(label+':',16,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);
+      const linhas=doc.splitTextToSize(texto,176);
+      linhas.forEach(t=>{
+        verificar(7);
+        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(30,36,44);
+        doc.text(String(t),18,y);y+=5;
+      });
+      y+=5;
+    };
     secao('CLIENTE');linha('Razão social',c.razao_social||c.nome_fantasia);linha('Código TOTVS',c.codigo_totvs);linha('Endereço',enderecoVisita(v));
     secao('ATENDIMENTO');linha('Técnico responsável',usuariosPorId[v.tecnico_id]?.nome);linha('Data',v.data_visita);linha('Check-in',v.checkin_em?new Date(v.checkin_em).toLocaleString('pt-BR'):'');linha('Check-out',v.checkout_em?new Date(v.checkout_em).toLocaleString('pt-BR'):'');
     const campos=[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
