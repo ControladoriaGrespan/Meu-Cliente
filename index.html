@@ -1685,7 +1685,7 @@ function gerarContratoPDF(f,salvar=true){
     }
     par('4.'+(n++)+' — Início e Condições: Os benefícios serão concedidos após a assinatura do acordo e observadas as condições comerciais e de consumo aprovadas.');
   }
-  if(modeloSim){
+  if(!modeloSim){
     titulo('5. CLÁUSULA QUINTA — CONDIÇÕES COMERCIAIS GERAIS');
     par('5.1 — Preço do quilo do Pão Francês: '+fmtMoeda(f.preco_kg||0)+', incluindo impostos e despesas de entrega.');
     par('5.2 — Atualização/Ajustes de Preços: Os preços poderão ser ajustados no início do ano com base na inflação, matérias-primas e custos operacionais, admitidos ajustes antecipados nas condições previstas neste acordo.');
@@ -1706,8 +1706,8 @@ function gerarContratoPDF(f,salvar=true){
   d.text(representante,153,y,{align:'center'});y+=4;
   d.text('10.809.214/0001-67',55.5,y,{align:'center'});
   d.text('CPF: '+cpf,153,y,{align:'center'});
-  // Modelo "Contrato = Sim" exige as duas testemunhas do anexo.
-  if(modeloSim){
+  // No anexo recebido, o modelo CONTRATO - NÃO contém campos para duas testemunhas.
+  if(!modeloSim){
     if(y>248)paginaNova();
     y+=14;d.line(ml,y,95,y);d.line(113,y,mr,y);y+=4;
     d.text('Testemunha 1 — Nome / CPF',55.5,y,{align:'center'});
