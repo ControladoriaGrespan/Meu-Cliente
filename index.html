@@ -3716,7 +3716,7 @@ function PaginaClientes({ profile, modulo }) {
               .map(c=>h('tr',{key:c.id},
                 h('td',null,c.codigo_totvs||'—'),h('td',null,c.razao_social||'—'),
                 h('td',null,classificarRegistroAcordo(c.acordo_comercial)),
-                h('td',{style:{maxWidth:420,whiteSpace:'normal'}},c.acordo_comercial))))))),
+                h('td',{style:{maxWidth:420,whiteSpace:'normal'}},c.acordo_comercial)))))))),
     contaCorrenteCliente&&h(ContaCorrenteBonificacoes,{cliente:contaCorrenteCliente,profile,onClose:()=>setContaCorrenteCliente(null)}),
     fiscalCliente&&h('div',{className:'card',style:{marginBottom:12}},
       h('div',{className:'section-title'},'Configuração fiscal TOTVS — '+(fiscalCliente.razao_social||'')),
