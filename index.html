@@ -1529,18 +1529,38 @@ function pdfTabela(ctx,colunas,linhas) {
   const d=ctx.doc, widths=colunas.map(c=>c.w), totalH=8;
   pdfGarantir(ctx,totalH+8);
   const desenhaHeader=()=>{
-    let x=15; d.setFillColor(238,239,241); d.setDrawColor(210,213,218); d.setFont('helvetica','bold'); d.setFontSize(7.2); d.setTextColor(45,45,45);
-    colunas.forEach((c,i)=>{d.rect(x,ctx.y,widths[i],7,'FD');d.text(c.label,x+1.5,ctx.y+4.6);x+=widths[i];});
+    let x=15;
+    colunas.forEach((c,i)=>{
+      // jsPDF compartilha o estado PDF da cor de preenchimento com o texto.
+      // Cada chamada a text() altera essa cor: SEM reinicializá-la, as
+      // células seguintes ficavam pretas em alguns leitores de PDF.
+      d.setFillColor(238,239,241);
+      d.setDrawColor(210,213,218);
+      d.rect(x,ctx.y,widths[i],7,'FD');
+      d.setFont('helvetica','bold');d.setFontSize(7.2);d.setTextColor(45,45,45);
+      d.text(String(c.label||''),x+1.5,ctx.y+4.6);
+      x+=widths[i];
+    });
     ctx.y+=7;
   };
   desenhaHeader();
   linhas.forEach((row,ri)=>{
+    d.setFont('helvetica','normal');d.setFontSize(7.4);
     const cellLines=colunas.map(c=>d.splitTextToSize(String(row[c.key]??''),c.w-3));
     const h=Math.max(7,...cellLines.map(a=>a.length*3.5+3));
     if(ctx.y+h>278){pdfNovaPagina(ctx);desenhaHeader();}
-    let x=15; d.setFont('helvetica','normal');d.setFontSize(7.4);d.setTextColor(35,35,35);d.setDrawColor(225,227,230);
-    if(ri%2===1)d.setFillColor(250,250,250);
-    colunas.forEach((c,i)=>{d.rect(x,ctx.y,c.w,h,ri%2===1?'FD':'S');d.text(cellLines[i],x+1.5,ctx.y+4.2);x+=c.w;});
+    let x=15;
+    colunas.forEach((c,i)=>{
+      // Fundo sempre explícito: branco nas linhas pares e cinza suave
+      // nas alternadas, antes do texto de CADA coluna.
+      if(ri%2===1)d.setFillColor(250,250,250);
+      else d.setFillColor(255,255,255);
+      d.setDrawColor(225,227,230);
+      d.rect(x,ctx.y,c.w,h,'FD');
+      d.setFont('helvetica','normal');d.setFontSize(7.4);d.setTextColor(35,35,35);
+      d.text(cellLines[i],x+1.5,ctx.y+4.2);
+      x+=c.w;
+    });
     ctx.y+=h;
   });
   ctx.y+=4;
