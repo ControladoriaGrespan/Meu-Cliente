@@ -32,7 +32,7 @@ GRANT SELECT ON public.gamificacao_regras TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.salvar_gamificacao_regras(p_papel text,p_regras jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
-DECLARE item jsonb; indicador text; peso numeric; meta numeric;
+DECLARE item jsonb; v_indicador text; v_peso numeric; v_meta numeric;
 BEGIN
  IF NOT public.gamificacao_admin_autorizado() THEN RAISE EXCEPTION 'Acesso restrito ao administrador'; END IF;
  IF p_papel NOT IN ('vendedor','supervisor','coordenador') OR
@@ -49,13 +49,13 @@ BEGIN
  IF abs((SELECT sum((el->>'peso')::numeric) FROM jsonb_array_elements(p_regras) el)-100)>0.001 THEN
    RAISE EXCEPTION 'A soma dos pesos deve ser 100'; END IF;
  FOR item IN SELECT * FROM jsonb_array_elements(p_regras) LOOP
-   indicador:=item->>'indicador';peso:=(item->>'peso')::numeric;meta:=(item->>'meta')::numeric;
-   IF peso<0 OR peso>100 OR meta<0 OR meta>100000000000000 OR
-     round(peso,2)<>peso OR round(meta,3)<>meta THEN
+   v_indicador:=item->>'indicador';v_peso:=(item->>'peso')::numeric;v_meta:=(item->>'meta')::numeric;
+   IF v_peso<0 OR v_peso>100 OR v_meta<0 OR v_meta>100000000000000 OR
+     round(v_peso,2)<>v_peso OR round(v_meta,3)<>v_meta THEN
      RAISE EXCEPTION 'Peso ou meta fora do intervalo permitido'; END IF;
-   UPDATE public.gamificacao_regras SET peso=salvar_gamificacao_regras.peso,
-     meta=salvar_gamificacao_regras.meta, atualizado_em=now(),atualizado_por=auth.uid()
-   WHERE papel=p_papel AND gamificacao_regras.indicador=salvar_gamificacao_regras.indicador;
+   UPDATE public.gamificacao_regras SET peso=v_peso,
+     meta=v_meta, atualizado_em=now(),atualizado_por=auth.uid()
+   WHERE papel=p_papel AND indicador=v_indicador;
    IF NOT FOUND THEN RAISE EXCEPTION 'Regra nao encontrada'; END IF;
  END LOOP;
 END;
