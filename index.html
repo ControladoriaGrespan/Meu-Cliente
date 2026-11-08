@@ -3500,6 +3500,9 @@ function PaginaClientes({ profile, modulo }) {
   const [contaCorrenteCliente,setContaCorrenteCliente]=useState(null);
   const [salvandoFiscal,setSalvandoFiscal]=useState(false);
   const [editandoAcordo, setEditandoAcordo] = useState({});
+  const [levantamentoAcordos,setLevantamentoAcordos]=useState(null);
+  const [carregandoAcordos,setCarregandoAcordos]=useState(false);
+  const [filtroTipoAcordo,setFiltroTipoAcordo]=useState('todos');
   const podeEditar = ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
   const podeEditarAcordo = modulo === 'administracao_vendas' && ['admin','financeiro','adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
@@ -3543,6 +3546,65 @@ function PaginaClientes({ profile, modulo }) {
       setClientes([]); setTotalClientes(0);
     }
     setEditandoTotvs({}); setEditandoAcordo({});
+  }
+
+  function classificarRegistroAcordo(valor){
+    const t=String(valor||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const risco=/inadimpl|negativ|protest|serasa|spc|risco|credito|cobranc|atraso|divida|devedor|judicial|restric|bloqueio|pendenc.*financ/.test(t);
+    const comercial=/bonific|verba|acordo|contrato|descont|comodato|parceria|prazo|preco|condic.*comerc|equipament|negociac/.test(t);
+    return risco&&comercial?'Misto — revisar':risco?'Possível risco financeiro':comercial?'Possível acordo comercial':'Não classificado — revisar';
+  }
+  async function levantarAcordos(){
+    if(carregandoAcordos)return;
+    setCarregandoAcordos(true);
+    try{
+      const idsVisiveis=await vendedoresVisiveis(profile);
+      if(Array.isArray(idsVisiveis)&&idsVisiveis.length===0){
+        setLevantamentoAcordos([]);return;
+      }
+      const todos=[];
+      // A lista de clientes é paginada em 50. Aqui consultamos a coluna
+      // completa em lotes para não excluir registros de outras páginas.
+      for(let inicio=0;inicio<200000;inicio+=500){
+        let q=sb.from('clientes')
+          .select('id,codigo_totvs,razao_social,nome_fantasia,cnpj_cpf,cidade,estado,vendedor_id,acordo_comercial,usuarios:vendedor_id(nome,codigo_vendedor)')
+          .not('acordo_comercial','is',null)
+          .order('id',{ascending:true})
+          .range(inicio,inicio+499);
+        if(Array.isArray(idsVisiveis))q=q.in('vendedor_id',idsVisiveis);
+        const {data,error}=await q;
+        if(error)throw error;
+        todos.push(...(data||[]).filter(c=>String(c.acordo_comercial||'').trim()));
+        if((data||[]).length<500)break;
+        if(inicio>=199500)throw new Error('Levantamento ultrapassou o limite de consulta; reduza o escopo antes de exportar.');
+      }
+      setLevantamentoAcordos(todos);
+      toast('Levantamento concluído: '+todos.length+' cliente(s) com observação na coluna Acordo.','success');
+    }catch(e){
+      toast('Erro ao levantar acordos: '+(e.message||e),'error');
+      setLevantamentoAcordos(null);
+    }finally{setCarregandoAcordos(false);}
+  }
+  function exportarLevantamentoAcordos(){
+    if(!levantamentoAcordos)return;
+    const cab=['Código TOTVS','Razão Social','Nome Fantasia','CNPJ','Cidade','UF','Código Vendedor','Vendedor','Classificação sugerida','Texto original da coluna Acordo','Situação do levantamento','Observações para conferência'];
+    const registros=levantamentoAcordos.filter(c=>
+      filtroTipoAcordo==='todos'||classificarRegistroAcordo(c.acordo_comercial)===filtroTipoAcordo
+    ).map(c=>[c.codigo_totvs||'',c.razao_social||'',c.nome_fantasia||'',c.cnpj_cpf||'',c.cidade||'',c.estado||'',
+      c.usuarios?.codigo_vendedor||'',c.usuarios?.nome||'',classificarRegistroAcordo(c.acordo_comercial),
+      c.acordo_comercial||'','Pendente de revisão','']);
+    const esc=v=>{
+      // Também impede execução de fórmulas ao abrir dados livres no Excel.
+      let str=String(v??'');
+      if(/^[\s]*[=+@\-\t\r]/.test(str))str="'"+str;
+      return '"'+str.replace(/"/g,'""')+'"';
+    };
+    const csv='\uFEFF'+[cab,...registros].map(cols=>cols.map(esc).join(';')).join('\r\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+    const link=document.createElement('a');
+    link.href=url;link.download='Levantamento_Acordos_Riscos_Meu_Cliente_'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
   async function salvarTotvs(c) {
@@ -3630,6 +3692,31 @@ function PaginaClientes({ profile, modulo }) {
         onChange: e => { setPaginaClientes(0); setBusca(e.target.value); }
       }))),
 
+    (podeEditarAcordo||profile.papel==='admin')&&h('div',{className:'card',style:{marginBottom:12}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}},
+        h('div',null,h('div',{className:'section-title'},'Levantamento de Acordos e Riscos Financeiros'),
+          h('div',{className:'page-sub'},'Consulta todos os clientes com a coluna Acordo preenchida, não apenas os 50 exibidos nesta página. Não altera os registros.')),
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          h('button',{className:'btn btn-secondary btn-sm',disabled:carregandoAcordos,onClick:levantarAcordos},
+            carregandoAcordos?'Consultando...':'Levantar todos os registros'),
+          h('button',{className:'btn btn-primary btn-sm',disabled:!levantamentoAcordos||carregandoAcordos,onClick:exportarLevantamentoAcordos},'↓ Exportar CSV para Excel'))),
+      levantamentoAcordos!==null&&h('div',{style:{marginTop:12}},
+        h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center',marginBottom:10}},
+          h('strong',null,levantamentoAcordos.length+' registros encontrados'),
+          h('select',{className:'form-select',style:{maxWidth:280},value:filtroTipoAcordo,onChange:e=>setFiltroTipoAcordo(e.target.value)},
+            ...['todos','Possível acordo comercial','Possível risco financeiro','Misto — revisar','Não classificado — revisar']
+              .map(t=>h('option',{key:t,value:t},t==='todos'?'Todos os tipos':t)))),
+        h('div',{className:'page-sub',style:{marginBottom:8}},
+          'A classificação é apenas uma sugestão por palavras-chave. Confira cada texto original antes de cadastrar um acordo, bonificação ou risco financeiro.'),
+        h('div',{className:'table-wrap',style:{maxHeight:330,overflow:'auto'}},
+          h('table',{className:'data-table'},
+            h('thead',null,h('tr',null,...['Código','Cliente','Tipo sugerido','Texto original do Acordo'].map(t=>h('th',{key:t},t)))),
+            h('tbody',null,...levantamentoAcordos
+              .filter(c=>filtroTipoAcordo==='todos'||classificarRegistroAcordo(c.acordo_comercial)===filtroTipoAcordo)
+              .map(c=>h('tr',{key:c.id},
+                h('td',null,c.codigo_totvs||'—'),h('td',null,c.razao_social||'—'),
+                h('td',null,classificarRegistroAcordo(c.acordo_comercial)),
+                h('td',{style:{maxWidth:420,whiteSpace:'normal'}},c.acordo_comercial))))))),
     contaCorrenteCliente&&h(ContaCorrenteBonificacoes,{cliente:contaCorrenteCliente,profile,onClose:()=>setContaCorrenteCliente(null)}),
     fiscalCliente&&h('div',{className:'card',style:{marginBottom:12}},
       h('div',{className:'section-title'},'Configuração fiscal TOTVS — '+(fiscalCliente.razao_social||'')),
