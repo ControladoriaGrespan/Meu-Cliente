@@ -4042,6 +4042,12 @@ function PaginaGamificacaoComercial({profile}){
   const [carregando,setCarregando]=useState(false);
   const [erro,setErro]=useState('');
   const [atualizadoEm,setAtualizadoEm]=useState('');
+  const [regras,setRegras]=useState([]);
+  const [editandoRegras,setEditandoRegras]=useState(false);
+  const [salvandoRegras,setSalvandoRegras]=useState(false);
+  const [erroRegras,setErroRegras]=useState('');
+  const [regrasDisponiveis,setRegrasDisponiveis]=useState(false);
+  const toast=useToast();
   const abas=[
     {id:'fichas',label:'Fichas',tipo:'inteiro'},
     {id:'faturamento_previsto',label:'Faturamento Previsto',tipo:'moeda'},
@@ -4064,17 +4070,56 @@ function PaginaGamificacaoComercial({profile}){
     if(profile?.papel!=='admin')return;
     setCarregando(true);setErro('');
     const [p_inicio,p_fim]=intervalo();
-    const {data,error}=await sb.rpc('ranking_gamificacao_metricas',{p_inicio,p_fim});
+    const [resultado,config]=await Promise.all([
+      sb.rpc('ranking_gamificacao_metricas',{p_inicio,p_fim}),
+      sb.from('gamificacao_regras').select('papel,indicador,peso,meta')
+    ]);
+    const {data,error}=resultado;
+    if(config.error){setErroRegras('Configuração de metas indisponível: '+config.error.message);setRegrasDisponiveis(false);}
+    else {setRegras(config.data||[]);setErroRegras('');setRegrasDisponiveis(true);}
     if(error){setErro(error.message);setDados([]);}
     else {setDados(data||[]);setAtualizadoEm(new Date().toLocaleString('pt-BR'));}
     setCarregando(false);
   }
   useEffect(()=>{carregar();},[periodo,profile?.papel]);
+  useEffect(()=>{setEditandoRegras(false);},[categoria]);
+  function regra(indicador){
+    return regras.find(r=>r.papel===categoria&&r.indicador===indicador)||
+      {papel:categoria,indicador,peso:20,meta:0};
+  }
+  function mudarRegra(indicador,campo,valor){
+    setRegras(lista=>{
+      const alvo={...regra(indicador),[campo]:valor};
+      const outros=lista.filter(x=>!(x.papel===categoria&&x.indicador===indicador));
+      return [...outros,alvo];
+    });
+  }
+  async function salvarRegras(){
+    const payload=campos.map(indicador=>{
+      const r=regra(indicador);
+      return {indicador,peso:Number(r.peso),meta:Number(r.meta)};
+    });
+    if(payload.some(x=>!Number.isFinite(x.peso)||x.peso<0||x.peso>100||!Number.isFinite(x.meta)||x.meta<0))
+      return toast('Informe pesos de 0 a 100 e metas não negativas.','error');
+    if(Math.abs(payload.reduce((s,x)=>s+x.peso,0)-100)>0.001)
+      return toast('A soma dos cinco pesos deve ser exatamente 100%.','error');
+    setSalvandoRegras(true);
+    const {error}=await sb.rpc('salvar_gamificacao_regras',{p_papel:categoria,p_regras:payload});
+    setSalvandoRegras(false);
+    if(error)return toast('Não foi possível salvar regras: '+error.message,'error');
+    setEditandoRegras(false);toast('Regras de pontuação atualizadas.','success');
+    await carregar();
+  }
   if(profile?.papel!=='admin')return h('div',{className:'empty-state'},'Acesso restrito ao administrador.');
   const titulo={vendedor:'Vendedores',supervisor:'Supervisores',coordenador:'Coordenadores'};
   const participantes=dados.filter(x=>x.papel===categoria);
   const max=Object.fromEntries(campos.map(c=>[c,Math.max(0,...participantes.map(x=>num(x[c])))]));
-  const classif=participantes.map(x=>({...x,geral:Math.round(10*campos.reduce((s,c)=>s+(max[c]>0?20*Math.max(0,num(x[c]))/max[c]:0),0))/10}));
+  const classif=participantes.map(x=>({...x,geral:Math.round(10*campos.reduce((s,c)=>{
+    const regraAtual=regra(c);
+    const base=num(regraAtual.meta)>0?num(regraAtual.meta):max[c];
+    // Metas positivas limitam a contribuição ao peso, sem pontuação acima do máximo.
+    return s+(base>0?num(regraAtual.peso)*Math.min(1,Math.max(0,num(x[c]))/base):0);
+  },0))/10}));
   const atual=abas.find(x=>x.id===aba)||abas[5];
   const ordenados=classif.sort((a,b)=>num(b[aba])-num(a[aba])||num(b.geral)-num(a.geral)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const soma=ordenados.reduce((v,x)=>v+num(x[aba]),0);
@@ -4094,6 +4139,31 @@ function PaginaGamificacaoComercial({profile}){
         'Realizado: apenas pedidos de Venda (operação 01) no Meu Cliente, excluindo amostras, trocas e bonificações. '+
         'NÃO é o faturamento ou volume efetivamente faturado no Protheus.'),
       atualizadoEm&&h('div',{className:'page-sub',style:{marginTop:6}},'Atualizado em '+atualizadoEm)),
+    h('div',{className:'card',style:{marginBottom:14}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}},
+        h('div',{className:'section-title'},'Regras e metas — '+titulo[categoria]),
+        h('button',{className:'btn btn-secondary btn-sm',disabled:!regrasDisponiveis||salvandoRegras,
+          onClick:()=>{setEditandoRegras(x=>!x);if(editandoRegras)carregar();}},
+          editandoRegras?'Cancelar edição':'⚙ Configurar pontuação')),
+      erroRegras&&h('div',{style:{color:'var(--danger)',marginTop:8}},erroRegras),
+      editandoRegras&&h('div',null,
+        h('div',{className:'page-sub',style:{marginBottom:10}},'A meta é opcional: use 0 para pontuar proporcionalmente ao líder. Com meta positiva, atingir 100% da meta concede o peso integral do indicador. Os pesos devem somar 100%.'),
+        h('div',{className:'table-wrap'},
+          h('table',{className:'data-table'},
+            h('thead',null,h('tr',null,h('th',null,'Indicador'),h('th',null,'Peso (%)'),h('th',null,'Meta da categoria'))),
+            h('tbody',null,...abas.slice(0,5).map(a=>{
+              const ra=regra(a.id);
+              return h('tr',{key:a.id},h('td',null,a.label),
+                h('td',null,h('input',{className:'form-input sm',type:'number',min:0,max:100,step:'0.01',
+                  style:{maxWidth:120},value:ra.peso,onChange:e=>mudarRegra(a.id,'peso',e.target.value)})),
+                h('td',null,h('input',{className:'form-input sm',type:'number',min:0,step:a.tipo==='inteiro'?'1':'0.001',
+                  style:{maxWidth:160},value:ra.meta,onChange:e=>mudarRegra(a.id,'meta',e.target.value)}))
+              );
+            })))),
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginTop:10}},
+          h('strong',null,'Soma dos pesos: '+campos.reduce((n,c)=>n+num(regra(c).peso),0).toLocaleString('pt-BR')+'%'),
+          h('button',{className:'btn btn-primary',disabled:salvandoRegras,onClick:salvarRegras},
+            salvandoRegras?'Salvando...':'Salvar regras')))),
     h('div',{style:{display:'flex',flexWrap:'wrap',gap:7,marginBottom:14}},
       ...abas.map(a=>h('button',{key:a.id,className:'btn '+(aba===a.id?'btn-primary':'btn-secondary')+' btn-sm',onClick:()=>setAba(a.id)},a.label))),
     erro&&h('div',{className:'card',style:{color:'var(--danger)'}},'Não foi possível consultar as métricas: '+erro+'. Execute a migração SQL.'),
@@ -4104,7 +4174,7 @@ function PaginaGamificacaoComercial({profile}){
     !erro&&h('div',{className:'card',style:{marginTop:14}},
       h('div',{className:'section-title'},atual.label+' — '+titulo[categoria]),
       aba==='geral'&&h('div',{className:'page-sub',style:{marginBottom:12}},
-        'Ranking Geral: cada um dos cinco indicadores contribui com até 20 pontos (total de 100), em proporção ao líder de cada indicador na mesma função. Indicadores sem dados recebem zero.'),
+        'Ranking Geral: os pesos somam 100 pontos. Com meta configurada, cada indicador pontua conforme o atingimento da meta, limitado ao seu peso. Sem meta, a referência é o líder da mesma função.'),
       carregando?h('div',{className:'empty-state'},'Calculando ranking...'):
       !ordenados.length?h('div',{className:'empty-state'},'Nenhum participante ativo encontrado.'):
       h('div',{className:'table-wrap'},
