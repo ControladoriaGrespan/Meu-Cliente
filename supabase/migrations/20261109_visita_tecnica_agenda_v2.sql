@@ -57,6 +57,7 @@ DECLARE
 BEGIN
  IF v_papel NOT IN ('lider_tec_panificacao','supervisor_tec_panificacao') THEN RAISE EXCEPTION 'Perfil sem permissão para agendar'; END IF;
  IF p_excecao AND v_papel<>'supervisor_tec_panificacao' THEN RAISE EXCEPTION 'Somente supervisor técnico pode agendar exceções'; END IF;
+ IF NOT p_excecao AND v_papel<>'lider_tec_panificacao' THEN RAISE EXCEPTION 'Planejamento normal deve ser feito pelo Lider e aprovado pelo Supervisor'; END IF;
  IF p_excecao AND length(trim(p_justificativa))<5 THEN RAISE EXCEPTION 'Justificativa da exceção obrigatória'; END IF;
  IF p_duracao NOT BETWEEN 15 AND 600 THEN RAISE EXCEPTION 'Duração inválida'; END IF;
  SELECT count(DISTINCT id) INTO v_count FROM unnest(p_participantes) AS id;
