@@ -5077,6 +5077,7 @@ function PaginaGestaoCarteiras({profile}){
       )))
     )
   );
+  if(profile.papel!=='admin')return h('div',{className:'card'},'Acesso restrito ao Administrador do Sistema.');
   const opcoes=['todos',...new Set(linhas.map(r=>r.status))];
   return h('div',null,
     h('div',{className:'page-head'},h('div',null,h('div',{className:'page-title'},'Gestão de Carteiras Comerciais'),
