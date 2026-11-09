@@ -289,4 +289,26 @@ END $;
 REVOKE ALL ON FUNCTION public.vt_clientes_visitas(uuid[]) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.vt_clientes_visitas(uuid[]) TO authenticated;
 
+
+-- Exceção territorial: também respeita a classificação Produção/Treinamento.
+CREATE OR REPLACE FUNCTION public.vt_agendar_excecao(
+ p_participantes uuid[],p_cliente uuid,p_data date,p_hora time,p_duracao integer,
+ p_tipo_atendimento text,p_objetivo text,p_observacoes text,p_justificativa text
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $
+DECLARE v_atendimento uuid;
+BEGIN
+ IF public.vt_papel()<>'supervisor_tec_panificacao'
+   THEN RAISE EXCEPTION 'Somente Supervisor Técnico pode agendar exceções';END IF;
+ IF p_tipo_atendimento NOT IN ('producao','treinamento')
+   THEN RAISE EXCEPTION 'Tipo de atendimento inválido';END IF;
+ v_atendimento:=public.vt_agendar_equipe(
+    p_participantes,p_cliente,p_data,p_hora,p_duracao,
+    p_objetivo,p_observacoes,true,p_justificativa);
+ UPDATE public.visitas_tecnicas SET tipo_atendimento=p_tipo_atendimento
+ WHERE atendimento_id=v_atendimento;
+ RETURN v_atendimento;
+END $;
+REVOKE ALL ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) TO authenticated;
+
 COMMIT;
