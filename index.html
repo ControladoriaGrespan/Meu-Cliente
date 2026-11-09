@@ -6090,6 +6090,9 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [excecao,setExcecao]=useState(false);
   const [justificativaExcecao,setJustificativaExcecao]=useState('');
   const [vinculosTerritorio,setVinculosTerritorio]=useState([]);
+  const [duplosLider,setDuplosLider]=useState([]);
+  const [liderAdicional,setLiderAdicional]=useState('');
+  const [tecnicoAdicional,setTecnicoAdicional]=useState('');
   const [supervisorComercial,setSupervisorComercial]=useState('');
   const [supervisorTecnicoVinculo,setSupervisorTecnicoVinculo]=useState('');
   const [excecoes,setExcecoes]=useState([]);
@@ -6208,9 +6211,17 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const dataISO=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
   const dias=Array.from({length:7},(_,i)=>{const d=new Date(inicioSemana);d.setDate(d.getDate()+i);return {iso:dataISO(d),label:['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][i]+' '+d.getDate()+'/'+String(d.getMonth()+1).padStart(2,'0')};});
   const supervisores=usuarios.filter(u=>u.papel==='supervisor_tec_panificacao');
-  const tecnicos=usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false&&(!lider||u.supervisor_id===profile.id)&&(!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)));
+  const tecnicos=usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false&&
+    (!lider||u.supervisor_id===profile.id||duplosLider.some(d=>d.ativo&&d.lider_id===profile.id&&d.tecnico_id===u.id))&&
+    (!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)||
+      duplosLider.some(d=>d.ativo&&d.tecnico_id===u.id&&usuarios.some(l=>l.id===d.lider_id&&l.supervisor_id===profile.id))));
   const lideres=usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false&&(!supervisor||u.supervisor_id===profile.id)&&(!lider||u.id===profile.id)&&(!filtroSupervisor||u.supervisor_id===filtroSupervisor));
-  const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(lider?(u.id===profile.id||(u.papel==='tec_panificacao'&&u.supervisor_id===profile.id)):supervisor?(u.id===profile.id||(u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)||(u.papel==='tec_panificacao'&&usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id))):false));
+  const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(lider?
+    (u.id===profile.id||(u.papel==='tec_panificacao'&&(u.supervisor_id===profile.id||
+      duplosLider.some(d=>d.ativo&&d.lider_id===profile.id&&d.tecnico_id===u.id)))):
+    supervisor?(u.id===profile.id||(u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)||
+      (u.papel==='tec_panificacao'&&(usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)||
+       duplosLider.some(d=>d.ativo&&d.tecnico_id===u.id&&usuarios.some(l=>l.id===d.lider_id&&l.supervisor_id===profile.id))))):false));
   const tecnicosFiltro=[...tecnicos,...usuarios.filter(u=>u.ativo!==false&&((lider&&u.id===profile.id)||(supervisor&&(u.id===profile.id||u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id))))].filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
@@ -6218,12 +6229,13 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   useEffect(()=>{const timer=setInterval(()=>setAgora(Date.now()),60000);return()=>clearInterval(timer);},[]);
   async function carregar(){
     setCarregando(true);setErroBanco('');
-    const [ru,rv,ra,rm,re]=await Promise.all([
+    const [ru,rv,ra,rm,re,rd]=await Promise.all([
       sb.from('usuarios').select('id,nome,papel,supervisor_id,coordenador_id,ativo').limit(10000),
       sb.from('visitas_tecnicas').select('*, clientes:cliente_id(codigo_totvs,razao_social,nome_fantasia,cidade,estado,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_latitude,endereco_longitude)').gte('data_visita',dias[0].iso).lte('data_visita',dias[6].iso).order('data_visita').order('hora_inicio'),
       sb.from('agendas_tecnicas_semanais').select('*').eq('semana_inicio',dias[0].iso),
       sb.from('vt_supervisor_comercial_tecnico').select('*'),
-      sb.from('vt_aprovacoes_excecao').select('*').eq('status','pendente')
+      sb.from('vt_aprovacoes_excecao').select('*').eq('status','pendente'),
+      sb.from('vt_lider_tecnicos').select('lider_id,tecnico_id,ativo').limit(10000)
     ]);
     if(rv.error){setErroBanco(rv.error.message);setVisitas([]);}
     else {
@@ -6244,6 +6256,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(ra.error)toast('Agendas semanais: '+ra.error.message,'error');else setAgendasSemana(ra.data||[]);
     if(rm.error)toast('Vínculos comerciais: '+rm.error.message,'error');else setVinculosTerritorio(rm.data||[]);
     if(re.error)toast('Aprovações de exceção: '+re.error.message,'error');else setExcecoes(re.data||[]);
+    if(rd.error)console.warn('Vínculo duplo exige migração v2:',rd.error.message);else setDuplosLider(rd.data||[]);
     if(ru.error)toast('Erro ao carregar equipe: '+ru.error.message,'error');
     setUsuarios(ru.data||[]);setCarregando(false);
   }
@@ -6358,6 +6371,23 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)return toast('Erro na aprovação: '+error.message,'error');
     toast(acao==='enviar'?'Agenda enviada ao supervisor.':acao==='aprovar'?'Agenda aprovada e liberada ao técnico.':'Agenda devolvida ao líder.','success');carregar();
   }
+
+  async function vincularLiderDuplo(){
+    if(!liderAdicional||!tecnicoAdicional)return toast('Selecione líder e técnico.','error');
+    const l=usuariosPorId[liderAdicional],t=usuariosPorId[tecnicoAdicional];
+    if(l?.papel!=='lider_tec_panificacao'||t?.papel!=='tec_panificacao')return toast('Selecione perfis válidos.','error');
+    const {error}=await sb.from('vt_lider_tecnicos').upsert(
+      {lider_id:liderAdicional,tecnico_id:tecnicoAdicional,ativo:true,criado_por:profile.id},
+      {onConflict:'lider_id,tecnico_id'});
+    if(error)return toast('Erro ao vincular: '+error.message,'error');
+    toast('Vínculo adicional salvo.','success');carregar();
+  }
+  async function desvincularLiderDuplo(liderId,tecnicoId){
+    if(!window.confirm('Desativar vínculo adicional, mantendo agendas existentes?'))return;
+    const {error}=await sb.from('vt_lider_tecnicos').update({ativo:false}).eq('lider_id',liderId).eq('tecnico_id',tecnicoId);
+    if(error)return toast(error.message,'error');
+    toast('Vínculo desativado.','success');carregar();
+  }
   async function decidirExcecao(id,aprovar){
     if(emPreview)return toast('Aprovações indisponíveis na simulação de perfil.','error');
     let motivo='';if(!aprovar){motivo=window.prompt('Motivo da devolução:')||'';if(!motivo.trim())return;}
@@ -6441,6 +6471,18 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       vinculosTerritorio.map(v=>h('div',{key:v.supervisor_tecnico_id+v.supervisor_comercial_id,style:{padding:6}},
         (usuariosPorId[v.supervisor_tecnico_id]?.nome||'Supervisor Tec')+' → '+(usuariosPorId[v.supervisor_comercial_id]?.nome||'Supervisor Vendas')+' ',
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularTerritorio(v.supervisor_tecnico_id,v.supervisor_comercial_id)},'Remover')))),
+    papelVisao==='admin'&&h('div',{className:'card',style:{marginBottom:14}},
+      h('h3',null,'Vínculos adicionais · Técnicos × Líderes'),
+      h('div',{className:'page-sub'},'Um técnico pode atender a dois líderes. A agenda de uma mesma semana continua com um responsável pelo envio e aprovação.'),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}},
+        h('select',{className:'form-select',value:liderAdicional,onChange:e=>setLiderAdicional(e.target.value)},
+          h('option',{value:''},'Selecionar líder'),...usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false).map(u=>h('option',{key:u.id,value:u.id},u.nome))),
+        h('select',{className:'form-select',value:tecnicoAdicional,onChange:e=>setTecnicoAdicional(e.target.value)},
+          h('option',{value:''},'Selecionar técnico'),...usuarios.filter(u=>u.papel==='tec_panificacao'&&u.ativo!==false).map(u=>h('option',{key:u.id,value:u.id},u.nome))),
+        h('button',{className:'btn btn-primary btn-sm',onClick:vincularLiderDuplo},'Vincular técnico')),
+      ...duplosLider.filter(d=>d.ativo).map(d=>h('div',{key:d.lider_id+d.tecnico_id,style:{padding:6}},
+        (usuariosPorId[d.lider_id]?.nome||'Líder')+' → '+(usuariosPorId[d.tecnico_id]?.nome||'Técnico')+' ',
+        h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularLiderDuplo(d.lider_id,d.tecnico_id)},'Desativar')))),
     papelVisao==='coordenador'&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
       excecoes.length===0?h('p',null,'Nenhuma exceção pendente.'):excecoes.map(e=>h('div',{key:e.atendimento_id,style:{padding:10,borderBottom:'1px solid var(--border)'}},
         h('b',null,'Supervisor: '+(usuariosPorId[e.supervisor_tecnico_id]?.nome||'—')),
