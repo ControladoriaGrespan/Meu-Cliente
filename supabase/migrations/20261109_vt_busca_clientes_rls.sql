@@ -85,9 +85,9 @@ BEGIN
   WHERE NOT EXISTS (
     SELECT 1 FROM unnest(v_partes) t(palavra)
     WHERE NOT (
-      coalesce(c.codigo_totvs::text,'') ILIKE '%'||replace(replace(t.palavra,'%','\\%'),'_','\\_')||'%' ESCAPE '\\'
-      OR coalesce(c.razao_social::text,'') ILIKE '%'||replace(replace(t.palavra,'%','\\%'),'_','\\_')||'%' ESCAPE '\\'
-      OR coalesce(c.nome_fantasia::text,'') ILIKE '%'||replace(replace(t.palavra,'%','\\%'),'_','\\_')||'%' ESCAPE '\\'
+      coalesce(c.codigo_totvs::text,'') ILIKE '%' || regexp_replace(t.palavra, '[%_]', '', 'g') || '%'
+      OR coalesce(c.razao_social::text,'') ILIKE '%' || regexp_replace(t.palavra, '[%_]', '', 'g') || '%'
+      OR coalesce(c.nome_fantasia::text,'') ILIKE '%' || regexp_replace(t.palavra, '[%_]', '', 'g') || '%'
     )
   )
   ORDER BY CASE WHEN c.codigo_totvs::text=v_termo THEN 0 ELSE 1 END, c.razao_social
