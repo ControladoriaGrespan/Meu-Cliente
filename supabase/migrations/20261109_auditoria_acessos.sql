@@ -88,4 +88,4 @@ $$;
 REVOKE ALL ON FUNCTION public.auditoria_consultar_acessos() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.auditoria_consultar_acessos() TO authenticated;
 
-COMMENT ON TABLE public.auditoria_sessoes IS 'Auditoria operacional por sessao. Sem GPS, IP ou geolocalizacao. Definir politica de retencao.
+COMMENT ON TABLE public.auditoria_sessoes IS 'Auditoria operacional por sessao. Sem GPS, IP ou geolocalizacao. Definir politica de retencao.';
