@@ -6090,6 +6090,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [excecao,setExcecao]=useState(false);
   const [justificativaExcecao,setJustificativaExcecao]=useState('');
   const [vinculosTerritorio,setVinculosTerritorio]=useState([]);
+  const [checkinRapido,setCheckinRapido]=useState(null);
   const [duplosLider,setDuplosLider]=useState([]);
   const [liderAdicional,setLiderAdicional]=useState('');
   const [tecnicoAdicional,setTecnicoAdicional]=useState('');
@@ -6271,13 +6272,13 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   // o cliente; a funcao vt_agendar_equipe continua validando no banco.
   const clienteNoTerritorio=c=>Boolean(c&&(c.dentro_carteira===true||vendedoresTerritorio.has(c.vendedor_id)));
   useEffect(()=>{
-    if(!form)return;
+    if(!form&&!checkinRapido)return;
     const seq=++buscaClienteSeq.current;
     const termo=buscaCliente.trim();
     if(termo.length<2){setClientes([]);setBuscandoClientes(false);setErroBuscaClientes('');return;}
     const timer=setTimeout(()=>buscarClientes(seq,termo),300);
     return ()=>{clearTimeout(timer);++buscaClienteSeq.current;};
-  },[buscaCliente,excecao,form!==null,usuarios,vinculosTerritorio]);
+  },[buscaCliente,excecao,form!==null,checkinRapido!==null,usuarios,vinculosTerritorio]);
   async function buscarClientes(seq,termo){
     setBuscandoClientes(true);setErroBuscaClientes('');
     const palavras=termo.replace(/[,()]/g,' ').split(/\s+/).map(p=>p.replace(/[%_*.,()]/g,'').trim()).filter(Boolean);
@@ -6393,6 +6394,29 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)return toast(error.message,'error');
     toast('Vínculo desativado.','success');carregar();
   }
+
+  const abrirCheckinRapido=()=>{
+    if(!lider&&!supervisor)return;
+    setBuscaCliente('');setClientes([]);setErroBuscaClientes('');
+    setCheckinRapido({cliente_id:''});
+  };
+  async function confirmarCheckinRapido(){
+    if(!checkinRapido?.cliente_id)return toast('Selecione um cliente.','error');
+    const c=clientes.find(x=>x.id===checkinRapido.cliente_id);
+    if(!c||!clienteNoTerritorio(c))return toast('Check-in imediato somente na carteira própria da equipe.','error');
+    setSalvando(true);
+    try{
+      const gps=await localizacaoAtual();
+      const {data,error}=await sb.rpc('vt_checkin_imediato',{
+        p_cliente:c.id,p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao
+      });
+      if(error)throw error;
+      toast('Check-in registrado. A visita já está em andamento.','success');
+      setCheckinRapido(null);setBuscaCliente('');setClientes([]);setSemana(0);
+      await carregar();
+    }catch(e){toast('Check-in não registrado: '+(e.message||e),'error');}
+    finally{setSalvando(false);}
+  }
   async function decidirExcecao(id,aprovar){
     if(emPreview)return toast('Aprovações indisponíveis na simulação de perfil.','error');
     let motivo='';if(!aprovar){motivo=window.prompt('Motivo da devolução:')||'';if(!motivo.trim())return;}
@@ -6453,6 +6477,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'Visita Técnica'),h('div',{className:'page-sub'},'Agenda semanal · Check-in e checkout · Qualidade')),
+      (lider||supervisor)&&!emPreview&&h('button',{className:'btn btn-secondary',style:{marginRight:8},onClick:abrirCheckinRapido},'✓ Check-in agora'),
       podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>{setAlertaAgenda('');setTipoAtendimento('producao');setRepetirVisitas(false);setDataFimVisitas(dias[0].iso);setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',hora_fim:'10:00',objetivo:'',observacoes:''});}},'+ Agendar visita')),
     erroBanco&&h('div',{className:'card',style:{border:'1px solid #e3a83d',marginBottom:16}},
       h('b',null,'Configuração do banco pendente'),h('p',null,'A tabela visitas_tecnicas ou suas permissões ainda não estão disponíveis: '+erroBanco)),
@@ -6634,6 +6659,33 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',null,h('b',null,'Fotografias do atendimento (até 8)'),h('input',{type:'file',accept:'image/*',multiple:true,className:'form-input',onChange:adicionarFotos}),h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}},fotosFechamento.map((foto,i)=>h('div',{key:i,style:{position:'relative'}},h('img',{src:foto.dados,alt:foto.nome,style:{width:110,height:90,objectFit:'cover',borderRadius:6}}),h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setFotosFechamento(x=>x.filter((_,j)=>j!==i))},'Remover'))))),
         h(Campo,{label:'Nome do responsável que assina *'},h('input',{className:'form-input',value:fechamento.responsavel_nome||'',onChange:e=>alterarFechamento('responsavel_nome',e.target.value)})),
         h('div',null,h('b',null,'Assinatura do cliente *'),h('div',{style:{fontSize:12,marginBottom:6}},'Assine no quadro usando o dedo, mouse ou caneta.'),h('canvas',{ref:assinaturaCanvas,width:720,height:180,onPointerDown:iniciarAssinatura,onPointerMove:moverAssinatura,onPointerUp:terminarAssinatura,onPointerCancel:terminarAssinatura,style:{display:'block',width:'100%',height:180,border:'1px solid #aaa',borderRadius:8,background:'#fff',touchAction:'none'}}),h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:limparAssinatura},'Limpar assinatura'),!assinaturaValida&&h('div',{style:{color:'#b91c1c',fontSize:12,marginTop:5}},'Obrigatório assinar para salvar.')))),
+
+    checkinRapido&&h(Modal,{
+      titulo:'Check-in imediato · atendimento de Produção',largo:true,
+      onClose:()=>{if(!salvando){setCheckinRapido(null);setBuscaCliente('');setClientes([]);}},
+      acoes:[
+        h('button',{className:'btn btn-secondary',disabled:salvando,onClick:()=>setCheckinRapido(null)},'Cancelar'),
+        h('button',{className:'btn btn-primary',disabled:salvando||!checkinRapido.cliente_id,onClick:confirmarCheckinRapido},
+          salvando?'Registrando GPS...':'Registrar check-in agora')
+      ]
+    },
+      h('div',null,
+        h('p',null,'Registre sua presença no cliente. O sistema gravará data, hora e localização GPS reais.'),
+        h(Campo,{label:'Pesquisar cliente (código, razão ou fantasia)'},
+          h('input',{className:'form-input',value:buscaCliente,placeholder:'Digite ao menos 2 caracteres',
+            onChange:e=>{setBuscaCliente(e.target.value);setCheckinRapido(x=>({...x,cliente_id:''}));}})),
+        h(Campo,{label:'Selecionar cliente'},
+          h('select',{className:'form-select',value:checkinRapido.cliente_id,
+            onChange:e=>setCheckinRapido(x=>({...x,cliente_id:e.target.value}))},
+            h('option',{value:''},buscandoClientes?'Buscando...':'Selecione um cliente'),
+            ...clientes.map(c=>h('option',{key:c.id,value:c.id,disabled:!clienteNoTerritorio(c)},
+              (c.codigo_totvs||'')+' · '+(c.razao_social||c.nome_fantasia||'')+
+              (!clienteNoTerritorio(c)?' · Fora da carteira':''))))),
+        erroBuscaClientes&&h('p',{style:{color:'#b42318',fontSize:12}},erroBuscaClientes),
+        h('p',{style:{fontSize:12,color:'var(--text-muted)'}},
+          'Somente Líder/Supervisor e clientes da própria carteira. Para clientes de outra carteira, utilize a programação por exceção.')
+      )
+    ),
     form&&h(Modal,{titulo:'Agendar visita técnica',largo:true,onClose:()=>setForm(null),acoes:[
       h('button',{className:'btn btn-secondary',onClick:()=>setForm(null)},'Cancelar'),
       h('button',{className:'btn btn-primary',disabled:salvando,onClick:gravar},salvando?'Salvando...':'Salvar visita')]},
