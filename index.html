@@ -6248,7 +6248,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
-  const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id));
+  const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.papel==='supervisor'?u.id:u.supervisor_id)).map(u=>u.id));
   // A RPC e a hierarquia atual usam a mesma matriz territorial.
   // Se a RPC retornar um status antigo, a consulta local permite selecionar
   // o cliente; a funcao vt_agendar_equipe continua validando no banco.
