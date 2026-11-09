@@ -658,6 +658,7 @@ function menuForModulo(modulo, papel) {
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
     ...(papel==='admin'?[{id:'gamificacao',label:'Gamificação Comercial',icon:'★'}]:[]),
     {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
+    ...(papel==='admin'?[{id:'auditoria_acessos',label:'Auditoria de Acessos',icon:'◷'}]:[]),
     {id:'config_modulos',label:'Módulos e Carteiras',icon:'▦'},
     {id:'importacao',label:'Importações',icon:'⇧'},
     {id:'relatorios_admin',label:'Relatórios',icon:'▤'}
@@ -4794,6 +4795,107 @@ function exportarRelatorioXlsx(nome, colunas, registros){
   XLSX.writeFile(wb,nome+'.xlsx');
 }
 const formatarDataRelatorio=v=>v?new Date(v).toLocaleString('pt-BR'):'';
+
+function PaginaAuditoriaAcessos({profile}){
+  const toast=useToast();
+  const [dados,setDados]=useState(null);
+  const [erro,setErro]=useState('');
+  const [carregando,setCarregando]=useState(false);
+  const [filtro,setFiltro]=useState('');
+  const [periodo,setPeriodo]=useState('30');
+  const [selecionado,setSelecionado]=useState('');
+  async function carregar(){
+    setCarregando(true);setErro('');
+    try{
+      const {data,error}=await sb.rpc('auditoria_consultar_acessos');
+      if(error)throw error;
+      setDados(data||{usuarios:[],resumo:[],sessoes:[]});
+    }catch(e){setErro(e.message||String(e));}
+    finally{setCarregando(false);}
+  }
+  useEffect(()=>{if(profile.papel==='admin')carregar();},[profile.id]);
+  if(profile.papel!=='admin')return h('div',{className:'card'},'Acesso restrito ao administrador.');
+  const usuarios=dados?.usuarios||[];
+  const resumo=Object.fromEntries((dados?.resumo||[]).map(a=>[a.usuario_id,a]));
+  const dias=Number(periodo);
+  const n=u=>Number(resumo[u.id]?.[dias===7?'sessoes_7d':'sessoes_30d']||0);
+  const fmt=v=>v?new Date(v).toLocaleString('pt-BR'):'Nunca';
+  const filtrados=usuarios.filter(u=>[u.nome,u.email,u.papel].some(x=>String(x||'').toLowerCase().includes(filtro.toLowerCase())));
+  const ativos=usuarios.filter(u=>u.ativo!==false);
+  const cards=[
+    h(Kpi,{key:'a',icon:'☺',cor:'info',valor:ativos.length,label:'Usuários ativos'}),
+    h(Kpi,{key:'b',icon:'✓',cor:'success',valor:ativos.filter(u=>n(u)>0).length,label:'Usaram em '+dias+' dias'}),
+    h(Kpi,{key:'c',icon:'○',cor:'warning',valor:ativos.filter(u=>n(u)===0).length,label:'Sem uso em '+dias+' dias'}),
+    h(Kpi,{key:'d',icon:'?',cor:'info',valor:ativos.filter(u=>!resumo[u.id]?.ultimo_acesso).length,label:'Nunca registrados'})
+  ];
+  const cab=['Usuário','Função','Última atividade','7 dias','30 dias','Total','Situação','Histórico'];
+  const linhas=filtrados.map(u=>{
+    const info=resumo[u.id]||{};
+    return h('tr',{key:u.id},
+      h('td',null,h('b',null,u.nome||'—'),h('div',{style:{fontSize:11}},u.email||'')),
+      h('td',null,ROLE_LABELS[u.papel]||u.papel),
+      h('td',null,fmt(info.ultimo_acesso)),
+      h('td',null,Number(info.sessoes_7d||0)),
+      h('td',null,Number(info.sessoes_30d||0)),
+      h('td',null,Number(info.sessoes_total||0)),
+      h('td',null,u.ativo===false?'Inativo':n(u)>0?'Utiliza':'Sem uso no período'),
+      h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSelecionado(u.id===selecionado?'':u.id)},u.id===selecionado?'Fechar':'Ver sessões'))
+    );
+  });
+  function exportar(){
+    try{
+      exportarRelatorioXlsx('grespan_auditoria_acessos',
+        ['Nome','E-mail','Função','Cadastro','Última atividade','Sessões 7 dias','Sessões 30 dias','Sessões total'],
+        filtrados.map(u=>[u.nome||'',u.email||'',ROLE_LABELS[u.papel]||u.papel,u.ativo===false?'Inativo':'Ativo',fmt(resumo[u.id]?.ultimo_acesso),Number(resumo[u.id]?.sessoes_7d||0),Number(resumo[u.id]?.sessoes_30d||0),Number(resumo[u.id]?.sessoes_total||0)]));
+      toast('Auditoria exportada.','success');
+    }catch(e){toast(e.message||String(e),'error');}
+  }
+  const historico=(dados?.sessoes||[]).filter(v=>v.usuario_id===selecionado);
+  const detalhe=selecionado?h('div',{className:'card',style:{marginTop:12}},
+    h('div',{className:'section-title'},'Sessões de '+(usuarios.find(u=>u.id===selecionado)?.nome||'')),
+    h('div',{className:'table-wrap',style:{overflow:'auto',maxHeight:360}},
+      h('table',{className:'data-table'},
+        h('thead',null,h('tr',null,...['Entrada','Última atividade','Módulo','Página','Dispositivo','Eventos'].map(t=>h('th',{key:t},t)))),
+        h('tbody',null,...historico.map((v,i)=>h('tr',{key:i},
+          h('td',null,fmt(v.inicio_em)),h('td',null,fmt(v.ultima_atividade_em)),
+          h('td',null,MODULOS[v.ultimo_modulo]?.label||v.ultimo_modulo||'—'),
+          h('td',null,v.ultima_pagina||'—'),h('td',null,v.dispositivo||'—'),h('td',null,v.eventos)
+        )))
+      )
+    )
+  ):null;
+  const painel=dados?h('div',null,
+    h('div',{className:'kpi-grid'},...cards),
+    h('div',{className:'card',style:{marginTop:15}},
+      h('div',{style:{display:'flex',gap:10,marginBottom:12,flexWrap:'wrap'}},
+        h('input',{className:'form-input',value:filtro,placeholder:'Buscar usuário, e-mail ou função',onChange:e=>setFiltro(e.target.value)}),
+        h('select',{className:'form-select',value:periodo,onChange:e=>setPeriodo(e.target.value)},
+          h('option',{value:'7'},'Últimos 7 dias'),h('option',{value:'30'},'Últimos 30 dias'))
+      ),
+      h('div',{className:'page-sub'},filtrados.length+' usuários. Histórico disponível a partir da implantação.'),
+      h('div',{className:'table-wrap',style:{overflowX:'auto',maxHeight:540,overflowY:'auto'}},
+        h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,...cab.map(v=>h('th',{key:v},v)))),
+          h('tbody',null,...linhas)
+        )
+      )
+    ),
+    detalhe,
+    h('div',{className:'page-sub',style:{marginTop:12}},'Auditoria de sessões, sem IP ou GPS. Definir aviso de privacidade e política de retenção.')
+  ):null;
+  return h('div',null,
+    h('div',{className:'page-head'},
+      h('div',null,h('div',{className:'page-title'},'Auditoria de Acessos'),h('div',{className:'page-sub'},'Uso do sistema por usuário e último acesso.')),
+      h('div',{style:{display:'flex',gap:8}},
+        h('button',{className:'btn btn-secondary',disabled:carregando,onClick:carregar},carregando?'Consultando...':'Atualizar'),
+        h('button',{className:'btn btn-primary',disabled:!dados,onClick:exportar},'↓ Excel')
+      )
+    ),
+    erro?h('div',{className:'card'},'Auditoria indisponível: '+erro+'. Execute a migração SQL da auditoria.'):null,
+    painel
+  );
+}
+
 function PaginaRelatoriosAdmin({profile}){
   const toast=useToast();
   const [usuarios,setUsuarios]=useState([]);
@@ -8760,6 +8862,30 @@ function App() {
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
   }
 
+  useEffect(()=>{
+    if(!profile?.id)return;
+    let sid;
+    try{
+      if(sessionStorage.getItem('grespan_auditoria_usuario')!==String(profile.id)){
+        sessionStorage.removeItem('grespan_auditoria_sessao');
+        sessionStorage.setItem('grespan_auditoria_usuario',String(profile.id));
+      }
+      sid=sessionStorage.getItem('grespan_auditoria_sessao');
+      if(!sid){sid=window.crypto.randomUUID();sessionStorage.setItem('grespan_auditoria_sessao',sid);}
+    }catch(e){return;}
+    const tipo=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)?'Mobile':'Desktop';
+    const registrar=()=>{
+      if(document.visibilityState==='hidden')return;
+      sb.rpc('auditoria_registrar_atividade',{p_sessao_id:sid,p_modulo:modulo||'inicio',p_pagina:pagina||'modulos',p_dispositivo:tipo})
+        .then(({error})=>{if(error&&!/Could not find the function|does not exist|schema cache/i.test(error.message||''))console.warn('Auditoria:',error.message);})
+        .catch(e=>console.warn('Auditoria:',e.message));
+    };
+    registrar();
+    const intervalo=setInterval(registrar,300000);
+    document.addEventListener('visibilitychange',registrar);
+    return ()=>{clearInterval(intervalo);document.removeEventListener('visibilitychange',registrar);};
+  },[profile?.id,modulo,pagina]);
+
   useEffect(() => { if (profile && visao) atualizarContador(); }, [profile, visao, pagina]);
 
   async function atualizarContador() {
@@ -8782,6 +8908,7 @@ function App() {
   }
 
   async function logout() {
+    try{sessionStorage.removeItem('grespan_auditoria_sessao');sessionStorage.removeItem('grespan_auditoria_usuario');}catch(e){}
     await sb.auth.signOut();
     setProfile(null); setVisao(null); setSemPerfil(null); setModulo(null); setModulosUsuario([]);
   }
@@ -8834,6 +8961,7 @@ function App() {
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
+    else if (paginaAtual === 'auditoria_acessos') conteudo = h(PaginaAuditoriaAcessos,{profile});
 
   return h('div', { className: 'app-layout' },
     h('div', { className: 'mobile-toggle', onClick: () => setSidebarOpen(o => !o) }, '\u2261'),
