@@ -6249,7 +6249,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
   const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id));
-  const clienteNoTerritorio=c=>vendedoresTerritorio.has(c.vendedor_id);
+  const clienteNoTerritorio=c=>c?.dentro_carteira===true;
   useEffect(()=>{
     if(!form)return;
     const seq=++buscaClienteSeq.current;
@@ -6262,18 +6262,14 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setBuscandoClientes(true);setErroBuscaClientes('');
     const palavras=termo.replace(/[,()]/g,' ').split(/\s+/).map(p=>p.replace(/[%_*.,()]/g,'').trim()).filter(Boolean);
     if(!palavras.length){setClientes([]);setBuscandoClientes(false);return;}
-    // Pesquisa global por código, razão social e fantasia. A visibilidade
-    // do cliente é distinta da autorização para agendar fora da carteira.
-    let consulta=sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_complemento');
-    for(const palavra of palavras){
-      consulta=consulta.or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+palavra+'%').join(','));
-    }
-    const {data,error}=await consulta.order('razao_social',{ascending:true}).limit(100);
+    // RPC dedicada: leitura autorizada a equipes tecnicas, independente
+    // da RLS de listagem da tela comercial. Banco calcula a carteira.
+    const {data,error}=await sb.rpc('vt_buscar_clientes',{p_busca:termo,p_limite:100});
     if(seq!==buscaClienteSeq.current)return;
     setBuscandoClientes(false);
-    if(error){setClientes([]);setErroBuscaClientes('Erro na consulta de clientes: '+error.message);return;}
+    if(error){setClientes([]);setErroBuscaClientes('Busca indisponível: '+error.message+'. Execute o SQL vt_busca_clientes_rls no Supabase.');return;}
     setClientes(data||[]);
-    if(!(data||[]).length)setErroBuscaClientes('Nenhum cliente visível encontrado. Se o cadastro existe, verifique as permissões de leitura de clientes no Supabase.');
+    if(!(data||[]).length)setErroBuscaClientes('Nenhum cliente encontrado para o termo pesquisado. Verifique o cadastro e o código TOTVS.');
   }
   useEffect(()=>{setEnderecoAgendamento(clientes.find(c=>c.id===form?.cliente_id)||null);},[form?.cliente_id,clientes]);
   async function validarHorarioParticipante(id){
