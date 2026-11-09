@@ -6249,7 +6249,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
   const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id));
-  const clienteNoTerritorio=c=>c?.dentro_carteira===true;
+  // A RPC e a hierarquia atual usam a mesma matriz territorial.
+  // Se a RPC retornar um status antigo, a consulta local permite selecionar
+  // o cliente; a funcao vt_agendar_equipe continua validando no banco.
+  const clienteNoTerritorio=c=>Boolean(c&&(c.dentro_carteira===true||vendedoresTerritorio.has(c.vendedor_id)));
   useEffect(()=>{
     if(!form)return;
     const seq=++buscaClienteSeq.current;
@@ -6286,7 +6289,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
     if(!clienteSelecionado)return toast('Pesquise e selecione um cliente válido antes de agendar.','error');
     if(!excecao&&!clienteNoTerritorio(clienteSelecionado))
-      return toast('Cliente fora da carteira da equipe técnica. Solicite ao supervisor um agendamento por exceção.','error');
+      return toast('Cliente não identificado na carteira técnica. Confira o supervisor comercial do vendedor e os vínculos da matriz, ou solicite exceção ao Supervisor Técnico.','error');
     setSalvando(true);
     try{for(const id of participantes){await validarHorarioParticipante(id);}setAlertaAgenda('Horários validados.');}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
     const {error}=await sb.rpc('vt_agendar_equipe',{p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:duracao,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_excecao:excecao,p_justificativa:justificativaExcecao});
