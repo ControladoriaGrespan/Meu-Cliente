@@ -16,6 +16,20 @@ CREATE TABLE IF NOT EXISTS public.vt_lider_tecnicos(
 );
 CREATE INDEX IF NOT EXISTS vt_lider_tecnicos_tecnico_idx ON public.vt_lider_tecnicos(tecnico_id) WHERE ativo=true;
 ALTER TABLE public.vt_lider_tecnicos ENABLE ROW LEVEL SECURITY;
+-- Supervisao semanal: dois lideres podem consultar o planejamento
+-- mas somente o lider responsavel pela agenda pode enviá-la para aprovação.
+DROP POLICY IF EXISTS vt_agendas_select ON public.agendas_tecnicas_semanais;
+CREATE POLICY vt_agendas_select ON public.agendas_tecnicas_semanais
+ FOR SELECT TO authenticated USING (
+    public.vt_papel() IN ('admin','coordenador','gestao_adm_vendas')
+    OR lider_id=auth.uid() OR supervisor_id=auth.uid()
+    OR (tecnico_id=auth.uid() AND status='aprovada')
+    OR (public.vt_papel()='lider_tec_panificacao' AND EXISTS (
+        SELECT 1 FROM public.vt_lider_tecnicos d
+        WHERE d.tecnico_id=agendas_tecnicas_semanais.tecnico_id
+          AND d.lider_id=auth.uid() AND d.ativo
+    ))
+ );
 DROP POLICY IF EXISTS vt_lider_tecnicos_select ON public.vt_lider_tecnicos;
 CREATE POLICY vt_lider_tecnicos_select ON public.vt_lider_tecnicos
  FOR SELECT TO authenticated USING (
@@ -109,8 +123,8 @@ BEGIN
      VALUES(v_part,v_lider,v_supervisor,v_semana) ON CONFLICT(tecnico_id,semana_inicio) DO NOTHING;
      SELECT * INTO v_agenda FROM public.agendas_tecnicas_semanais
       WHERE tecnico_id=v_part AND semana_inicio=v_semana FOR UPDATE;
-     IF v_papel='lider_tec_panificacao' AND v_agenda.lider_id<>auth.uid()
-       THEN RAISE EXCEPTION 'Agenda semanal atribuída a outro líder. Solicite redistribuição da semana ao supervisor'; END IF;
+     IF v_agenda.supervisor_id<>v_supervisor
+       THEN RAISE EXCEPTION 'A agenda pertence a outro Supervisor Técnico'; END IF;
      IF v_agenda.status IN ('pendente','aprovada') THEN RAISE EXCEPTION 'Agenda do participante já enviada/aprovada';END IF;
    END IF;
    IF EXISTS(SELECT 1 FROM public.visitas_tecnicas x
