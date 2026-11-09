@@ -658,6 +658,7 @@ function menuForModulo(modulo, papel) {
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
     ...(papel==='admin'?[{id:'gamificacao',label:'Gamificação Comercial',icon:'★'}]:[]),
     {id:'administracao',label:'Usuários e Hierarquia',icon:'⚙'},
+    ...(papel==='admin'?[{id:'gestao_carteiras',label:'Gestão de Carteiras',icon:'⇄'}]:[]),
     ...(papel==='admin'?[{id:'auditoria_acessos',label:'Auditoria de Acessos',icon:'◷'}]:[]),
     {id:'config_modulos',label:'Módulos e Carteiras',icon:'▦'},
     {id:'importacao',label:'Importações',icon:'⇧'},
@@ -4896,6 +4897,233 @@ function PaginaAuditoriaAcessos({profile}){
   );
 }
 
+
+function PaginaGestaoCarteiras({profile}){
+  const toast=useToast();
+  const [usuarios,setUsuarios]=useState([]);
+  const [clientes,setClientes]=useState([]);
+  const [linhas,setLinhas]=useState([]);
+  const [arquivo,setArquivo]=useState('');
+  const [origem,setOrigem]=useState('');
+  const [destino,setDestino]=useState('');
+  const [motivo,setMotivo]=useState('');
+  const [carregando,setCarregando]=useState(false);
+  const [aplicando,setAplicando]=useState(false);
+  const [tipo,setTipo]=useState('sa1');
+  const [filtro,setFiltro]=useState('todos');
+  const [historico,setHistorico]=useState([]);
+  const [aviso,setAviso]=useState('');
+  const norm=v=>String(v??'').trim().replace(/^0+/,'')||'0';
+  const loja=v=>String(v??'01').trim().padStart(2,'0');
+  async function carregarBase(){
+    setCarregando(true);
+    try{
+      const u=await sb.from('usuarios').select('id,nome,papel,ativo,codigo_vendedor,supervisor_id').limit(10000);
+      if(u.error)throw u.error;
+      const todos=[];
+      for(let i=0;i<30000;i+=500){
+        const c=await sb.from('clientes').select('id,codigo_totvs,loja_totvs,razao_social,vendedor_id')
+          .order('id').range(i,i+499);
+        if(c.error)throw c.error;
+        todos.push(...(c.data||[]));
+        if((c.data||[]).length<500)break;
+      }
+      setUsuarios(u.data||[]);setClientes(todos);
+      const h=await sb.rpc('carteira_historico');
+      if(!h.error)setHistorico(h.data||[]);
+      setAviso(todos.length+' clientes carregados para comparação. Nenhum cadastro foi alterado.');
+    }catch(e){setAviso('Erro ao carregar base: '+(e.message||e));}
+    finally{setCarregando(false);}
+  }
+  useEffect(()=>{if(profile.papel==='admin')carregarBase();},[profile.id]);
+  function montarIndices(){
+    const cli=new Map(),vendedores=new Map(),usr=Object.fromEntries(usuarios.map(u=>[u.id,u]));
+    clientes.forEach(c=>{
+      const k=String(c.codigo_totvs||'').trim()+'|'+loja(c.loja_totvs);
+      if(!cli.has(k))cli.set(k,[]);cli.get(k).push(c);
+    });
+    usuarios.filter(u=>u.papel==='vendedor'&&u.ativo!==false).forEach(u=>{
+      const k=norm(u.codigo_vendedor);
+      if(!u.codigo_vendedor)return;
+      if(!vendedores.has(k))vendedores.set(k,[]);vendedores.get(k).push(u);
+    });
+    return {cli,vendedores,usr};
+  }
+  function analisar(lista){
+    const {cli,vendedores,usr}=montarIndices(),repetidos=new Set();
+    return lista.map((r,i)=>{
+      const cod=String(r.codigo_totvs||'').trim(),lj=loja(r.loja_totvs);
+      const encontrados=cli.get(cod+'|'+lj)||[];
+      const vCod=norm(r.codigo_vendedor),possiveis=vendedores.get(vCod)||[];
+      let status='Alterar',dest=null,c=encontrados[0]||null;
+      if(!cod||!r.codigo_vendedor||vCod==='0')status='Vendedor não informado (ignorado)';
+      else if(encontrados.length===0)status='Cliente não localizado';
+      else if(encontrados.length>1)status='Cliente ambíguo';
+      else if(possiveis.length===0)status='Vendedor sem usuário ativo';
+      else if(possiveis.length>1)status='Código de vendedor duplicado';
+      else{
+        dest=possiveis[0];
+        if(c.vendedor_id===dest.id)status='Sem mudança';
+        // O supervisor do SA1 é conferência. Não muda a hierarquia automaticamente.
+        const sup=usr[dest.supervisor_id],codSup=norm(r.codigo_supervisor);
+        if(status==='Alterar'&&r.codigo_supervisor&&codSup!=='0'&&sup?.codigo_vendedor&&norm(sup.codigo_vendedor)!==codSup)
+          status='Conferir supervisor';
+      }
+      const key=cod+'|'+lj;
+      if(repetidos.has(key)&&status==='Alterar')status='Cliente repetido no arquivo';
+      repetidos.add(key);
+      return {...r,linha:i+1,cliente:c,destino:dest,status};
+    });
+  }
+  // Reconhece a exportação SA1 padrão do TOTVS e os campos CSV duplicados
+  // de aspas que envolvem cada linha. Utiliza somente as 44 primeiras colunas.
+  function csvCampos(texto){
+    const campos=[];let atual='',aspas=false;
+    for(let i=0;i<texto.length;i++){
+      const ch=texto[i];
+      if(ch==='"'){
+        if(aspas&&texto[i+1]==='"'){atual+='"';i++;}
+        else aspas=!aspas;
+      }else if(ch===','&&!aspas){campos.push(atual);atual='';if(campos.length>=44)break;}
+      else atual+=ch;
+    }
+    if(campos.length<44)campos.push(atual);
+    return campos;
+  }
+  async function carregarSa1(file){
+    if(!file)return;
+    setLinhas([]);setArquivo(file.name);setTipo('sa1');
+    try{
+      const raw=await file.arrayBuffer();
+      if(raw.byteLength>25000000)throw Error('Arquivo superior a 25 MB.');
+      const texto=new TextDecoder('iso-8859-1').decode(raw);
+      const linhasFisicas=texto.split(/\r?\n/);
+      const grupos=[];
+      for(const l of linhasFisicas){
+        if(/^"\d{4},/.test(l)||/^"Filial,/.test(l))grupos.push(l);
+        else if(grupos.length)grupos[grupos.length-1]+=' '+l;
+      }
+      const registro=grupos.map(x=>{
+        let t=x;
+        if(t.startsWith('"'))t=t.slice(1);
+        const final=t.lastIndexOf('";;;');if(final>=0)t=t.slice(0,final);
+        t=t.replace(/""/g,'"');
+        return csvCampos(t);
+      });
+      if(!registro.length)throw Error('Nenhuma linha SA1 identificada.');
+      const cab=registro[0].map(x=>String(x||'').trim());
+      const cCod=cab.indexOf('Codigo'),cLoja=cab.indexOf('Loja'),cV=cab.indexOf('Vendedor'),cS=cab.indexOf('* Supervisor'),cNome=cab.indexOf('Nome');
+      if([cCod,cLoja,cV,cS].some(v=>v<0))throw Error('Colunas Código, Loja, Vendedor ou Supervisor não encontradas.');
+      const rows=registro.slice(1).filter(r=>r[cCod]&&/^\d+$/.test(String(r[cCod]).trim())).map(r=>({
+        codigo_totvs:String(r[cCod]||'').trim(),loja_totvs:loja(r[cLoja]),
+        codigo_vendedor:String(r[cV]||'').trim(),codigo_supervisor:String(r[cS]||'').trim(),
+        razao_social:String(r[cNome]||'').trim()
+      }));
+      if(rows.length>10000)throw Error('Arquivo acima do limite de 10 mil clientes.');
+      setLinhas(analisar(rows));setAviso(rows.length+' registros SA1 analisados. Somente mudanças validadas podem ser confirmadas.');
+    }catch(e){setAviso('Falha na leitura da SA1: '+(e.message||e));}
+  }
+  function prepararTransferencia(){
+    if(!origem||!destino||origem===destino)return toast('Selecione vendedores diferentes.','error');
+    const {usr}=montarIndices(),d=usr[destino];
+    if(!d||d.papel!=='vendedor'||d.ativo===false)return toast('Vendedor de destino inválido.','error');
+    setTipo('manual');setArquivo('Transferência manual');
+    setLinhas(clientes.filter(c=>c.vendedor_id===origem).map(c=>({
+      cliente:c,codigo_totvs:c.codigo_totvs,loja_totvs:loja(c.loja_totvs),razao_social:c.razao_social,
+      codigo_vendedor:d.codigo_vendedor,codigo_supervisor:'',destino:d,status:'Alterar'
+    })));
+    setAviso('Prévia de transferência manual. Histórico de pedidos não será alterado.');
+  }
+  const alteracoes=linhas.filter(r=>r.status==='Alterar');
+  const visiveis=linhas.filter(r=>filtro==='todos'||r.status===filtro);
+  async function aplicar(){
+    if(!alteracoes.length)return toast('Não existem alterações elegíveis.','error');
+    if(motivo.trim().length<6)return toast('Informe o motivo da movimentação.','error');
+    if(!window.confirm('Confirmar '+alteracoes.length+' mudanças de carteira? Os pedidos históricos serão preservados.'))return;
+    setAplicando(true);let feitos=0;
+    try{
+      for(let i=0;i<alteracoes.length;i+=100){
+        const lote=alteracoes.slice(i,i+100).map(r=>({
+          cliente_id:r.cliente.id,vendedor_anterior_id:r.cliente.vendedor_id||null,vendedor_novo_id:r.destino.id,
+          codigo_totvs:r.cliente.codigo_totvs,loja_totvs:loja(r.cliente.loja_totvs)
+        }));
+        const {data,error}=await sb.rpc('carteira_aplicar_lote',{p_movimentos:lote,p_motivo:motivo.trim(),p_origem:tipo==='manual'?'MANUAL':'SA1'});
+        if(error)throw error;
+        feitos+=Number(data?.alterados||0);
+        setAviso(feitos+' de '+alteracoes.length+' alterações confirmadas.');
+      }
+      setLinhas([]);setArquivo('');setMotivo('');
+      toast(feitos+' vínculos atualizados.','success');
+      await carregarBase();
+    }catch(e){setAviso('Operação interrompida após '+feitos+' atualizações. '+(e.message||e)+'. Atualize a prévia antes de tentar novamente.');}
+    finally{setAplicando(false);}
+  }
+  const ativos=usuarios.filter(u=>u.papel==='vendedor'&&u.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome));
+  const selectV=(valor,atualizar,label)=>h('select',{className:'form-select',value:valor,onChange:e=>atualizar(e.target.value)},
+    h('option',{value:''},label),
+    ...usuarios.filter(u=>u.papel==='vendedor').sort((a,b)=>a.nome.localeCompare(b.nome))
+      .map(u=>h('option',{value:u.id,key:u.id},u.nome+' ('+(u.codigo_vendedor||'sem código')+')'+(u.ativo===false?' [inativo]':''))));
+  const cab=['Código','Loja','Cliente','Vendedor SA1','Supervisor SA1','Vendedor atual','Novo vendedor','Resultado'];
+  const mapU=Object.fromEntries(usuarios.map(u=>[u.id,u]));
+  const tabela=h('div',{className:'table-wrap',style:{maxHeight:470,overflow:'auto'}},
+    h('table',{className:'data-table'},
+      h('thead',null,h('tr',null,...cab.map(t=>h('th',{key:t},t)))),
+      h('tbody',null,...visiveis.slice(0,800).map((r,i)=>h('tr',{key:i},
+        h('td',null,r.codigo_totvs||'—'),h('td',null,r.loja_totvs||'—'),
+        h('td',null,r.cliente?.razao_social||r.razao_social||'—'),
+        h('td',null,r.codigo_vendedor||'—'),h('td',null,r.codigo_supervisor||'—'),
+        h('td',null,mapU[r.cliente?.vendedor_id]?.nome||'Sem vínculo'),
+        h('td',null,r.destino?.nome||'—'),h('td',null,r.status)
+      )))
+    )
+  );
+  const opcoes=['todos',...new Set(linhas.map(r=>r.status))];
+  return h('div',null,
+    h('div',{className:'page-head'},h('div',null,h('div',{className:'page-title'},'Gestão de Carteiras Comerciais'),
+      h('div',{className:'page-sub'},'Atualização de vínculos cliente × vendedor com prévia e auditoria.'))),
+    h('div',{className:'card'},
+      h('div',{className:'section-title'},'Importar SA1 do Protheus'),
+      h('div',{className:'page-sub',style:{marginBottom:10}},'Aceita o CSV original exportado pelo TOTVS. Não altera razão social, CNPJ, endereço, preços ou pedidos. Código 000000 é ignorado.'),
+      h('input',{type:'file',accept:'.csv',disabled:carregando||aplicando,onChange:e=>carregarSa1(e.target.files?.[0])}),
+      h('div',{style:{marginTop:10}},h('button',{className:'btn btn-secondary btn-sm',disabled:carregando||aplicando,onClick:carregarBase},carregando?'Carregando...':'Atualizar cadastros')),
+      h('div',{className:'page-sub',style:{marginTop:8}},arquivo||'Nenhum arquivo selecionado.')
+    ),
+    h('div',{className:'card',style:{marginTop:12}},
+      h('div',{className:'section-title'},'Transferir carteira de um vendedor'),
+      h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}},
+        selectV(origem,setOrigem,'Vendedor de origem'),
+        selectV(destino,setDestino,'Vendedor de destino'),
+        h('button',{className:'btn btn-secondary',disabled:!clientes.length||aplicando,onClick:prepararTransferencia},'Prévia da transferência'))
+    ),
+    aviso&&h('div',{className:'page-sub',style:{margin:12}},aviso),
+    linhas.length>0&&h('div',{className:'card',style:{marginTop:12}},
+      h('div',{className:'section-title'},'Prévia — '+linhas.length+' clientes analisados | '+alteracoes.length+' alterações elegíveis'),
+      h('div',{className:'page-sub',style:{marginBottom:12}},'Clientes não localizados, sem vendedor, com vendedor não cadastrado, supervisor divergente e sem mudança não serão atualizados. Prévia limitada aos primeiros 800 registros do filtro.'),
+      h('select',{className:'form-select',style:{marginBottom:10,maxWidth:280},value:filtro,onChange:e=>setFiltro(e.target.value)},
+        ...opcoes.map(v=>h('option',{key:v,value:v},v==='todos'?'Todos os resultados':v+' ('+linhas.filter(r=>r.status===v).length+')'))),
+      tabela,
+      h(Campo,{label:'Motivo obrigatório (ex.: reorganização comercial / troca de vendedor)'},
+        h('input',{className:'form-input',maxLength:240,value:motivo,onChange:e=>setMotivo(e.target.value),placeholder:'Informe o motivo da movimentação'})),
+      h('button',{className:'btn btn-primary',disabled:!alteracoes.length||aplicando||motivo.trim().length<6,onClick:aplicar},
+        aplicando?'Aplicando alterações...':'Confirmar '+alteracoes.length+' alterações de carteira')
+    ),
+    h('div',{className:'card',style:{marginTop:12}},
+      h('div',{className:'section-title'},'Histórico de movimentações'),
+      h('div',{className:'page-sub'},'Últimos registros de alterações aplicadas por administradores.'),
+      h('div',{className:'table-wrap',style:{maxHeight:280,overflow:'auto'}},
+        h('table',{className:'data-table'},
+          h('thead',null,h('tr',null,...['Data','Cliente','De','Para','Motivo','Administrador'].map(t=>h('th',{key:t},t)))),
+          h('tbody',null,...historico.slice(0,300).map((r,i)=>h('tr',{key:i},
+            h('td',null,new Date(r.realizado_em).toLocaleString('pt-BR')),h('td',null,r.cliente||r.codigo_totvs),
+            h('td',null,r.vendedor_anterior||'—'),h('td',null,r.vendedor_novo||'—'),
+            h('td',null,r.motivo),h('td',null,r.responsavel)
+          )))
+        )
+      )
+    )
+  );
+}
+
 function PaginaRelatoriosAdmin({profile}){
   const toast=useToast();
   const [usuarios,setUsuarios]=useState([]);
@@ -8962,6 +9190,7 @@ function App() {
   else if (paginaAtual === 'config_modulos') conteudo = h(PaginaConfiguracaoModulos,{onUsuarios:()=>setPagina('administracao')});
   else if (paginaAtual === 'administracao') conteudo = h(PaginaAdmin, { profile });
     else if (paginaAtual === 'auditoria_acessos') conteudo = h(PaginaAuditoriaAcessos,{profile});
+    else if (paginaAtual === 'gestao_carteiras') conteudo = h(PaginaGestaoCarteiras,{profile});
 
   return h('div', { className: 'app-layout' },
     h('div', { className: 'mobile-toggle', onClick: () => setSidebarOpen(o => !o) }, '\u2261'),
