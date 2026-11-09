@@ -6101,6 +6101,9 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [filtroTecnico,setFiltroTecnico]=useState('');
   const [form,setForm]=useState(null);
   const [buscaCliente,setBuscaCliente]=useState('');
+  const [buscandoClientes,setBuscandoClientes]=useState(false);
+  const [erroBuscaClientes,setErroBuscaClientes]=useState('');
+  const buscaClienteSeq=React.useRef(0);
   const [carregando,setCarregando]=useState(true);
   const [erroBanco,setErroBanco]=useState('');
   const [salvando,setSalvando]=useState(false);
@@ -6245,25 +6248,32 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
-  useEffect(()=>{if(!form)return;const timer=setTimeout(()=>{if(buscaCliente.trim().length>=2)buscarClientes();else setClientes([]);},300);return ()=>clearTimeout(timer);},[buscaCliente,excecao,form?.cliente_id===undefined,usuarios.length,vinculosTerritorio.length]);
-  async function buscarClientes(){
-    const termo=buscaCliente.trim().replace(/[,()]/g,' ');
-    if(termo.length<2)return setClientes([]);
-    const vendedores=(usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id);
-    if(!excecao&&!vendedores.length){setClientes([]);return toast('Nenhuma carteira comercial vinculada à equipe técnica.','error');}
-    const termos=termo.split(/\s+/).filter(Boolean);
+  const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.supervisor_id)).map(u=>u.id));
+  const clienteNoTerritorio=c=>vendedoresTerritorio.has(c.vendedor_id);
+  useEffect(()=>{
+    if(!form)return;
+    const seq=++buscaClienteSeq.current;
+    const termo=buscaCliente.trim();
+    if(termo.length<2){setClientes([]);setBuscandoClientes(false);setErroBuscaClientes('');return;}
+    const timer=setTimeout(()=>buscarClientes(seq,termo),300);
+    return ()=>{clearTimeout(timer);++buscaClienteSeq.current;};
+  },[buscaCliente,excecao,form!==null,usuarios,vinculosTerritorio]);
+  async function buscarClientes(seq,termo){
+    setBuscandoClientes(true);setErroBuscaClientes('');
+    const palavras=termo.replace(/[,()]/g,' ').split(/\s+/).map(p=>p.replace(/[%_*.,()]/g,'').trim()).filter(Boolean);
+    if(!palavras.length){setClientes([]);setBuscandoClientes(false);return;}
+    // Pesquisa global por código, razão social e fantasia. A visibilidade
+    // do cliente é distinta da autorização para agendar fora da carteira.
     let consulta=sb.from('clientes').select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,vendedor_id,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_complemento');
-    if(!excecao)consulta=consulta.in('vendedor_id',vendedores);
-    // Busca em qualquer trecho de código, razão social ou nome fantasia.
-    // A carteira é filtrada no banco ANTES do limite de resultados.
-    for(const palavra of termos){
-      const seguro=palavra.replace(/[%_*.,()]/g,'').trim();
-      if(seguro)consulta=consulta.or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+seguro+'%').join(','));
+    for(const palavra of palavras){
+      consulta=consulta.or(['codigo_totvs','razao_social','nome_fantasia'].map(k=>k+'.ilike.%'+palavra+'%').join(','));
     }
     const {data,error}=await consulta.order('razao_social',{ascending:true}).limit(100);
-    if(error){setClientes([]);return toast('Busca de clientes: '+error.message,'error');}
+    if(seq!==buscaClienteSeq.current)return;
+    setBuscandoClientes(false);
+    if(error){setClientes([]);setErroBuscaClientes('Erro na consulta de clientes: '+error.message);return;}
     setClientes(data||[]);
-    // A pesquisa automática não deve exibir notificações repetidas a cada digitação.
+    if(!(data||[]).length)setErroBuscaClientes('Nenhum cliente visível encontrado. Se o cadastro existe, verifique as permissões de leitura de clientes no Supabase.');
   }
   useEffect(()=>{setEnderecoAgendamento(clientes.find(c=>c.id===form?.cliente_id)||null);},[form?.cliente_id,clientes]);
   async function validarHorarioParticipante(id){
@@ -6277,6 +6287,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!participantes.length)return toast('Informe cliente, participantes, data e horário.','error');
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
     if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
+    const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
+    if(!clienteSelecionado)return toast('Pesquise e selecione um cliente válido antes de agendar.','error');
+    if(!excecao&&!clienteNoTerritorio(clienteSelecionado))
+      return toast('Cliente fora da carteira da equipe técnica. Solicite ao supervisor um agendamento por exceção.','error');
     setSalvando(true);
     try{for(const id of participantes){await validarHorarioParticipante(id);}setAlertaAgenda('Horários validados.');}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
     const {error}=await sb.rpc('vt_agendar_equipe',{p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:duracao,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_excecao:excecao,p_justificativa:justificativaExcecao});
@@ -6585,7 +6599,17 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código, razão social ou nome fantasia (parte do nome)',onChange:e=>setBuscaCliente(e.target.value)}),
             h('span',{style:{fontSize:12,color:'var(--text-muted)',alignSelf:'center'}},'Resultados automáticos')),
           h('select',{className:'form-select',style:{marginTop:8},value:form.cliente_id,onChange:e=>setForm(x=>({...x,cliente_id:e.target.value}))},
-            h('option',{value:''},buscaCliente.trim().length<2?'Digite pelo menos 2 caracteres':clientes.length?'Selecione um cliente':'Nenhum cliente encontrado nesta carteira'),clientes.map(c=>h('option',{key:c.id,value:c.id},(c.codigo_totvs||'—')+' · '+(c.razao_social||'')+(c.nome_fantasia&&c.nome_fantasia!==c.razao_social?' — '+c.nome_fantasia:'')+' · '+(c.cidade||'')))))),
+            h('option',{value:''},buscaCliente.trim().length<2?'Digite pelo menos 2 caracteres':buscandoClientes?'Buscando clientes...':clientes.length?'Selecione um cliente':'Nenhum cliente encontrado'),
+            ...clientes.map(c=>h('option',{key:c.id,value:c.id,disabled:!excecao&&!clienteNoTerritorio(c)},
+              (c.codigo_totvs||'—')+' · '+(c.razao_social||'')+(c.nome_fantasia&&c.nome_fantasia!==c.razao_social?' — '+c.nome_fantasia:'')+' · '+(c.cidade||'')+
+              (!clienteNoTerritorio(c)?' · FORA DA CARTEIRA'+(!excecao?' (exige exceção)':''):'')))),
+          erroBuscaClientes&&h('div',{style:{color:'#b42318',fontSize:12,marginTop:6}},erroBuscaClientes),
+          !excecao&&buscaCliente.trim().length>=2&&!buscandoClientes&&clientes.some(c=>!clienteNoTerritorio(c))&&
+            h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:6}},
+              'Clientes fora da carteira aparecem na pesquisa, mas somente o Supervisor Técnico pode agendá-los por exceção.'),
+          !excecao&&buscaCliente.trim().length>=2&&vendedoresTerritorio.size===0&&
+            h('div',{style:{fontSize:12,color:'#a15c00',marginTop:6}},
+              'Esta equipe não possui supervisor comercial vinculado. Verifique os vínculos de território na Administração.'))),
         form.cliente_id&&h('div',{style:{gridColumn:'1/-1',padding:12,border:'1px solid var(--border)',borderRadius:8}},
           h('b',null,'Endereço de atendimento'),
           enderecoAgendamento&&enderecoAgendamento.endereco_logradouro?h('div',{style:{marginTop:6}},
