@@ -6406,6 +6406,19 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setBuscaCliente('');setClientes([]);setErroBuscaClientes('');
     setCheckinRapido({cliente_id:''});
   };
+
+  function copiarVisita(v){
+    if(!lider||emPreview||!equipeParticipantes.some(u=>u.id===v.tecnico_id))return;
+    const ini=String(v.hora_inicio||'08:00').slice(0,5);
+    const fim=formatMin(paraMin(ini)+Number(v.duracao_min||120));
+    setVisitaAberta(null);setRepetirVisitas(false);setDataFimVisitas(v.data_visita);
+    setTipoAtendimento(v.tipo_atendimento||'producao');setDuracao(Number(v.duracao_min||120));
+    setParticipantes([v.tecnico_id]);
+    setClientes([]);setBuscaCliente(v.clientes?.codigo_totvs||v.clientes?.razao_social||'');
+    setAlertaAgenda('Visita copiada. Ajuste a data e confira o cliente antes de salvar. A agenda ainda precisará ser aprovada.');
+    setForm({cliente_id:v.cliente_id,tecnico_id:v.tecnico_id,data_visita:v.data_visita,
+      hora_inicio:ini,hora_fim:fim,objetivo:v.objetivo||'',observacoes:v.observacoes||''});
+  }
   async function confirmarCheckinRapido(){
     if(!checkinRapido?.cliente_id)return toast('Selecione um cliente.','error');
     const c=clientes.find(x=>x.id===checkinRapido.cliente_id);
@@ -6654,6 +6667,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',null,'Status: '+(nomes[visitaAberta.status]||visitaAberta.status)),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
           visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
+          lider&&!emPreview&&equipeParticipantes.some(u=>u.id===visitaAberta.tecnico_id)&&h('button',{className:'btn btn-secondary',onClick:()=>copiarVisita(visitaAberta)},'Copiar visita'),
           visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
           visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
           visitaAberta.status==='concluida'&&h('button',{className:'btn btn-secondary',onClick:()=>pdfVisita(visitaAberta)},'PDF da visita')))),
