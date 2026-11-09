@@ -262,4 +262,31 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.vt_programar_periodo(uuid[],uuid,date,date,integer[],time,time,text,text,text) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.vt_programar_periodo(uuid[],uuid,date,date,integer[],time,time,text,text,text) TO authenticated;
+-- Permissoes de tabela para usuarios autenticados, limitadas por RLS acima.
+GRANT SELECT,INSERT,UPDATE,DELETE ON public.vt_lider_tecnicos TO authenticated;
+
+-- Informacoes do cliente apenas para visitas que o usuario pode visualizar.
+-- Corrige agenda com nome em branco quando SELECT direto de clientes sofre RLS.
+CREATE OR REPLACE FUNCTION public.vt_clientes_visitas(p_visitas uuid[])
+RETURNS TABLE(
+  visita_id uuid,id uuid,codigo_totvs text,razao_social text,nome_fantasia text,
+  cidade text,estado text,endereco_logradouro text,endereco_numero text,
+  endereco_bairro text,endereco_cep text,endereco_latitude double precision,
+  endereco_longitude double precision
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $
+BEGIN
+ IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Autenticacao obrigatoria';END IF;
+ IF coalesce(array_length(p_visitas,1),0)>100 OR p_visitas IS NULL
+   THEN RAISE EXCEPTION 'Informe ate 100 visitas';END IF;
+ RETURN QUERY
+ SELECT v.id,c.id,c.codigo_totvs::text,c.razao_social::text,c.nome_fantasia::text,
+   c.cidade::text,c.estado::text,c.endereco_logradouro::text,c.endereco_numero::text,
+   c.endereco_bairro::text,c.endereco_cep::text,
+   c.endereco_latitude::double precision,c.endereco_longitude::double precision
+ FROM public.visitas_tecnicas v JOIN public.clientes c ON c.id=v.cliente_id
+ WHERE v.id=ANY(p_visitas) AND public.vt_visita_visivel(v.id);
+END $;
+REVOKE ALL ON FUNCTION public.vt_clientes_visitas(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.vt_clientes_visitas(uuid[]) TO authenticated;
+
 COMMIT;
