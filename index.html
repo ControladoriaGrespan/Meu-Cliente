@@ -6175,7 +6175,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(!form?.cliente_id||!form?.tecnico_id||!form?.data_visita||!form?.hora_inicio)throw Error('Preencha técnico, cliente, data e horário.');
     const {data,error}=await sb.from('visitas_tecnicas').select('cliente_id,hora_inicio,duracao_min,status').eq('tecnico_id',form.tecnico_id).eq('data_visita',form.data_visita).neq('status','cancelada');
     if(error)throw error;
-    const lista=[...(data||[]),{cliente_id:form.cliente_id,hora_inicio:form.hora_inicio,duracao_min:duracao}].sort((a,b)=>paraMin(a.hora_inicio)-paraMin(b.hora_inicio));
+    const minutosPlanejados=paraMin(form.hora_fim||'10:00')-paraMin(form.hora_inicio);
+    const lista=[...(data||[]),{cliente_id:form.cliente_id,hora_inicio:form.hora_inicio,duracao_min:minutosPlanejados}].sort((a,b)=>paraMin(a.hora_inicio)-paraMin(b.hora_inicio));
     const ids=[...new Set(lista.map(x=>x.cliente_id))];
     const {data:cs,error:ce}=await sb.from('clientes').select('id,cidade,estado').in('id',ids);
     if(ce)throw ce;
@@ -6188,7 +6189,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       const disponivel=paraMin(atual.hora_inicio)-paraMin(ant.hora_inicio)-Number(ant.duracao_min||120);
       if(disponivel<viagem+margem)throw Error('Conflito '+(porId[ant.cliente_id]?.cidade||'origem')+' → '+(porId[atual.cliente_id]?.cidade||'destino')+': viagem '+viagem+' min + margem '+margem+' min. Próximo horário viável: '+formatMin(paraMin(ant.hora_inicio)+Number(ant.duracao_min||120)+viagem+margem));
     }
-    if(paraMin(form.hora_inicio)+duracao>1440)throw Error('Visita termina após meia-noite.');
+    if(paraMin(form.hora_inicio)+minutosPlanejados>1440)throw Error('Visita termina após meia-noite.');
     return 'Horário viável. Deslocamentos e margem considerados.';
   }
   async function localizacaoAtual(){
@@ -6609,8 +6610,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}},
             h('div',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setTecnicoAgenda('')},'← Todas as equipes'),
               h('b',{style:{marginLeft:12}},usuario?.nome||'Técnico')),
-            h('div',{style:{fontSize:12}},'Aprovação: '+(agendaAtual?.status||'Sem agenda')),
-            lider&&agendaAtual&&['rascunho','devolvida'].includes(agendaAtual.status)&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
+            h('div',{style:{fontSize:12}},'Aprovação: '+(agendaAtual?.status||'Sem agenda')+(agendaAtual?.lider_id?' · Responsável: '+(usuariosPorId[agendaAtual.lider_id]?.nome||'Líder'):'')),
+            lider&&agendaAtual&&agendaAtual.lider_id===profile.id&&['rascunho','devolvida'].includes(agendaAtual.status)&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
             supervisor&&agendaAtual?.status==='pendente'&&h('div',{style:{display:'flex',gap:6}},
               h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'aprovar')},'Aprovar semana'),
               h('button',{className:'btn btn-secondary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'devolver')},'Devolver ao líder')),
@@ -6699,6 +6700,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',{style:{gridColumn:'1/-1'}},h('b',null,'Participantes do atendimento'),
           equipeParticipantes.map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
             h('input',{type:'checkbox',checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
+        supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O planejamento normal da agenda cabe ao Líder Técnico. O Supervisor aprova a semana ou agenda uma exceção territorial.'),
         supervisor&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
         excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
