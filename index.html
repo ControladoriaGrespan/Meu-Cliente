@@ -6116,7 +6116,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const assinaturaMarcada=React.useRef(false);
   const [assinaturaValida,setAssinaturaValida]=useState(false);
   const novoFechamento=v=>({visita_id:v.id,servico_prestado:v.objetivo||'',orientacao:'',relato_execucao:'',vendedor_responsavel:'',equipamentos:'',logistica:'',sugestao_melhoria:'',observacoes:'',tipo_producao:'',responsavel_nome:''});
-  const abrirFechamento=v=>{setVisitaAberta(null);setFechamento(novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
+  const abrirFechamento=v=>{if(v.tipo_atendimento==='treinamento')return toast('Check-out de Treinamento ainda será desenvolvido. O formulário de Produção não se aplica.','error');setVisitaAberta(null);setFechamento(novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
   const alterarFechamento=(campo,valor)=>setFechamento(x=>({...x,[campo]:valor}));
   const limparAssinatura=()=>{const c=assinaturaCanvas.current;if(c)c.getContext('2d').clearRect(0,0,c.width,c.height);assinaturaMarcada.current=false;setAssinaturaValida(false);};
   const posicaoAssinatura=e=>{const c=assinaturaCanvas.current,r=c.getBoundingClientRect();return {x:(e.clientX-r.left)*c.width/r.width,y:(e.clientY-r.top)*c.height/r.height};};
@@ -6126,6 +6126,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const adicionarFotos=async e=>{const fs=Array.from(e.target.files||[]);if(fotosFechamento.length+fs.length>8)return toast('Máximo de 8 fotos por relatório.','error');const imgs=await Promise.all(fs.map(file=>new Promise((resolve,reject)=>{if(!file.type.startsWith('image/'))return reject(Error('Selecione somente imagens.'));if(file.size>6*1024*1024)return reject(Error('Cada foto deve ter até 6 MB.'));const reader=new FileReader();reader.onload=()=>resolve({nome:file.name,dados:reader.result});reader.onerror=()=>reject(Error('Falha ao ler imagem.'));reader.readAsDataURL(file);}))).catch(err=>{toast(err.message,'error');return [];});setFotosFechamento(x=>[...x,...imgs]);};
   const [margem,setMargem]=useState(30);
   const [duracao,setDuracao]=useState(120);
+  const [tipoAtendimento,setTipoAtendimento]=useState('producao');
   const [alertaAgenda,setAlertaAgenda]=useState('');
   const [posicoes,setPosicoes]=useState([]);
   const [verMapa,setVerMapa]=useState(false);
@@ -6283,7 +6284,9 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   async function gravar(){
     if(emPreview)return toast('Modo Ver como: simulação sem permissão para gravar. Entre com o usuário real para agendar.','error');
-    if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!participantes.length)return toast('Informe cliente, participantes, data e horário.','error');
+    if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!form?.hora_fim||!participantes.length)return toast('Informe cliente, participantes, início e fim.','error');
+    const minutos=paraMin(form.hora_fim)-paraMin(form.hora_inicio);
+    if(minutos<15||minutos>600)return toast('O horário final deve ser posterior ao início (15 minutos a 10 horas).','error');
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
     if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
     const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
@@ -6292,7 +6295,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       return toast('Cliente não identificado na carteira técnica. Confira o supervisor comercial do vendedor e os vínculos da matriz, ou solicite exceção ao Supervisor Técnico.','error');
     setSalvando(true);
     try{for(const id of participantes){await validarHorarioParticipante(id);}setAlertaAgenda('Horários validados.');}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
-    const {error}=await sb.rpc('vt_agendar_equipe',{p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:duracao,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_excecao:excecao,p_justificativa:justificativaExcecao});
+    const parametros=excecao?
+      {p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:minutos,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_excecao:true,p_justificativa:justificativaExcecao}:
+      {p_participantes:participantes,p_cliente:form.cliente_id,p_inicio:form.data_visita,p_fim:form.data_visita,p_dias:[(new Date(form.data_visita+'T12:00:00').getDay()+6)%7+1],p_hora_inicio:form.hora_inicio,p_hora_fim:form.hora_fim,p_tipo_atendimento:tipoAtendimento,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||''};
+    const {error}=await sb.rpc(excecao?'vt_agendar_equipe':'vt_programar_periodo',parametros);
     setSalvando(false);
     if(error)return toast('Erro ao agendar: '+error.message,'error');
     toast('Atendimento registrado para '+participantes.length+' participante(s), aguardando aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);carregar();
@@ -6412,7 +6418,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   return h('div',null,
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'Visita Técnica'),h('div',{className:'page-sub'},'Agenda semanal · Check-in e checkout · Qualidade')),
-      podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>{setAlertaAgenda('');setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',objetivo:'',observacoes:''});}},'+ Agendar visita')),
+      podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>{setAlertaAgenda('');setTipoAtendimento('producao');setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',hora_fim:'10:00',objetivo:'',observacoes:''});}},'+ Agendar visita')),
     erroBanco&&h('div',{className:'card',style:{border:'1px solid #e3a83d',marginBottom:16}},
       h('b',null,'Configuração do banco pendente'),h('p',null,'A tabela visitas_tecnicas ou suas permissões ainda não estão disponíveis: '+erroBanco)),
     h('div',{className:'card',style:{marginBottom:14}},
@@ -6488,7 +6494,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         };
         const abrirAgendamento=(id,d,h)=>{
           if(!podeAgendar)return;
-          setAlertaAgenda('');setParticipantes([id]);setExcecao(false);setJustificativaExcecao('');setAcompanhaLider(false);setDuracao(120);setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,objetivo:'',observacoes:''});
+          setAlertaAgenda('');setParticipantes([id]);setExcecao(false);setJustificativaExcecao('');setAcompanhaLider(false);setDuracao(120);setTipoAtendimento('producao');setForm({cliente_id:'',tecnico_id:id,data_visita:d,hora_inicio:h,hora_fim:formatMin(paraMin(h)+120),objetivo:'',observacoes:''});
         };
         const celula=(texto,estilo,acao)=>h('div',{style:{...estilo,boxSizing:'border-box',border:'1px solid rgba(0,0,0,.06)',borderRadius:5,padding:5,overflow:'hidden'},onClick:undefined},texto);
         const legenda=h('div',{style:{display:'flex',gap:14,flexWrap:'wrap',marginBottom:14,fontSize:12}},
@@ -6591,8 +6597,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         supervisor&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
         excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
-        h(Campo,{label:'Horário previsto'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
-        h(Campo,{label:'Duração prevista (min)'},h('input',{className:'form-input',type:'number',min:15,max:600,value:duracao,onChange:e=>setDuracao(Math.max(15,Number(e.target.value)||120))})),
+        h(Campo,{label:'Horário início'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
+        h(Campo,{label:'Horário fim'},h('input',{className:'form-input',type:'time',value:form.hora_fim||'10:00',onChange:e=>{setForm(x=>({...x,hora_fim:e.target.value}));setDuracao(paraMin(e.target.value)-paraMin(form.hora_inicio));}})),
+        h(Campo,{label:'Tipo de atendimento'},h('select',{className:'form-select',value:tipoAtendimento,onChange:e=>setTipoAtendimento(e.target.value)},h('option',{value:'producao'},'Produção'),h('option',{value:'treinamento'},'Treinamento'))),
+        tipoAtendimento==='treinamento'&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#a15c00'}},'Check-out de Treinamento ainda não configurado; não é permitido concluir com o formulário de Produção.'),
         h(Campo,{label:'Margem operacional (min)'},h('input',{className:'form-input',type:'number',min:0,max:180,value:margem,onChange:e=>setMargem(Math.max(0,Number(e.target.value)||0))})),
         h(Campo,{label:'Buscar cliente'},h('div',null,
           h('div',{style:{display:'flex',gap:8}},h('input',{className:'form-input',value:buscaCliente,placeholder:'Código, razão social ou nome fantasia (parte do nome)',onChange:e=>setBuscaCliente(e.target.value)}),
