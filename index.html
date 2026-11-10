@@ -2427,7 +2427,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—')),
           !d&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
             'A programação está pendente para sua aprovação. Os detalhes operacionais não puderam ser carregados, mas a decisão continua disponível.'),
-          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'},onClick:e=>e.stopPropagation()},
             h('button',{className:'btn btn-success btn-sm',onClick:()=>decidirProgramacao(a,'aprovado','')},'✓ Aprovar'),
             h('button',{className:'btn btn-danger btn-sm',onClick:()=>decidirProgramacao(a,'reprovado','')},'✗ Reprovar'))
         );
@@ -2625,7 +2625,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         let sols=[];
         if(solIds.length){
           const rsol=await sb.from('solicitacoes')
-            .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
+            .select('*, clientes(razao_social, nome_fantasia, cidade, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
             .in('id',solIds);
           if(rsol.error)console.error('Pendências - detalhes solicitações:',rsol.error);
           else sols=rsol.data||[];
@@ -3093,7 +3093,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                    onClick:()=>setOrigemPendente({tipo:'solicitacao',sol})},
                   h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
                   linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
-                  h('div',{style:{display:'flex',gap:8,marginTop:10}},
+                  h('div',{style:{display:'flex',gap:8,marginTop:10},onClick:e=>e.stopPropagation()},
                     h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
                     h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
               }),
@@ -3216,7 +3216,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             sol.categoria === 'amostra' && linhaInfo('Amostra', sol.tipo_amostra === 'kit' ? 'KIT' : (sol.produtos ? ((sol.produtos.codigo || '') + ' — ' + (sol.produtos.descricao || '')) : 'Produto')),
             sol.categoria === 'amostra' && linhaInfo('Quantidade', sol.quantidade),
             linhaInfo('Detalhes', sol.descricao)),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, onClick:e=>e.stopPropagation() },
             h('button', { className: 'btn btn-success', onClick: () => setDecidindo({ solAp: ap, status: 'aprovado' }) }, '✓ Aprovar'),
             h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
       })),
@@ -3250,7 +3250,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         linhaInfo('Total de verbas', f.verbas_acordo ? fmtMoeda(f.verbas_acordo) + (f.duracao_verba ? ' · ' + f.duracao_verba : '') : fmtMoeda(0)),
               linhaInfo('Técnico', f.tecnico_panificacao ? 'Sim' + (f.senioridade_tecnico ? ' · ' + f.senioridade_tecnico : '') : 'Não'),
               linhaInfo('Equipamentos', resumoEquipamentos(f))),
-            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, onClick:e=>e.stopPropagation() },
               ap.etapa === 'analise_credito'
                 ? h('button', { className: 'btn btn-primary', onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
@@ -3285,7 +3285,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
             .eq('vendedor_id', profile.id).order('created_at', { ascending: false })
         : Promise.resolve({ data: [] }),
       sb.from('solicitacoes')
-        .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
+        .select('*, clientes(razao_social, nome_fantasia, cidade, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
         .order('created_at', { ascending: false })
     ]);
     setFichas(rf.data || []);
