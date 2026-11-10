@@ -849,7 +849,18 @@ function Select({ opcoes, ...props }) {
 
 // Select com busca por texto (filtra por codigo e nome)
 // items = [{ value, label, search }]
-function SearchSelect({ items, value, onChange, placeholder, disabled }) {
+function IdentificacaoCliente({ cliente }) {
+  if (!cliente) return null;
+  const fantasia = String(cliente.nome_fantasia || cliente.fantasia || '').trim();
+  const cidade = String(cliente.cidade || '').trim();
+  return h('div', { style: { marginTop: 6, padding: '7px 10px', border: '1px solid var(--border)',
+    borderRadius: 6, background: 'var(--bg-card)', fontSize: 12,
+    display: 'flex', flexWrap: 'wrap', gap: '5px 18px', lineHeight: 1.5 } },
+    h('span', null, h('b', null, 'Nome fantasia: '), fantasia || 'Não informado'),
+    h('span', null, h('b', null, 'Cidade: '), cidade || 'Não informada'));
+}
+
+function SearchSelect({ items, value, onChange, placeholder, disabled, mostrarCliente }) {
   const [busca, setBusca] = useState('');
   const [aberto, setAberto] = useState(false);
   const ref = React.useRef(null);
@@ -870,8 +881,10 @@ function SearchSelect({ items, value, onChange, placeholder, disabled }) {
   }, [aberto]);
 
   if (disabled) {
-    return h('div', { className: 'form-input', style: { opacity: 0.4, cursor: 'not-allowed' } },
-      selecionado ? selecionado.label : (placeholder || 'Selecione...'));
+    return h('div', null,
+      h('div', { className: 'form-input', style: { opacity: 0.4, cursor: 'not-allowed' } },
+        selecionado ? selecionado.label : (placeholder || 'Selecione...')),
+      mostrarCliente && h(IdentificacaoCliente, { cliente: selecionado }));
   }
 
   return h('div', { ref, style: { position: 'relative' } },
@@ -912,7 +925,8 @@ function SearchSelect({ items, value, onChange, placeholder, disabled }) {
                     borderBottom: '1px solid var(--border)'
                   },
                   onMouseDown: e => { e.preventDefault(); onChange(it.value); setAberto(false); }
-                }, it.label)))));
+                }, it.label)))),
+    mostrarCliente && h(IdentificacaoCliente, { cliente: selecionado }));
 }
 
 function Kpi({ icon, cor, valor, label }) {
@@ -3898,7 +3912,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
   useEffect(() => {
     (async () => {
-      let qc = sb.from('clientes').select('id, razao_social, cnpj_cpf, codigo_totvs, vendedor_id, fichas_clientes(*)').order('razao_social').limit(10000);
+      let qc = sb.from('clientes').select('id, razao_social, nome_fantasia, cidade, cnpj_cpf, codigo_totvs, vendedor_id, fichas_clientes(*)').order('razao_social').limit(10000);
       const idsVisiveis = await vendedoresVisiveis(profile);
       if (Array.isArray(idsVisiveis)) {
         if (!idsVisiveis.length) { setClientes([]); }
@@ -4014,9 +4028,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
           categoriasPermitidas.map(([v,l]) => h('option', { key: v, value: v }, l)))),
       h(Campo, { label: 'Cliente', obrigatorio: true },
         h(SearchSelect, {
-          value: clienteId, placeholder: 'Buscar cliente...', onChange: v => setClienteId(v),
+          value: clienteId, placeholder: 'Buscar cliente...', onChange: v => setClienteId(v), mostrarCliente: true,
           items: (clientes || []).map(c => ({ value: c.id, label: (c.codigo_totvs ? c.codigo_totvs + ' — ' : '') + c.razao_social,
-            search: (c.codigo_totvs || '') + ' ' + (c.razao_social || '') + ' ' + (c.cnpj_cpf || ''), code: c.codigo_totvs || '' }))
+            search: [c.codigo_totvs,c.razao_social,c.nome_fantasia,c.cidade,c.cnpj_cpf].filter(Boolean).join(' '),
+            code: c.codigo_totvs || '', nome_fantasia: c.nome_fantasia, cidade: c.cidade }))
         })),
 
       categoria === 'equipamento' && h(React.Fragment, null,
@@ -6732,6 +6747,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             ...clientes.map(c=>h('option',{key:c.id,value:c.id,disabled:!clienteNoTerritorio(c)},
               (c.codigo_totvs||'')+' · '+(c.razao_social||c.nome_fantasia||'')+
               (!clienteNoTerritorio(c)?' · Fora da carteira':''))))),
+        h(IdentificacaoCliente,{cliente:clientes.find(c=>c.id===checkinRapido.cliente_id)}),
         erroBuscaClientes&&h('p',{style:{color:'#b42318',fontSize:12}},erroBuscaClientes),
         h('p',{style:{fontSize:12,color:'var(--text-muted)'}},
           'Somente Líder/Supervisor e clientes da própria carteira. Para clientes de outra carteira, utilize a programação por exceção.')
@@ -6768,6 +6784,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             ...clientes.map(c=>h('option',{key:c.id,value:c.id,disabled:!excecao&&!clienteNoTerritorio(c)},
               (c.codigo_totvs||'—')+' · '+(c.razao_social||'')+(c.nome_fantasia&&c.nome_fantasia!==c.razao_social?' — '+c.nome_fantasia:'')+' · '+(c.cidade||'')+
               (!clienteNoTerritorio(c)?' · FORA DA CARTEIRA'+(!excecao?' (exige exceção)':''):'')))),
+          h(IdentificacaoCliente,{cliente:clientes.find(c=>c.id===form.cliente_id)||enderecoAgendamento}),
           erroBuscaClientes&&h('div',{style:{color:'#b42318',fontSize:12,marginTop:6}},erroBuscaClientes),
           !excecao&&buscaCliente.trim().length>=2&&!buscandoClientes&&clientes.some(c=>!clienteNoTerritorio(c))&&
             h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:6}},
@@ -7020,7 +7037,7 @@ function PaginaRotas({ profile, visao }) {
         h('div', { style: { flex: 1, minWidth: 200 } },
           h(SearchSelect, {
             value: clienteAdd, placeholder: 'Buscar por código, razão social, fantasia, cidade, vendedor ou supervisor...',
-            onChange: v => setClienteAdd(v),
+            onChange: v => setClienteAdd(v), mostrarCliente: true,
             items: clientes.filter(c => !vinculados.some(v => v.cliente_id === c.id))
               .map(c => {
                 const cod = c.codigo_totvs || '';
@@ -7030,7 +7047,7 @@ function PaginaRotas({ profile, visao }) {
                   value:c.id,
                   label:rotuloClienteRota(c),
                   search:[cod,codSemZeros,c.razao_social,c.nome_fantasia,c.cnpj_cpf,c.cidade,vend&&vend.nome,sup&&sup.nome].filter(Boolean).join(' '),
-                  code:cod
+                  code:cod, nome_fantasia:c.nome_fantasia, cidade:c.cidade
                 };
               })
           })),
