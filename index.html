@@ -776,12 +776,31 @@ function msgAprovacao(ficha, etapaLabel) {
   return `📋 Ficha de cliente aguardando sua aprovação\n*${ficha.razao_social}* (${ficha.cnpj_cpf})\nEtapa: ${etapaLabel}\n\nAcesse o sistema para aprovar ou reprovar:\n${linkSistema()}`;
 }
 
+function ehCelularWhats() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+}
+
+// No celular, evita abrir uma aba vazia antes da resposta do Supabase.
+// O redirecionamento ocorre diretamente para o link universal do WhatsApp.
+function preAbrirJanelaWhats() {
+  return ehCelularWhats() ? null : window.open('', '_blank');
+}
+
 function abrirWhats(telefone, mensagem, winRef) {
-  const numero = (telefone || '').replace(/\D/g, '');
+  let numero = String(telefone || '').replace(/\D/g, '');
   if (!numero) { if (winRef && !winRef.closed) winRef.close(); return false; }
+  // Cadastros brasileiros sem DDI também funcionam (DDD + número).
+  if (/^\d{10,11}$/.test(numero)) numero = '55' + numero;
   const url = `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`;
-  if (winRef && !winRef.closed) winRef.location.href = url;
-  else window.open(url, '_blank');
+  if (winRef && !winRef.closed) {
+    winRef.location.href = url;
+  } else if (ehCelularWhats()) {
+    // Link universal abre o aplicativo, quando instalado, no Android/iOS.
+    // Navegar na aba atual evita bloqueio de pop-up após chamadas assíncronas.
+    window.location.assign(url);
+  } else {
+    window.open(url, '_blank');
+  }
   return true;
 }
 
@@ -1153,7 +1172,7 @@ function PaginaEmissao({ profile, onSaved }) {
     if(Object.values(f.equipamentos_quantidades||{}).some(n=>!Number.isInteger(Number(n))||Number(n)<0))return toast('Quantidades de equipamentos devem ser inteiros não negativos.','error');
 
     setSalvando(true);
-    const winRef = window.open('', '_blank'); // abre ja no gesto do usuario
+    const winRef = preAbrirJanelaWhats(); // abre ja no gesto do usuario
     const num = v => v === '' || v === null ? null : Number(v);
 
     const { data: nova, error } = await sb.from('fichas_clientes').insert({
@@ -2632,7 +2651,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   // decide uma etapa de SOLICITACAO de equipamento
   async function decidirSolicitacao(ap, status, observacao) {
-    const winRef = window.open('', '_blank');
+    const winRef = preAbrirJanelaWhats();
     const { error } = await sb.from('solicitacao_aprovacoes').update({
       status, observacao: observacao || null, aprovador_id: profile.id,
       decidido_em: new Date().toISOString()
@@ -2696,7 +2715,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   async function confirmar() {
     const {ap,status}=decidindo;
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento&&!condicaoDiretoria) return toast('Confirme Novo ou Usado.','error');
-    const winRef=window.open('','_blank');
+    const winRef=preAbrirJanelaWhats();
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const {error:x}=await sb.from('fichas_clientes').update({equipamento_condicao_manutencao:condicaoDiretoria}).eq('id',ap.ficha_id); if(x){if(winRef)winRef.close();return toast(x.message,'error');}
     }
@@ -5500,7 +5519,7 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
       .maybeSingle();
 
     if (apEtapa) {
-      const winRef = window.open('', '_blank');
+      const winRef = preAbrirJanelaWhats();
       const { error: errAp } = await sb.rpc('decidir_ficha_workflow', {
         p_aprovacao_id: apEtapa.id,
         p_status: 'aprovado',
