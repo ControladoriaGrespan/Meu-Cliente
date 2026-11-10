@@ -3902,7 +3902,7 @@ function listarEquipamentos(f) {
 
 function rotaSolicitacao(tipo, justificativa, categoria) {
   if (categoria === 'amostra') return ['supervisor','coordenador','gestao_adm_vendas'];
-  if (categoria === 'bonificacao') return ['supervisor','coordenador','gestao_adm_vendas','financeiro'];
+  if (categoria === 'bonificacao') return ['supervisor','coordenador','gestao_adm_vendas','financeiro','diretoria'];
   if (tipo === 'manutencao') return ['manutencao'];
   if (tipo === 'troca' && justificativa === 'Relacionamento') return ['supervisor','coordenador','gestao_adm_vendas','diretoria'];
   if (tipo === 'troca' && justificativa === 'Equipamento Danificado') return ['supervisor','coordenador','gestao_adm_vendas','manutencao','diretoria'];
@@ -7524,13 +7524,15 @@ function PaginaPedidos({ profile }) {
       setTabelaPrecoCliente(mapaTabelaPreco);
     }
     const { data: bons } = await sb.from('solicitacoes')
-      .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(status)')
+      .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(etapa,status)')
       .eq('cliente_id', cli.id).eq('categoria', 'bonificacao')
-      .in('status_fluxo', ['aberta','aprovada'])
+      .eq('status_fluxo', 'aprovada')
       .order('created_at', { ascending: true });
     const aprovadas = (bons || []).filter(b => {
       const aps = b.solicitacao_aprovacoes || [];
-      return aps.length === 0 || aps.every(a => ['aprovado','nao_aplica'].includes(a.status));
+      // Somente bonificações com aprovação explícita da Diretoria.
+      return aps.some(a => a.etapa === 'diretoria' && a.status === 'aprovado') &&
+        aps.every(a => ['aprovado','nao_aplica'].includes(a.status));
     });
     setBonificacoesAbertas(aprovadas);
     setBonificacoesVinculadas([]);
@@ -7673,6 +7675,12 @@ function PaginaPedidos({ profile }) {
 
   function vincularBonificacao(sol) {
     if (bonificacoesVinculadas.some(b => b.id === sol.id)) return;
+    const aps = sol.solicitacao_aprovacoes || [];
+    if (sol.status_fluxo !== 'aprovada' ||
+        !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
+        !aps.every(a=>['aprovado','nao_aplica'].includes(a.status))) {
+      return toast('Bonificação bloqueada: falta aprovação final da Diretoria.','error');
+    }
 
     const qtdBonificacao = Number(sol.quantidade || 0);
     if (!sol.produto_id || qtdBonificacao <= 0) {
@@ -7749,6 +7757,21 @@ function PaginaPedidos({ profile }) {
     if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))
       return toast('Cada NF deve conter pelo menos um item.','error');
 
+    // Revalida no banco no momento de salvar; evita usar aprovação desatualizada.
+    if (bonificacoesVinculadas.length) {
+      const ids = bonificacoesVinculadas.map(b=>b.id);
+      const conferencias=await sb.from('solicitacoes')
+        .select('id,cliente_id,status_fluxo,solicitacao_aprovacoes(etapa,status)')
+        .in('id',ids);
+      if(conferencias.error)return toast('Não foi possível conferir as aprovações: '+conferencias.error.message,'error');
+      const conferidas=conferencias.data||[];
+      if(conferidas.length!==ids.length || conferidas.some(b=>{
+        const aps=b.solicitacao_aprovacoes||[];
+        return b.cliente_id!==clienteAtivo.id || b.status_fluxo!=='aprovada' ||
+          !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
+          !aps.every(a=>['aprovado','nao_aplica'].includes(a.status));
+      })) return toast('Pedido bloqueado: uma bonificação ainda não possui aprovação final da Diretoria. Atualize a tela.','error');
+    }
     setSalvando(true);
     let pedidoId=pedidoEditandoId;
     const payload=validos.map(it=>({
