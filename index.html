@@ -2078,6 +2078,55 @@ function PaginaFichas({ profile }) {
 // =====================================================================
 // PAGINA: PENDENCIAS
 // =====================================================================
+
+function PopupOrigemAprovacao({ origem, onClose }) {
+  if (!origem) return null;
+  const tipo = origem.tipo;
+  const sol = tipo==='solicitacao' ? (origem.dados || {}) : {};
+  const d = tipo==='programacao' ? (origem.dados || {}) : {};
+  const ref = origem.cliente || sol.clientes || {};
+  const rota = origem.rota || {};
+  const titulo = tipo==='solicitacao' ? 'Solicitação original' : 'Programação original';
+  const numero = ref.codigo_totvs || '';
+  const nome = ref.razao_social || 'Cliente';
+  return h(Modal, {
+    titulo:titulo, sub:(numero ? numero+' — ' : '')+nome,
+    largo:true, onClose:onClose,
+    acoes:h('button',{className:'btn btn-secondary',onClick:onClose},'Fechar')
+  },
+    h('div',{className:'info-grid'},
+      linhaInfo('Nome fantasia',ref.nome_fantasia),
+      linhaInfo('Cidade',ref.cidade || d.endereco_cidade),
+      tipo==='solicitacao' && linhaInfo('Categoria',sol.categoria),
+      tipo==='solicitacao' && linhaInfo('Tipo',sol.tipo),
+      tipo==='solicitacao' && linhaInfo('Solicitante',sol.usuarios && sol.usuarios.nome),
+      tipo==='solicitacao' && linhaInfo('Data',sol.created_at ? fmtData(sol.created_at) : null),
+      tipo==='solicitacao' && linhaInfo('Equipamento',sol.equipamento),
+      tipo==='solicitacao' && linhaInfo('Patrimônio',sol.patrimonio),
+      tipo==='solicitacao' && linhaInfo('Produto',sol.produtos ? [sol.produtos.codigo,sol.produtos.descricao].filter(Boolean).join(' — ') : null),
+      tipo==='solicitacao' && linhaInfo('Quantidade',sol.quantidade),
+      tipo==='solicitacao' && linhaInfo('Bonificação',sol.modalidade_bonificacao),
+      tipo==='solicitacao' && linhaInfo('Amostra',sol.tipo_amostra),
+      tipo==='solicitacao' && linhaInfo('Justificativa',sol.justificativa),
+      tipo==='solicitacao' && linhaInfo('Descrição',sol.descricao),
+      tipo==='programacao' && linhaInfo('Rota',rota.codigo || rota.nome),
+      tipo==='programacao' && linhaInfo('Data da rota',rota.data_rota ? fmtData(rota.data_rota) : null),
+      tipo==='programacao' && linhaInfo('Tipo',d.tipo_demanda || d.origem_tipo),
+      tipo==='programacao' && linhaInfo('Equipamentos',d.equipamento_resumo),
+      tipo==='programacao' && linhaInfo('Coleta',d.equipamento_coleta),
+      tipo==='programacao' && linhaInfo('Entrega',d.equipamento_entrega),
+      tipo==='programacao' && linhaInfo('Patrimônio coleta',d.patrimonio_coleta),
+      tipo==='programacao' && linhaInfo('Patrimônio entrega',d.patrimonio_entrega),
+      tipo==='programacao' && linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')),
+      tipo==='programacao' && linhaInfo('Data prevista',d.data_prevista ? fmtData(d.data_prevista) : null)
+    ),
+    tipo==='solicitacao' && (sol.solicitacao_aprovacoes || []).length>0 &&
+      h('div',{style:{marginTop:15}},h('div',{className:'section-title'},'Histórico de aprovações'),
+        h(StepperGenerico,{aprovacoes:sol.solicitacao_aprovacoes})),
+    h('div',{className:'page-sub',style:{marginTop:12}},'Consulta apenas. Nenhuma aprovação será registrada ao fechar esta janela.')
+  );
+}
+
 function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const toast = useToast();
   const [pendentes, setPendentes] = useState(null);
@@ -2086,6 +2135,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [condicaoDiretoria,setCondicaoDiretoria]=useState('');
   const [destinatarios, setDestinatarios] = useState([]);
   const [detalhe, setDetalhe] = useState(null);
+  const [origemAprovacao,setOrigemAprovacao] = useState(null);
 
   // no preview do admin, o papel "admin" nao tem fila propria: mostra supervisor
   const etapa = visao === 'admin' ? 'supervisor' : visao;
@@ -2412,7 +2462,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         const data=(r&&r.data_rota)||(d&&d.data_prevista)||null;
         const sup=(usuariosProg||[]).find(u=>u&&String(u.id)===String(a.supervisor_id));
 
-        return h('div',{className:'card',key:'fila_sup_'+a.id},
+        return h('div',{className:'card',key:'fila_sup_'+a.id,style:{cursor:'pointer'},onClick:()=>setOrigemAprovacao({tipo:'programacao',dados:d,rota:r,cliente:ref})},
           h('div',{style:{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:10}},
             h('div',null,
               h('div',{style:{fontSize:16,fontWeight:700}},titulo+(data?' · '+fmtData(data):'')),
@@ -2425,7 +2475,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—')),
           !d&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
             'A programação está pendente para sua aprovação. Os detalhes operacionais não puderam ser carregados, mas a decisão continua disponível.'),
-          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'},onClick:e=>e.stopPropagation()},
             h('button',{className:'btn btn-success btn-sm',onClick:()=>decidirProgramacao(a,'aprovado','')},'✓ Aprovar'),
             h('button',{className:'btn btn-danger btn-sm',onClick:()=>decidirProgramacao(a,'reprovado','')},'✗ Reprovar'))
         );
@@ -2992,6 +3042,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+    origemAprovacao && h(PopupOrigemAprovacao,{origem:origemAprovacao,onClose:()=>setOrigemAprovacao(null)}),
 
         etapa==='manutencao' && h('div',null,
       demandaAberta && h(Modal,{
@@ -3032,10 +3083,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             subManut==='manutencao' && subStatusManut==='pendente' &&
               pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').map(ap=>{
                 const sol=ap.solicitacoes,cli=sol.clientes||{};
-                return h('div',{className:'card',key:'apr_'+ap.id},
+                return h('div',{className:'card',key:'apr_'+ap.id,style:{cursor:'pointer'},onClick:()=>setOrigemAprovacao({tipo:'solicitacao',dados:sol})},
                   h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
                   linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
-                  h('div',{style:{display:'flex',gap:8,marginTop:10}},
+                  h('div',{style:{display:'flex',gap:8,marginTop:10},onClick:e=>e.stopPropagation()},
                     h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
                     h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
               }),
@@ -3135,7 +3186,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:carregar},'Tentar carregar novamente')));
         const cli = sol.clientes || {};
-        return h('div', { className: 'card', key: ap.id },
+        return h('div', { className: 'card', key: ap.id, style:{cursor:'pointer'},onClick:()=>setOrigemAprovacao({tipo:'solicitacao',dados:sol}) },
           h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 10 } },
             h('div', null,
               h('div', { style: { fontSize: 16, fontWeight: 600 } }, identificacaoCliente(cli)),
@@ -3157,7 +3208,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             sol.categoria === 'amostra' && linhaInfo('Amostra', sol.tipo_amostra === 'kit' ? 'KIT' : (sol.produtos ? ((sol.produtos.codigo || '') + ' — ' + (sol.produtos.descricao || '')) : 'Produto')),
             sol.categoria === 'amostra' && linhaInfo('Quantidade', sol.quantidade),
             linhaInfo('Detalhes', sol.descricao)),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' },onClick:e=>e.stopPropagation() },
             h('button', { className: 'btn btn-success', onClick: () => setDecidindo({ solAp: ap, status: 'aprovado' }) }, '✓ Aprovar'),
             h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
       })),
@@ -3171,7 +3222,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         pendentes.map(ap => {
           const f = ap && ap.fichas_clientes;
           if (!f) return h('div',{className:'card',key:ap.id},h('strong',null,'Aprovação pendente — ficha não acessível'),h('p',null,'Etapa: '+ap.etapa+' · Ficha: '+(ap.ficha_id||'—')),h('p',null,'A política de acesso (RLS) está impedindo a leitura dos dados da ficha. Solicite ajuste ao administrador.'));
-          return h('div', { className: 'card', key: ap.id },
+          return h('div', { className: 'card', key: ap.id, style:{cursor:'pointer'},onClick:()=>setDetalhe(f) },
             h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 12 } },
               h('div', null,
                 h('div', { style: { fontSize: 16, fontWeight: 600 } }, identificacaoFichaCliente(f)),
@@ -3190,7 +3241,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         linhaInfo('Total de verbas', f.verbas_acordo ? fmtMoeda(f.verbas_acordo) + (f.duracao_verba ? ' · ' + f.duracao_verba : '') : fmtMoeda(0)),
               linhaInfo('Técnico', f.tecnico_panificacao ? 'Sim' + (f.senioridade_tecnico ? ' · ' + f.senioridade_tecnico : '') : 'Não'),
               linhaInfo('Equipamentos', resumoEquipamentos(f))),
-            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' },onClick:e=>e.stopPropagation() },
               ap.etapa === 'analise_credito'
                 ? h('button', { className: 'btn btn-primary', onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
