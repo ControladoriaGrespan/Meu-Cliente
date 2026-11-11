@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v98-bonificacoes-rotas-cliente';
-console.info('[Meu Cliente] BUILD v98-bonificacoes-rotas-cliente');
+window.__MEU_CLIENTE_BUILD__='v99-workflow-ordenado';
+console.info('[Meu Cliente] BUILD v99-workflow-ordenado');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2832,54 +2832,19 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   // decide uma etapa de SOLICITACAO de equipamento
   async function decidirSolicitacao(ap, status, observacao) {
-    // Confere o estado atualizado antes de decidir: a fila no navegador pode
-    // estar desatualizada ou exibir aprovação órfã de solicitação reprovada.
-    const solEstado=await sb.from('solicitacoes')
-      .select('id,categoria,status_fluxo').eq('id',ap.solicitacao_id).maybeSingle();
-    if(solEstado.error||!solEstado.data){
-      return toast('Não foi possível confirmar o estado da solicitação. Atualize as pendências ou verifique o acesso no Supabase.','error');
-    }
-    if(['concluida','vinculada','aprovada'].includes(solEstado.data.status_fluxo) ||
-      (solEstado.data.status_fluxo==='reprovada' && solEstado.data.categoria!=='bonificacao')){
-      await carregar();
-      return toast('Solicitação já '+solEstado.data.status_fluxo+'. Não é possível aprovar novamente.','error');
-    }
-    const etapasEstado=await sb.from('solicitacao_aprovacoes')
-      .select('id,etapa,ordem,status').eq('solicitacao_id',ap.solicitacao_id).order('ordem');
-    if(etapasEstado.error){
-      return toast('Não foi possível validar todas as etapas da solicitação: '+etapasEstado.error.message,'error');
-    }
-    const etapas=etapasEstado.data||[];
-    const atual=etapas.find(x=>x.id===ap.id);
-    if(!atual||atual.status!=='pendente'){
-      await carregar();
-      return toast('Esta aprovação já foi decidida ou não está mais pendente. Atualize a fila.','error');
-    }
-    if(etapas.some(x=>x.status==='reprovado' &&
-        (solEstado.data.categoria!=='bonificacao'||x.etapa==='diretoria'))){
-      await carregar();
-      return toast('Solicitação possui veto definitivo. Não é permitido continuar as aprovações.','error');
-    }
-    if(status==='aprovado'&&etapas.some(x=>x.ordem<atual.ordem&&
-      !(solEstado.data.categoria==='bonificacao'?
-        ['aprovado','reprovado','nao_aplica']:['aprovado','nao_aplica']).includes(x.status))){
-      return toast('Há etapas anteriores pendentes. A aprovação deve seguir a ordem do fluxo.','error');
-    }
-    const winRef = preAbrirJanelaWhats();
-    const { error } = await sb.from('solicitacao_aprovacoes').update({
-      status, observacao: observacao || null, aprovador_id: profile.id,
-      decidido_em: new Date().toISOString()
-    }).eq('id', ap.id).eq('status','pendente').select('id');
-    if (error) { if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
-
-    // Avanço é feito no banco, que vê TODAS as etapas mesmo quando RLS esconde
-    // Financeiro/Diretoria do usuário atual. Nunca concluir por 'nenhuma linha visível'.
-    const avanco=await sb.rpc('mc_avancar_fila_solicitacao',{p_solicitacao_id:ap.solicitacao_id});
-    if(avanco.error){
+    // A decisão e o avanço agora são atômicos no banco.
+    // Evita corrida entre Coordenador e Gestão Adm. de Vendas.
+    const winRef=preAbrirJanelaWhats();
+    const {data:resultado,error}=await sb.rpc('mc_decidir_solicitacao_workflow',{
+      p_aprovacao_id:ap.id,p_status:status,p_observacao:observacao||null
+    });
+    if(error){
       if(winRef&&!winRef.closed)winRef.close();
       await carregar();
-      return toast('Etapa registrada, mas falhou a atualização segura da fila: '+avanco.error.message+'. Execute a migração do fluxo de aprovações.','error');
+      return toast('Não foi possível decidir a etapa: '+error.message+'. Verifique a migração v99 do workflow.','error');
     }
+    const avanco={data:resultado||{}};
+    const solEstado={data:{categoria:ap.solicitacoes?.categoria}};
     const proximaEtapa=avanco.data&&avanco.data.proxima_etapa
       ? avanco.data.proxima_etapa:null;
     if(status==='reprovado' && solEstado.data.categoria==='bonificacao' && ap.etapa!=='diretoria'){
@@ -4246,13 +4211,16 @@ function listarEquipamentos(f) {
   return itens;
 }
 
-function rotaSolicitacao(tipo, justificativa, categoria) {
-  if (categoria === 'amostra') return ['supervisor','coordenador','gestao_adm_vendas'];
-  if (categoria === 'bonificacao') return ['supervisor','coordenador','gestao_adm_vendas','financeiro','diretoria'];
-  if (tipo === 'manutencao') return ['manutencao'];
-  if (tipo === 'troca' && justificativa === 'Relacionamento') return ['supervisor','coordenador','gestao_adm_vendas','diretoria'];
-  if (tipo === 'troca' && justificativa === 'Equipamento Danificado') return ['supervisor','coordenador','gestao_adm_vendas','manutencao','diretoria'];
-  return ['supervisor','coordenador','gestao_adm_vendas','diretoria'];
+function rotaSolicitacao(tipo, justificativa, categoria, papel='vendedor') {
+  const todas=categoria==='amostra'?['supervisor','coordenador','gestao_adm_vendas']
+    :categoria==='bonificacao'?['vendedor','supervisor','coordenador','gestao_adm_vendas','financeiro','diretoria']
+    :tipo==='manutencao'?['manutencao']
+    :tipo==='troca'?['vendedor','supervisor','coordenador','manutencao','diretoria']
+    :tipo==='retirada'?['vendedor','supervisor','coordenador']
+    :['vendedor','supervisor','coordenador','gestao_adm_vendas','diretoria'];
+  const ini=['vendedor','supervisor','coordenador'].includes(papel)?papel:'supervisor';
+  const pos=todas.indexOf(ini);
+  return pos<0?todas:todas.slice(pos);
 }
 
 function StepperGenerico({ aprovacoes }) {
@@ -4336,7 +4304,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
   const clienteSel = (clientes || []).find(c => c.id === clienteId);
   const equipamentos = clienteSel ? listarEquipamentos(clienteSel.fichas_clientes) : [];
-  const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria) : [];
+  const rota = categoria ? rotaSolicitacao(tipo, justificativa, categoria, profile.papel) : [];
 
   useEffect(() => { setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]); }, [clienteId]);
   useEffect(() => {
