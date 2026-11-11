@@ -4040,6 +4040,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [modalidadeBonificacao, setModalidadeBonificacao] = useState('');
   const [tipoAmostra, setTipoAmostra] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [erroDiagnostico,setErroDiagnostico] = useState(null);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   function alterarLinhaEquip(setter, idx, campo, valor) { setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x)); }
   function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
@@ -4091,6 +4092,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   }
 
   async function salvar() {
+    setErroDiagnostico(null);
     if (!categoria) return toast('Selecione a categoria.', 'error');
     if (!clienteId) return toast('Selecione o cliente.', 'error');
 
@@ -4140,13 +4142,22 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
     setSalvando(false);
     if (error) {
+      // Diagnóstico visível para usuários de celular, inclusive quando o toast desaparece.
+      // Não exibe endereço, CNPJ, token ou dados pessoais do usuário.
+      const diagnostico={
+        versao:'MC-20261111-JOSE-1',
+        categoria:String(payload.categoria||''),
+        tipo:String(payload.tipo||''),
+        justificativa:String(payload.justificativa==null?'NULL':payload.justificativa),
+        codigoErro:String(error.code||''),
+        mensagem:String(error.message||''),
+        detalhes:String(error.details||''),
+        dica:String(error.hint||'')
+      };
+      setErroDiagnostico(diagnostico);
+      console.error('[Meu Cliente] Falha ao salvar solicitação',diagnostico);
       if (error.code === '23514' && String(error.message || '').includes('solicitacoes_justificativa_check')) {
-        console.error('[Meu Cliente] Erro de validação da solicitação', {
-          categoria:payload.categoria,tipo:payload.tipo,justificativa:payload.justificativa,
-          codigo:error.code,mensagem:error.message,detalhes:error.details,orientacao:error.hint
-        });
-        const resumo='Tipo: '+String(payload.tipo||'—')+' | Motivo: '+String(payload.justificativa||'—');
-        return toast('O banco rejeitou a justificativa. '+resumo+'. Verifique a regra/trigger da tabela solicitacoes.','error');
+        return toast('O banco rejeitou a justificativa. Confira o diagnóstico em vermelho no formulário.','error');
       }
       return toast(error.message, 'error');
     }
@@ -4176,6 +4187,13 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   },
     clientes === null ? h('div', { style: { color: 'var(--text-muted)' } }, 'Carregando...')
     : h('div', { className: 'form-grid' },
+      erroDiagnostico && h('div',{style:{gridColumn:'1 / -1',padding:12,border:'1px solid #b42318',borderRadius:8,background:'#fff4f2',color:'#831414',fontSize:12}},
+        h('strong',null,'Diagnóstico do salvamento — '+erroDiagnostico.versao),
+        h('div',{style:{marginTop:8}},'Categoria: '+erroDiagnostico.categoria+' | Tipo: '+erroDiagnostico.tipo+' | Motivo: '+erroDiagnostico.justificativa),
+        h('div',{style:{marginTop:5}},'Erro: '+erroDiagnostico.codigoErro+' — '+erroDiagnostico.mensagem),
+        erroDiagnostico.detalhes && h('div',{style:{marginTop:5,overflowWrap:'anywhere'}},'Detalhes: '+erroDiagnostico.detalhes),
+        h('div',{style:{display:'flex',gap:8,marginTop:8}},
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>navigator.clipboard?.writeText(JSON.stringify(erroDiagnostico,null,2))},'Copiar diagnóstico'))),
       h(Campo, { label: 'Categoria', obrigatorio: true },
         h('select', { className: 'form-select', value: categoria, onChange: e => setCategoria(e.target.value) },
           h('option', { value: '' }, 'Selecione...'),
