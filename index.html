@@ -804,6 +804,63 @@ function abrirWhats(telefone, mensagem, winRef) {
   return true;
 }
 
+// Abre sempre no toque do usuário; o navegador móvel não bloqueia a navegação.
+function enviarWhatsComClique(telefone,mensagem){
+  const numero=String(telefone||'').replace(/\D/g,'');
+  const normalizado=/^\d{10,11}$/.test(numero)?'55'+numero:numero;
+  if(!/^\d{12,13}$/.test(normalizado))return false;
+  const url='https://wa.me/'+normalizado+'?text='+encodeURIComponent(mensagem||'');
+  if(ehCelularWhats())window.location.href=url;
+  else window.open(url,'_blank','noopener,noreferrer');
+  return true;
+}
+
+// Ao concluir uma consulta assíncrona, registra um aviso visível e persistente.
+// O envio real continua dependendo de o usuário tocar em Enviar no WhatsApp.
+function agendarAvisoWhats(destinatarios,mensagem){
+  const validos=(destinatarios||[]).filter(d=>d&&d.telefone).map(d=>({
+    id:d.id||d.telefone,nome:d.nome||'Responsável',telefone:d.telefone,
+    mensagem:d._msg||mensagem||''
+  }));
+  if(validos.length)window.dispatchEvent(new CustomEvent('mc-whatsapp-pendente',{detail:validos}));
+  return validos.length;
+}
+
+function AvisosWhatsApp(){
+  const [avisos,setAvisos]=useState([]);
+  useEffect(()=>{
+    const receber=e=>setAvisos(prev=>{
+      const novos=Array.isArray(e.detail)?e.detail:[];
+      const chaves=new Set(prev.map(x=>x.telefone+'|'+x.mensagem));
+      return [...prev,...novos.filter(x=>{
+        const k=x.telefone+'|'+x.mensagem;
+        if(chaves.has(k))return false;
+        chaves.add(k);
+        return true;
+      })];
+    });
+    window.addEventListener('mc-whatsapp-pendente',receber);
+    return ()=>window.removeEventListener('mc-whatsapp-pendente',receber);
+  },[]);
+  if(!avisos.length)return null;
+  return h('div',{style:{position:'fixed',bottom:14,right:14,left:14,maxWidth:440,
+    marginLeft:'auto',zIndex:15000,background:'var(--bg-card)',color:'var(--text-primary)',
+    border:'2px solid var(--grespan-red)',borderRadius:12,padding:14,
+    boxShadow:'0 6px 28px rgba(0,0,0,0.25)'}},
+    h('div',{style:{fontWeight:700,marginBottom:4}},'Aviso de aprovação pelo WhatsApp'),
+    h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
+      'A etapa foi registrada. Toque no destinatário para abrir a mensagem no WhatsApp e confirme o envio no aplicativo.'),
+    ...avisos.map((a,i)=>h('div',{key:a.telefone+'|'+i,style:{display:'flex',gap:8,alignItems:'center',marginTop:7,flexWrap:'wrap'}},
+      h('button',{className:'btn btn-primary btn-sm',style:{flex:'1 1 200px'},
+        onClick:()=>{
+          if(!enviarWhatsComClique(a.telefone,a.mensagem)){
+            alert('Telefone inválido. Confira o WhatsApp do destinatário na Administração.');
+          }
+        }},'Enviar aviso para '+a.nome),
+      h('button',{className:'btn btn-secondary btn-sm',
+        onClick:()=>setAvisos(prev=>prev.filter((_,j)=>j!==i))},'Dispensar'))));
+}
+
 // descobre o proximo responsavel e avisa. Retorna a lista quando ha
 // mais de um destinatario (ai a tela mostra botoes, um clique por pessoa)
 async function avisarProximo(fichaId, ordemAtual, ficha, winRef) {
@@ -823,7 +880,11 @@ async function avisarProximo(fichaId, ordemAtual, ficha, winRef) {
   const msg = msgAprovacao(ficha, ROLE_LABELS[proxima.etapa]);
 
   if (dest.length === 0) { if (winRef && !winRef.closed) winRef.close(); return []; }
-  if (dest.length === 1) { abrirWhats(dest[0].telefone, msg, winRef); return []; }
+  if (dest.length === 1) {
+    if(ehCelularWhats())agendarAvisoWhats(dest,msg);
+    else abrirWhats(dest[0].telefone,msg,winRef);
+    return [];
+  }
   if (winRef && !winRef.closed) winRef.close();
   return dest.map(d => ({ ...d, _msg: msg }));
 }
@@ -2372,7 +2433,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   async function enviarRotaWhatsSupervisores(r){
     // Pré-abre as janelas durante o clique para evitar bloqueador de pop-up.
     const conhecidos=supervisoresRota(r.id);
-    const janelas=conhecidos.map(()=>window.open('about:blank','_blank'));
+    const janelas=ehCelularWhats()?[]:conhecidos.map(()=>window.open('about:blank','_blank'));
 
     const {error}=await sb.rpc('enviar_programacao_rota',{p_rota_id:r.id});
     if(error){
@@ -2404,14 +2465,15 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     const semTelefone=sups.filter(u=>!String(u.telefone||'').replace(/\D/g,''));
     const comTelefone=sups.filter(u=>String(u.telefone||'').replace(/\D/g,''));
 
-    // Fecha janelas excedentes ou abre as que faltarem.
-    while(janelas.length<comTelefone.length)janelas.push(window.open('about:blank','_blank'));
-    while(janelas.length>comTelefone.length){
+    // No celular, exibe os botões. No desktop, mantém as abas automáticas.
+    if(ehCelularWhats())agendarAvisoWhats(comTelefone,msgRotaWhats(r));
+    while(!ehCelularWhats()&&janelas.length<comTelefone.length)janelas.push(window.open('about:blank','_blank'));
+    while(!ehCelularWhats()&&janelas.length>comTelefone.length){
       const w=janelas.pop();try{if(w&&!w.closed)w.close();}catch(e){}
     }
 
     const msg=msgRotaWhats(r);
-    comTelefone.forEach((sup,i)=>{
+    if(!ehCelularWhats())comTelefone.forEach((sup,i)=>{
       const ok=abrirWhats(sup.telefone,msg,janelas[i]||null);
       if(!ok&&janelas[i])try{janelas[i].close();}catch(e){}
     });
@@ -2770,7 +2832,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         sol.categoria === 'bonificacao' ? `\nQuantidade: ${sol.quantidade || '—'}` :
         `\nTipo: ${sol.tipo_amostra === 'kit' ? 'KIT' : 'Produto'}`;
       const msg = `🔧 Solicitação de ${tipoMsg} aguardando sua aprovação\n*${sol.clientes && sol.clientes.razao_social}*${detalheMsg}\n\nAcesse o sistema:\n${linkSistema()}`;
-      if (dest.length === 1) abrirWhats(dest[0].telefone, msg, winRef);
+      if(ehCelularWhats())agendarAvisoWhats(dest,msg);
+      else if (dest.length === 1) abrirWhats(dest[0].telefone, msg, winRef);
       else if (winRef && !winRef.closed) winRef.close();
     } else if (winRef && !winRef.closed) winRef.close();
 
@@ -9522,7 +9585,9 @@ function App() {
       conteudo));
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(h(ToastProvider, null, h(App, null)));
+ReactDOM.createRoot(document.getElementById('root')).render(
+  h(ToastProvider,null,h(React.Fragment,null,h(App,null),h(AvisosWhatsApp,null)))
+);
 </script>
 </body>
 </html>
