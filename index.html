@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v99-workflow-ordenado';
-console.info('[Meu Cliente] BUILD v99-workflow-ordenado');
+window.__MEU_CLIENTE_BUILD__='v100-bonificacao-parecer-financeiro';
+console.info('[Meu Cliente] BUILD v100-bonificacao-parecer-financeiro');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2847,8 +2847,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     const solEstado={data:{categoria:ap.solicitacoes?.categoria}};
     const proximaEtapa=avanco.data&&avanco.data.proxima_etapa
       ? avanco.data.proxima_etapa:null;
-    if(status==='reprovado' && solEstado.data.categoria==='bonificacao' && ap.etapa!=='diretoria'){
-      toast('Parecer desfavorável registrado. A bonificação seguirá para a próxima etapa.','info');
+    if(status==='reprovado' && solEstado.data.categoria==='bonificacao' && ap.etapa==='financeiro'){
+      toast('Parecer do Financeiro registrado. A Diretoria fará a decisão final.','info');
     }
 
     // O retorno da RPC informa a etapa real, sem depender de RLS para encontrá-la.
@@ -2894,7 +2894,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     // preservando todos os itens de solicitacao_equipamentos.
 
     const parecerSemVeto=ap.solicitacoes&&ap.solicitacoes.categoria==='bonificacao'&&
-      ap.etapa!=='diretoria'&&status==='reprovado';
+      ap.etapa==='financeiro'&&status==='reprovado';
     toast(parecerSemVeto?'Parecer desfavorável registrado; solicitação encaminhada à próxima etapa.':
       status==='reprovado'?'Solicitação reprovada.':'Etapa aprovada.',
       status==='aprovado'?'success':'info');
@@ -3479,8 +3479,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
     const st=String(s.status_fluxo||'aberta').toLowerCase();
     if(st==='concluida')return 'concluido';
     if(st==='vinculada')return 'realizacao';
-    // Veto da Diretoria encerra o processo sem execução.
-    if(st==='reprovada')return 'concluido';
+    // Reprovação definitiva não é realização nem conclusão.
+    if(st==='reprovada')return 'reprovada';
     const etapas=s.solicitacao_aprovacoes||[];
     const decisaoFinal=st==='aprovada' ||
       (etapas.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
@@ -3607,7 +3607,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       ...[
         ['aprovacao','Pendente Aprovação'],
         ['realizacao','Pendente Realização'],
-        ['concluido','Concluído']
+        ['concluido','Concluído'],
+        ['reprovada','Reprovadas']
       ].map(([id,nome])=>h('button',{
         key:id,onClick:()=>setSubStatus(id),
         style:{padding:'9px 12px',border:'none',background:'none',cursor:'pointer',
@@ -3615,9 +3616,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           color:subStatus===id?'var(--accent)':'var(--text-muted)',
           fontWeight:subStatus===id?700:500,fontSize:12}
       },nome+' ('+quantidadePorSituacao(id)+')'))),
-    subStatus==='concluido'&&lista.some(x=>x.status_fluxo==='reprovada') &&
-      h('div',{className:'card',style:{marginBottom:12,fontSize:12}},
-        'As solicitações reprovadas definitivamente aparecem aqui como processos encerrados sem realização, identificadas pelo status "reprovada".'),
+    subStatus==='reprovada'&&h('div',{className:'card',style:{marginBottom:12,fontSize:12}},
+      'Processos reprovados definitivamente, sem realização. Parecer desfavorável do Financeiro não é veto para bonificações.'),
     sub==='equipamento'&&erroStatusRealizacao &&
       h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)',fontSize:12}},
         erroStatusRealizacao,
