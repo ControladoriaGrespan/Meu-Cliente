@@ -28,14 +28,14 @@ BEGIN
   v_expr := substring(v_def FROM 8 FOR char_length(v_def)-8);
 
   -- Idempotência: não empilha a mesma exceção numa segunda execução.
-  IF position('mc_motivo_retirada_permitido' IN v_expr) > 0 THEN
+  IF position('Baixo consumo' IN v_expr) > 0 AND position('Encerramento do contrato' IN v_expr) > 0 THEN
     RAISE NOTICE 'Motivos de retirada já habilitados. Nenhuma alteração necessária.';
     RETURN;
   END IF;
 
   EXECUTE 'ALTER TABLE public.solicitacoes DROP CONSTRAINT solicitacoes_justificativa_check';
   EXECUTE format(
-    'ALTER TABLE public.solicitacoes ADD CONSTRAINT solicitacoes_justificativa_check CHECK ((%s) OR (tipo = ''retirada'' AND justificativa IN (''Baixo consumo'', ''Encerramento do contrato'') /* mc_motivo_retirada_permitido */))',
+    'ALTER TABLE public.solicitacoes ADD CONSTRAINT solicitacoes_justificativa_check CHECK ((%s) OR (tipo = ''retirada'' AND justificativa IN (''Baixo consumo'', ''Encerramento do contrato'')))',
     v_expr
   );
   RAISE NOTICE 'Motivos Baixo consumo e Encerramento do contrato habilitados para retirada.';
