@@ -3393,6 +3393,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
   const [subStatus,setSubStatus] = useState('aprovacao');
+  const [concluindoSolicitacao,setConcluindoSolicitacao]=useState(null);
+  const toast=useToast();
   const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
   const [erroStatusRealizacao,setErroStatusRealizacao]=useState('');
 
@@ -3427,7 +3429,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
 
   function situacaoSolicitacao(s){
     const st=String(s.status_fluxo||'aberta').toLowerCase();
-    if(['concluida','vinculada'].includes(st))return 'concluido';
+    if(st==='concluida')return 'concluido';
+    if(st==='vinculada')return 'realizacao';
     // Veto da Diretoria encerra o processo sem execução.
     if(st==='reprovada')return 'concluido';
     const etapas=s.solicitacao_aprovacoes||[];
@@ -3436,10 +3439,28 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
        etapas.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status)));
     if(!decisaoFinal)return 'aprovacao';
     if(s.categoria==='equipamento'||!s.categoria){
-      const entregas=entregasPorSolicitacao[s.id]||[];
+      const entregas=s.entregas_operacionais||entregasPorSolicitacao[s.id]||[];
       if(entregas.length&&entregas.every(e=>e.status==='concluida'))return 'concluido';
     }
     return 'realizacao';
+  }
+
+  const podeConcluirAdm=modulo==='administracao_vendas' &&
+    ['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
+  async function concluirSolicitacaoAdm(sol){
+    if(concluindoSolicitacao)return;
+    if(!podeConcluirAdm||!['bonificacao','amostra'].includes(sol.categoria))return;
+    if(sol.status_fluxo!=='vinculada'){
+      return toast('A solicitação precisa estar vinculada ao pedido antes da conclusão.','error');
+    }
+    if(!window.confirm('Confirmar que a realização de '+codigoAuditoria(sol,sol.categoria==='bonificacao'?'BON':'AMO')+
+      ' foi conferida pela Administração de Vendas?'))return;
+    setConcluindoSolicitacao(sol.id);
+    const {error}=await sb.rpc('mc_concluir_solicitacao_adm_vendas',{p_solicitacao_id:sol.id});
+    setConcluindoSolicitacao(null);
+    if(error)return toast('Não foi possível concluir a solicitação: '+error.message,'error');
+    toast('Realização confirmada pela Administração de Vendas.','success');
+    await carregar();
   }
 
   useEffect(() => { carregar(); }, [visao,modulo,profile.id]);
@@ -3560,7 +3581,21 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
               h(Stepper, { aprovacoes: f.ficha_aprovacoes }))))
       : (lista.length === 0
           ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: 'Nenhuma solicitação nesta situação.' }))
-          : lista.map(x => h(CardSolicitacao, { key: x.id, s: x }))));
+          : lista.map(x => h('div',{key:x.id},
+              h(CardSolicitacao,{s:x}),
+              podeConcluirAdm && subStatus==='realizacao' &&
+                ['bonificacao','amostra'].includes(x.categoria) &&
+                x.status_fluxo==='vinculada' &&
+                h('div',{className:'card',style:{marginTop:-5,marginBottom:12,padding:12,
+                  borderColor:'var(--accent)',display:'flex',alignItems:'center',
+                  justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
+                  h('span',{style:{fontSize:12}},
+                    'Vinculada ao pedido. A Administração de Vendas confirma a realização.'),
+                  h('button',{className:'btn btn-success btn-sm',
+                    disabled:!!concluindoSolicitacao,
+                    onClick:()=>concluirSolicitacaoAdm(x)},
+                    concluindoSolicitacao===x.id?'Concluindo...':'✓ Confirmar realização'))
+            ))));
 }
 
 
@@ -8155,7 +8190,7 @@ function PaginaPedidos({ profile }) {
     if (bonificacoesVinculadas.length) {
       for (const b of bonificacoesVinculadas) {
         const { error: erroConclusaoBonificacao } = await sb.from('solicitacoes').update({
-          status_fluxo: 'concluida',
+          status_fluxo: 'vinculada',
           pedido_id: pedidoId,
           vinculada_em: new Date().toISOString(),
           vinculada_por: profile.id
@@ -8171,7 +8206,7 @@ function PaginaPedidos({ profile }) {
     if (amostrasVinculadas.length) {
       for (const a of amostrasVinculadas) {
         const { error: erroConclusaoAmostra } = await sb.from('solicitacoes').update({
-          status_fluxo: 'concluida',
+          status_fluxo: 'vinculada',
           pedido_id: pedidoId,
           vinculada_em: new Date().toISOString(),
           vinculada_por: profile.id
