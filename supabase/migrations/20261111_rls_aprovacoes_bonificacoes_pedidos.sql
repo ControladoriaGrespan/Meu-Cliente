@@ -33,7 +33,7 @@ USING (
 COMMIT;
 
 -- Conferência da política (não simula a RLS do usuário logado).
-SELECT polname,cmd,roles,qual
+SELECT policyname,cmd,roles,qual
 FROM pg_policies
 WHERE schemaname='public'
   AND tablename='solicitacao_aprovacoes'
