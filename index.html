@@ -1184,6 +1184,13 @@ function PaginaEmissao({ profile, onSaved }) {
     if(Number(f.bonificacao_percentual)<0||Number(f.bonificacao_percentual)>100)return toast('Bonificação deve estar entre 0% e 100%.','error');
     if(Number(f.bonificacao_percentual)>0&&!f.bonificacao_periodicidade)return toast('Informe a periodicidade da bonificação.','error');
     if(Object.values(f.equipamentos_quantidades||{}).some(n=>!Number.isInteger(Number(n))||Number(n)<0))return toast('Quantidades de equipamentos devem ser inteiros não negativos.','error');
+    if(precisaEquip){
+      for(const [ch,nome] of [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']]){
+        if(Number(f.equipamentos_quantidades[ch]||0)>0 &&
+          !['5','8'].includes(String(f.equipamentos_quantidades[ch+'_esteiras']||'')))
+          return toast('Selecione o modelo de 5 ou 8 esteiras para '+nome+'.','error');
+      }
+    }
 
     setSalvando(true);
     const winRef = preAbrirJanelaWhats(); // abre ja no gesto do usuario
@@ -1212,7 +1219,12 @@ function PaginaEmissao({ profile, onSaved }) {
       equipamento_condicao: precisaEquip ? f.equipamento_condicao : null,
       forno_tipo: precisaEquip ? (Number(f.equipamentos_quantidades.forno_gas||0)>0&&Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Gás e Elétrico':Number(f.equipamentos_quantidades.forno_gas||0)>0?'Gás':Number(f.equipamentos_quantidades.forno_eletrico||0)>0?'Elétrico':null) : null,
       forno_quantidade: precisaEquip ? Number(f.equipamentos_quantidades.forno_gas||0)+Number(f.equipamentos_quantidades.forno_eletrico||0) : null,
-      forno_esteiras: precisaEquip ? (f.forno_esteiras || null) : null,
+      forno_esteiras: precisaEquip ? ((()=>{
+        const a=f.equipamentos_quantidades||{};
+        const modelos=[['forno_gas','forno_gas_esteiras'],['forno_eletrico','forno_eletrico_esteiras']]
+          .filter(([ch])=>Number(a[ch]||0)>0).map(([,ch])=>String(a[ch]||''));
+        return modelos.length&&modelos.every(v=>v===modelos[0])?modelos[0]:null;
+      })()) : null,
       freezer_tipos: precisaEquip && f.freezer_tipos.length ? f.freezer_tipos : null,
       armario_tipo: precisaEquip ? (f.armario_tipo || null) : null,
       camara_climatica: precisaEquip ? (f.camara_climatica || null) : null,
@@ -1353,29 +1365,33 @@ function PaginaEmissao({ profile, onSaved }) {
         h('div',{className:'sub-title'},'Fornos — escolha um ou ambos os modelos'),
         h('div',{className:'form-grid'},
           ...[['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].map(([ch,nome])=>
-            h(Campo,{key:ch,label:nome},
-              h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
-                h(Select,{
-                  opcoes:['Sim','Não'],
+            h('div',{key:ch,style:{gridColumn:'1 / -1',display:'grid',
+              gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:12,
+              padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}},
+              h(Campo,{label:nome},
+                h('select',{className:'form-select',
                   value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',
                   onChange:e=>set('equipamentos_quantidades',{
-                    ...f.equipamentos_quantidades,[ch]:e.target.value==='Sim'?1:0
-                  })
-                }),
-                h(Input,{
-                  type:'number',min:1,step:1,placeholder:'Quantidade',
+                    ...f.equipamentos_quantidades,
+                    [ch]:e.target.value==='Sim'?1:0,
+                    [ch+'_esteiras']:e.target.value==='Sim'?(f.equipamentos_quantidades[ch+'_esteiras']||''):''})},
+                  h('option',{value:'Não'},'Não'),h('option',{value:'Sim'},'Sim'))),
+              h(Campo,{label:'Quantidade'},
+                h(Input,{type:'number',min:1,step:1,placeholder:'Quantidade',
                   disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
                   value:f.equipamentos_quantidades[ch]||'',
                   onChange:e=>set('equipamentos_quantidades',{
-                    ...f.equipamentos_quantidades,[ch]:e.target.value
-                  })
-                })
-              )
+                    ...f.equipamentos_quantidades,[ch]:e.target.value})})),
+              h(Campo,{label:'Modelo de esteiras'},
+                h('select',{className:'form-select',
+                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  value:String(f.equipamentos_quantidades[ch+'_esteiras']||''),
+                  onChange:e=>set('equipamentos_quantidades',{
+                    ...f.equipamentos_quantidades,[ch+'_esteiras']:e.target.value})},
+                  h('option',{value:''},'Selecione...'),
+                  h('option',{value:'5'},'5 esteiras'),h('option',{value:'8'},'8 esteiras')))
             )
-          ),
-          h(Campo,{label:'Esteiras por forno'},
-            h(Select,{opcoes:['5','8'],value:f.forno_esteiras,
-              onChange:e=>set('forno_esteiras',e.target.value)}))
+          )
         ),
         h('div',{className:'sub-title'},'Freezers, Expositores, Armários e Câmaras'),
         h('div',{className:'form-grid'},
@@ -1432,7 +1448,7 @@ const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['free
 function itensEquipamentosFicha(f,condicaoFinal){
   const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
   const fornos=f.equipamentos_quantidades||{};
-  [['forno_gas','GÁS'],['forno_eletrico','ELÉTRICO']].forEach(([k,n])=>{if(Number(fornos[k]||0)>0)a.push({quantidade:Number(fornos[k]),descricao:`FORNO ${n}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});});
+  [['forno_gas','GÁS'],['forno_eletrico','ELÉTRICO']].forEach(([k,n])=>{if(Number(fornos[k]||0)>0){const modelo=fornos[k+'_esteiras']||f.forno_esteiras;a.push({quantidade:Number(fornos[k]),descricao:`FORNO ${n}${modelo?' '+modelo+' ESTEIRAS':''}`,patrimonio:'',condicao:c});}});
   if(!Number(fornos.forno_gas||0)&&!Number(fornos.forno_eletrico||0)&&f.forno_tipo)a.push({quantidade:Number(f.forno_quantidade||1),descricao:`FORNO ${String(f.forno_tipo).toUpperCase()}${f.forno_esteiras?' '+f.forno_esteiras+' ESTEIRAS':''}`,patrimonio:'',condicao:c});
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)a.push({quantidade:qtd,descricao:nome.toUpperCase(),patrimonio:'',condicao:c});});
   if(!Object.keys(f.equipamentos_quantidades||{}).length)(f.freezer_tipos||[]).forEach(x=>a.push({quantidade:1,descricao:'FREEZER '+String(x).toUpperCase(),patrimonio:'',condicao:c}));
@@ -1446,7 +1462,7 @@ function itensEquipamentosFicha(f,condicaoFinal){
 function resumoEquipamentos(f) {
   if (!f.precisa_equipamento) return 'Não';
   const partes = [f.equipamento_condicao];
-  [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].forEach(([k,n])=>{const q=Number((f.equipamentos_quantidades||{})[k]||0);if(q>0)partes.push(n+' x'+q);});
+  [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].forEach(([k,n])=>{const eq=f.equipamentos_quantidades||{},q=Number(eq[k]||0),modelo=eq[k+'_esteiras']||f.forno_esteiras;if(q>0)partes.push(n+' x'+q+(modelo?' ('+modelo+' esteiras)':''));});
   if(!Number((f.equipamentos_quantidades||{}).forno_gas||0)&&!Number((f.equipamentos_quantidades||{}).forno_eletrico||0)&&f.forno_tipo) partes.push(`Forno ${f.forno_tipo}${f.forno_quantidade ? ' x' + f.forno_quantidade : ''}${f.forno_esteiras ? ' (' + f.forno_esteiras + ' esteiras)' : ''}`);
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)partes.push(nome+' x'+qtd);});
   if (!Object.keys(f.equipamentos_quantidades||{}).length&&f.freezer_tipos && f.freezer_tipos.length) partes.push('Freezer: ' + f.freezer_tipos.join(', '));
@@ -3891,7 +3907,12 @@ function PaginaClientes({ profile, modulo }) {
 function listarEquipamentos(f) {
   if (!f || !f.precisa_equipamento) return [];
   const itens = [];
-  if (f.forno_tipo) itens.push(`Forno ${f.forno_tipo}${f.forno_esteiras ? ' - ' + f.forno_esteiras + ' esteiras' : ''}${f.forno_quantidade ? ' (x' + f.forno_quantidade + ')' : ''}`);
+  const eq=f.equipamentos_quantidades||{};
+  if(Number(eq.forno_gas||0)>0||Number(eq.forno_eletrico||0)>0){
+    [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']].forEach(([ch,nome])=>{
+      if(Number(eq[ch]||0)>0)itens.push(nome+' - '+(eq[ch+'_esteiras']||f.forno_esteiras||'?')+' esteiras (x'+eq[ch]+')');
+    });
+  } else if (f.forno_tipo) itens.push(`Forno ${f.forno_tipo}${f.forno_esteiras ? ' - ' + f.forno_esteiras + ' esteiras' : ''}${f.forno_quantidade ? ' (x' + f.forno_quantidade + ')' : ''}`);
   (f.freezer_tipos || []).forEach(t => itens.push('Freezer ' + t));
   if (f.armario_tipo) itens.push('Armário ' + f.armario_tipo);
   if (f.camara_climatica) itens.push('Câmara Climática ' + f.camara_climatica);
