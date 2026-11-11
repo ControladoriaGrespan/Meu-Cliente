@@ -3392,6 +3392,9 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [detalhe, setDetalhe] = useState(null);
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
+  const [subStatus,setSubStatus] = useState('aprovacao');
+  const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
+  const [erroStatusRealizacao,setErroStatusRealizacao]=useState('');
 
   const ehVendedor = visao === 'vendedor';
   const podeBonificacao = modulo === 'vendas' && ['vendedor','supervisor','admin'].includes(visao);
@@ -3399,9 +3402,51 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
+  async function carregarSituacaoEquipamentos(lista){
+    const ids=(lista||[]).filter(s=>!s.categoria||s.categoria==='equipamento').map(s=>s.id).filter(Boolean);
+    if(!ids.length){setEntregasPorSolicitacao({});return;}
+    let todos=[];
+    for(let i=0;i<ids.length;i+=150){
+      const q=await sb.from('entregas_equipamentos')
+        .select('id,solicitacao_id,status,concluida_em')
+        .in('solicitacao_id',ids.slice(i,i+150));
+      if(q.error){
+        console.warn('Status operacional da Manutenção:',q.error);
+        setErroStatusRealizacao('Não foi possível conferir todas as conclusões da Manutenção: '+q.error.message);
+        break;
+      }
+      todos.push(...(q.data||[]));
+    }
+    const mapa={};
+    todos.forEach(d=>{
+      if(!mapa[d.solicitacao_id])mapa[d.solicitacao_id]=[];
+      mapa[d.solicitacao_id].push(d);
+    });
+    setEntregasPorSolicitacao(mapa);
+  }
+
+  function situacaoSolicitacao(s){
+    const st=String(s.status_fluxo||'aberta').toLowerCase();
+    if(['concluida','vinculada'].includes(st))return 'concluido';
+    // Veto da Diretoria encerra o processo sem execução.
+    if(st==='reprovada')return 'concluido';
+    const etapas=s.solicitacao_aprovacoes||[];
+    const decisaoFinal=st==='aprovada' ||
+      (etapas.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
+       etapas.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status)));
+    if(!decisaoFinal)return 'aprovacao';
+    if(s.categoria==='equipamento'||!s.categoria){
+      const entregas=entregasPorSolicitacao[s.id]||[];
+      if(entregas.length&&entregas.every(e=>e.status==='concluida'))return 'concluido';
+    }
+    return 'realizacao';
+  }
+
   useEffect(() => { carregar(); }, [visao,modulo,profile.id]);
   async function carregar() {
     setErroConsultaSolicitacoes('');
+    setErroStatusRealizacao('');
+    setEntregasPorSolicitacao({});
     const adminVendas=modulo==='administracao_vendas' &&
       ['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
     // Perfil administrativo possui consulta de leitura de todas as solicitações,
@@ -3414,7 +3459,9 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           '. Verifique a migração 20261111_solicitacoes_leitura_adm_vendas.sql no Supabase.');
         setSolicitacoes([]);
       }else{
-        setSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]);
+        const lista=Array.isArray(resultado.data)?resultado.data:[];
+        setSolicitacoes(lista);
+        await carregarSituacaoEquipamentos(lista);
       }
       setFichas([]);
       return;
@@ -3435,6 +3482,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
     }
     setFichas(rf.data||[]);
     setSolicitacoes(rs.data||[]);
+    await carregarSituacaoEquipamentos(rs.data||[]);
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -3449,14 +3497,16 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   ];
   if (ehVendedor) abas.push({ id: 'fichas', label: 'Minhas fichas (' + (fichas || []).length + ')' });
 
-  const lista = sub === 'bonificacao' ? bonificacoes : sub === 'amostra' ? amostras : equipamentos;
+  const listaCategoria = sub === 'bonificacao' ? bonificacoes : sub === 'amostra' ? amostras : equipamentos;
+  const quantidadePorSituacao=ch=>listaCategoria.filter(s=>situacaoSolicitacao(s)===ch).length;
+  const lista=listaCategoria.filter(s=>situacaoSolicitacao(s)===subStatus);
   const podeCriar = podeEquipamento || podeBonificacao || podeAmostra;
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
     modalNova && h(ModalNovaSolicitacao, {
       profile, visao, modulo, onClose: () => setModalNova(false),
-      onCriada: (categoria) => { setModalNova(false); setSub(categoria || 'equipamento'); carregar(); }
+      onCriada: (categoria) => { setModalNova(false); setSub(categoria || 'equipamento'); setSubStatus('aprovacao'); carregar(); }
     }),
 
     h('div', { className: 'page-head' },
@@ -3472,7 +3522,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
 
     h('div', { className: 'tabs', style: { display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 18, flexWrap: 'wrap' } },
       abas.map(a => h('button', {
-        key: a.id, onClick: () => setSub(a.id),
+        key: a.id, onClick: () => { setSub(a.id); setSubStatus('aprovacao'); },
         style: {
           padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
           background: 'none', border: 'none', fontFamily: 'inherit',
@@ -3480,6 +3530,23 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           color: sub === a.id ? 'var(--accent)' : 'var(--text-muted)'
         }
       }, a.label))),
+
+    sub!=='fichas' && h('div',{className:'tabs',style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:16,borderBottom:'1px solid var(--border)'}},
+      ...[
+        ['aprovacao','Pendente Aprovação'],
+        ['realizacao','Pendente Realização'],
+        ['concluido','Concluído']
+      ].map(([id,nome])=>h('button',{
+        key:id,onClick:()=>setSubStatus(id),
+        style:{padding:'9px 12px',border:'none',background:'none',cursor:'pointer',
+          borderBottom:'2px solid '+(subStatus===id?'var(--accent)':'transparent'),
+          color:subStatus===id?'var(--accent)':'var(--text-muted)',
+          fontWeight:subStatus===id?700:500,fontSize:12}
+      },nome+' ('+quantidadePorSituacao(id)+')'))),
+    sub==='equipamento'&&erroStatusRealizacao &&
+      h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)',fontSize:12}},
+        erroStatusRealizacao,
+        h('div',{style:{marginTop:5}},'Itens sem confirmação operacional permanecem em Pendente Realização.')),
 
     sub === 'fichas'
       ? ((fichas || []).length === 0
@@ -3492,7 +3559,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
                 h('div', { style: { fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(f.faturamento_previsto))),
               h(Stepper, { aprovacoes: f.ficha_aprovacoes }))))
       : (lista.length === 0
-          ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: 'Nenhuma solicitação nesta categoria.' }))
+          ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: 'Nenhuma solicitação nesta situação.' }))
           : lista.map(x => h(CardSolicitacao, { key: x.id, s: x }))));
 }
 
