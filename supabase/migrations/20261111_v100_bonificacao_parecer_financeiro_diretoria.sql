@@ -122,6 +122,39 @@ REVOKE ALL ON FUNCTION public.mc_decidir_solicitacao_workflow(uuid,text,text)
 GRANT EXECUTE ON FUNCTION public.mc_decidir_solicitacao_workflow(uuid,text,text)
   TO authenticated;
 
+-- Substitui a trava legada de liberação (que exigia Financeiro aprovado).
+-- Parecer de Financeiro pode ser aprovado OU reprovado; Diretoria deve aprovar.
+CREATE OR REPLACE FUNCTION public.mc_validar_liberacao_bonificacao()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=public,pg_temp AS $
+BEGIN
+  IF NEW.categoria='bonificacao'
+     AND NEW.status_fluxo IN ('aprovada','vinculada','concluida')
+     AND (TG_OP='INSERT'
+       OR OLD.status_fluxo IS DISTINCT FROM NEW.status_fluxo
+       OR OLD.pedido_id IS DISTINCT FROM NEW.pedido_id) THEN
+    IF NOT EXISTS(
+      SELECT 1 FROM public.solicitacao_aprovacoes a
+      WHERE a.solicitacao_id=NEW.id AND a.etapa='financeiro'
+        AND a.status IN ('aprovado','reprovado')
+    ) OR NOT EXISTS(
+      SELECT 1 FROM public.solicitacao_aprovacoes a
+      WHERE a.solicitacao_id=NEW.id AND a.etapa='diretoria'
+        AND a.status='aprovado'
+    ) OR EXISTS(
+      SELECT 1 FROM public.solicitacao_aprovacoes a
+      WHERE a.solicitacao_id=NEW.id AND NOT (
+        a.status IN ('aprovado','nao_aplica')
+        OR (a.etapa='financeiro' AND a.status='reprovado')
+      )
+    ) THEN
+      RAISE EXCEPTION 'Bonificação exige parecer Financeiro finalizado e aprovação da Diretoria';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$;
+
 -- Correção EXCLUSIVAMENTE da BON-000017. Mantém parecer e autor/datas históricos.
 -- Não duplica etapa da Diretoria.
 DO $repair$
