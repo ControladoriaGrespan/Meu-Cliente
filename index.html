@@ -7437,6 +7437,7 @@ function PaginaPedidos({ profile }) {
   // Estes estados eram utilizados na v13, mas não estavam declarados,
   // causando ReferenceError e tela branca ao selecionar o cliente.
   const [bonificacoesAbertas, setBonificacoesAbertas] = useState([]);
+  const [diagnosticoBonificacoes,setDiagnosticoBonificacoes] = useState(null);
   const [bonificacoesVinculadas, setBonificacoesVinculadas] = useState([]);
   const [amostrasAbertas, setAmostrasAbertas] = useState([]);
   const [amostrasVinculadas, setAmostrasVinculadas] = useState([]);
@@ -7565,7 +7566,7 @@ function PaginaPedidos({ profile }) {
     setErroHistoricoTotvs(historico.error?.message||'');
     setLancando({ rota, data: dataStr, clientesRota: cls });
     } catch (err) { console.error('Erro ao abrir lançamento:', err); toast('Erro ao carregar rota: ' + err.message, 'error'); }
-    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
+    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]);setDiagnosticoBonificacoes(null); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
   }
 
   function statusCliente(clienteId) { return acompanhamentoMap[clienteId] || 'sem_contato'; }
@@ -7644,18 +7645,39 @@ function PaginaPedidos({ profile }) {
       (tpItens || []).forEach(tp => { mapaTabelaPreco[tp.produto_id] = Number(tp.preco_unitario); });
       setTabelaPrecoCliente(mapaTabelaPreco);
     }
-    const { data: bons } = await sb.from('solicitacoes')
+    // Carrega também solicitações não elegíveis para informar a causa do bloqueio.
+    // A aprovação financeira + diretoria continua obrigatória, sem exceções.
+    const { data: bons, error: erroBons } = await sb.from('solicitacoes')
       .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(etapa,status)')
       .eq('cliente_id', cli.id).eq('categoria', 'bonificacao')
-      .eq('status_fluxo', 'aprovada')
       .order('created_at', { ascending: true });
-    const aprovadas = (bons || []).filter(b => {
-      const aps = b.solicitacao_aprovacoes || [];
-      // Somente bonificações com aprovação explícita da Diretoria.
-      return aps.some(a => a.etapa === 'diretoria' && a.status === 'aprovado') &&
-        aps.every(a => ['aprovado','nao_aplica'].includes(a.status));
-    });
-    setBonificacoesAbertas(aprovadas);
+    if(erroBons){
+      console.error('Falha ao consultar bonificações do cliente',erroBons);
+      setDiagnosticoBonificacoes({erro:erroBons.message,clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
+      setBonificacoesAbertas([]);
+    }else{
+      const candidatos=(bons||[]);
+      const aprovadas=candidatos.filter(b=>{
+        const aps=b.solicitacao_aprovacoes||[];
+        return b.status_fluxo==='aprovada' &&
+          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
+          aps.some(a=>a.etapa==='financeiro'&&a.status==='aprovado') &&
+          aps.length>0 &&
+          aps.every(a=>['aprovado','nao_aplica'].includes(a.status));
+      });
+      const bloqueadas=candidatos.filter(b=>b.status_fluxo==='aprovada'&&!aprovadas.some(x=>x.id===b.id));
+      setDiagnosticoBonificacoes({
+        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id,
+        bloqueadas:bloqueadas.map(b=>({
+          codigo:b.codigo||codigoAuditoria(b,'BON'),
+          motivo:(b.solicitacao_aprovacoes||[]).map(ap=>ap.etapa+': '+ap.status).join(' | ')||'Sem etapas de aprovação disponíveis',
+          id:b.id
+        })),
+        total:candidatos.length,
+        aprovadas:aprovadas.length
+      });
+      setBonificacoesAbertas(aprovadas);
+    }
     setBonificacoesVinculadas([]);
 
     const { data: amos } = await sb.from('solicitacoes')
@@ -8326,6 +8348,20 @@ function PaginaPedidos({ profile }) {
                      h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']].map(([op,nome])=>h('option',{key:op,value:op},nome)))),
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
+                diagnosticoBonificacoes && (diagnosticoBonificacoes.erro ||
+                  (diagnosticoBonificacoes.bloqueadas||[]).length>0) &&
+                  h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)'}},
+                    h('div',{className:'section-title'},'Conferência das bonificações do cliente'),
+                    diagnosticoBonificacoes.erro
+                      ? h('div',{style:{fontSize:13,color:'var(--danger)'}},
+                          'Não foi possível consultar as bonificações: '+diagnosticoBonificacoes.erro)
+                      : (diagnosticoBonificacoes.bloqueadas||[]).map(b=>
+                          h('div',{key:b.id,style:{fontSize:12,padding:'6px 0'}},
+                            h('strong',null,b.codigo+' — aprovações inconsistentes: '),
+                            b.motivo)),
+                    h('div',{style:{fontSize:11,color:'var(--text-muted)',marginTop:5}},
+                      'Cliente '+diagnosticoBonificacoes.clienteCodigo+
+                      ' · Consulte a solicitação nas aprovações. Somente bonificações com Financeiro e Diretoria aprovados podem ser vinculadas.')),
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
                   h('div', { className: 'section-title' }, 'Bonificações aprovadas em aberto'),
                   bonificacoesAbertas.map(b => {
