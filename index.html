@@ -2898,7 +2898,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     // Troca e retirada: a demanda operacional é criada no banco pelos triggers das migrações 99/110,
     // preservando todos os itens de solicitacao_equipamentos.
 
-    toast(`Solicitação ${status}.`, status === 'aprovado' ? 'success' : 'info');
+    const parecerSemVeto=ap.solicitacoes&&ap.solicitacoes.categoria==='bonificacao'&&
+      ap.etapa!=='diretoria'&&status==='reprovado';
+    toast(parecerSemVeto?'Parecer desfavorável registrado; solicitação encaminhada à próxima etapa.':
+      status==='reprovado'?'Solicitação reprovada.':'Etapa aprovada.',
+      status==='aprovado'?'success':'info');
     carregar(); onChanged && onChanged();
   }
 
