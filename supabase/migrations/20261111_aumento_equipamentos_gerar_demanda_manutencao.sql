@@ -35,6 +35,14 @@ BEGIN
   FROM public.solicitacao_equipamentos e
   WHERE e.solicitacao_id=v_s.id AND e.movimento IN ('equipamento','entregar');
 
+  IF NULLIF(btrim(v_cli->>'endereco_logradouro'),'') IS NULL AND
+     NULLIF(btrim(v_cli->>'rua'),'') IS NULL AND
+     NULLIF(btrim(v_cli->>'logradouro'),'') IS NULL AND
+     NULLIF(btrim(v_cli->>'endereco_rua'),'') IS NULL THEN
+    RAISE NOTICE 'Demanda não criada para solicitação %: cliente sem rua cadastrada',v_s.id;
+    RETURN;
+  END IF;
+
   INSERT INTO public.entregas_equipamentos (
     solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,
     equipamento_resumo,equipamento_entrega,criado_por,
@@ -45,12 +53,12 @@ BEGIN
     COALESCE(v_resumo,v_s.equipamento,'Aumento de equipamentos'),
     COALESCE(v_resumo,v_s.equipamento,'Aumento de equipamentos'),
     v_s.solicitante_id,
-    COALESCE(v_cli->>'rua',v_cli->>'logradouro',v_cli->>'endereco_rua'),
-    COALESCE(v_cli->>'numero',v_cli->>'endereco_numero'),
-    COALESCE(v_cli->>'bairro',v_cli->>'endereco_bairro'),
+    COALESCE(NULLIF(btrim(v_cli->>'endereco_logradouro'),''),NULLIF(btrim(v_cli->>'rua'),''),NULLIF(btrim(v_cli->>'logradouro'),''),NULLIF(btrim(v_cli->>'endereco_rua'),'')),
+    COALESCE(NULLIF(btrim(v_cli->>'endereco_numero'),''),NULLIF(btrim(v_cli->>'numero'),'')),
+    COALESCE(NULLIF(btrim(v_cli->>'endereco_bairro'),''),NULLIF(btrim(v_cli->>'bairro'),'')),
     COALESCE(v_cli->>'cidade',v_cli->>'endereco_cidade'),
     COALESCE(v_cli->>'estado',v_cli->>'uf',v_cli->>'endereco_estado'),
-    COALESCE(v_cli->>'cep',v_cli->>'endereco_cep')
+    COALESCE(NULLIF(btrim(v_cli->>'endereco_cep'),''),NULLIF(btrim(v_cli->>'cep'),''))
   );
 END;
 $fn$;
