@@ -7822,62 +7822,76 @@ function PaginaPedidos({ profile }) {
       (tpItens || []).forEach(tp => { mapaTabelaPreco[tp.produto_id] = Number(tp.preco_unitario); });
       setTabelaPrecoCliente(mapaTabelaPreco);
     }
-    // Consulta as bonificações sem embeds: evita que a falha de um relacionamento
-    // produtos/aprovações torne toda a lista invisível no pedido.
-    // O filtro por cliente e a liberação final continuam obrigatórios.
+    // Administração de Vendas: usa a consulta autenticada que já funciona em
+    // Solicitações. SELECT direto pode retornar zero linhas por RLS sem erro.
     setDiagnosticoBonificacoes(null);
-    const {data:bons,error:erroBons}=await sb.from('solicitacoes')
-      .select('*').eq('cliente_id',cli.id).eq('categoria','bonificacao')
-      .order('created_at',{ascending:true});
-    if(erroBons){
-      console.error('Falha ao consultar bonificações do cliente',erroBons);
-      setDiagnosticoBonificacoes({erro:erroBons.message,clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
+    const admPedido=['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
+    let candidatos=[],erroBons=null,erroAprovacoes=null;
+    if(admPedido){
+      const resposta=await sb.rpc('mc_listar_solicitacoes_adm_vendas');
+      if(resposta.error){
+        erroBons=resposta.error;
+      }else if(!Array.isArray(resposta.data)){
+        erroBons={message:'A consulta administrativa não retornou uma lista válida.'};
+      }else{
+        candidatos=resposta.data.filter(b=>b.categoria==='bonificacao'&&
+          String(b.cliente_id)===String(cli.id));
+      }
+    }else{
+      const resposta=await sb.from('solicitacoes')
+        .select('*').eq('cliente_id',cli.id).eq('categoria','bonificacao')
+        .order('created_at',{ascending:true});
+      erroBons=resposta.error;
+      candidatos=resposta.data||[];
+      if(!erroBons&&candidatos.length){
+        const aprovResp=await sb.from('solicitacao_aprovacoes')
+          .select('solicitacao_id,etapa,status').in('solicitacao_id',candidatos.map(b=>b.id));
+        erroAprovacoes=aprovResp.error;
+        const map={};
+        (aprovResp.data||[]).forEach(ap=>(map[ap.solicitacao_id]??=[]).push(ap));
+        candidatos=candidatos.map(b=>({...b,solicitacao_aprovacoes:map[b.id]||[]}));
+      }
+    }
+    if(erroBons||erroAprovacoes){
+      const erro=erroBons||erroAprovacoes;
+      console.error('Falha ao consultar bonificações para pedidos',erro);
+      setDiagnosticoBonificacoes({erro:erro.message||String(erro),
+        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
       setBonificacoesAbertas([]);
     }else{
-      const candidatos=bons||[];
-      const ids=candidatos.map(b=>b.id);
-      let aprovacoes=[];
-      let erroAprovacoes=null;
-      if(ids.length){
-        const resposta=await sb.from('solicitacao_aprovacoes')
-          .select('solicitacao_id,etapa,status').in('solicitacao_id',ids);
-        erroAprovacoes=resposta.error;
-        aprovacoes=resposta.data||[];
-      }
-      const aprovacoesPorSolicitacao={};
-      aprovacoes.forEach(ap=>{
-        if(!aprovacoesPorSolicitacao[ap.solicitacao_id])aprovacoesPorSolicitacao[ap.solicitacao_id]=[];
-        aprovacoesPorSolicitacao[ap.solicitacao_id].push(ap);
-      });
       const detalhes=candidatos.map(b=>({
         ...b,
-        solicitacao_aprovacoes:aprovacoesPorSolicitacao[b.id]||[],
-        produtos:(produtos||[]).find(p=>p.id===b.produto_id)||null
+        solicitacao_aprovacoes:b.solicitacao_aprovacoes||[],
+        produtos:b.produtos||(produtos||[]).find(p=>p.id===b.produto_id)||null
       }));
       const aprovadas=detalhes.filter(b=>{
         const aps=b.solicitacao_aprovacoes;
-        return b.status_fluxo==='aprovada' && !b.pedido_id &&
-          aps.length>0 &&
-          aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) &&
-          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
+        return b.status_fluxo==='aprovada'&&!b.pedido_id&&aps.length>0&&
+          aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))&&
+          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')&&
           aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
       });
-      setBonificacoesAbertas(erroAprovacoes?[]:aprovadas);
-      const bloqueadas=detalhes.filter(b=>b.status_fluxo==='aprovada'&&!aprovadas.some(x=>x.id===b.id))
-        .map(b=>({
-          codigo:b.codigo||codigoAuditoria(b,'BON'),
-          motivo:b.pedido_id?'Já vinculada ao pedido '+b.pedido_id:
-            (b.solicitacao_aprovacoes.length
-              ? b.solicitacao_aprovacoes.map(ap=>ap.etapa+': '+ap.status).join(' | ')
-              : 'Aprovações não retornadas na consulta'),
+      setBonificacoesAbertas(aprovadas);
+      const bloqueadas=detalhes.filter(b=>!aprovadas.some(x=>x.id===b.id)).map(b=>{
+        const aps=b.solicitacao_aprovacoes;
+        const abertas=aps.filter(a=>['pendente','aguardando'].includes(a.status));
+        const veto=aps.some(a=>a.etapa==='diretoria'&&a.status==='reprovado');
+        return {
+          id:b.id,codigo:b.codigo||codigoAuditoria(b,'BON'),
+          motivo:b.pedido_id?'Já vinculada ao pedido':
+            veto?'Vetada pela Diretoria':
+            b.status_fluxo==='aberta'?'Em aprovação'+(abertas.length?' — próxima etapa: '+abertas[0].etapa:''):
+            b.status_fluxo==='reprovada'?'Reprovada / encerrada':
+            b.status_fluxo==='concluida'||b.status_fluxo==='vinculada'?'Realização registrada':
+            aps.length?'Verificar pareceres: '+aps.map(a=>a.etapa+': '+a.status).join(' | '):
+            'Etapas indisponíveis para esta solicitação',
           id:b.id
-        }));
+        };
+      });
       setDiagnosticoBonificacoes({
-        erro:erroAprovacoes?'Falha ao consultar etapas de aprovação: '+erroAprovacoes.message:null,
         clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id,
-        bloqueadas,
-        total:candidatos.length,aprovadas:aprovadas.length,
-        semSolicitacoes:candidatos.length===0
+        bloqueadas,total:detalhes.length,aprovadas:aprovadas.length,
+        semSolicitacoes:detalhes.length===0
       });
     }
     setBonificacoesVinculadas([]);
@@ -8103,21 +8117,31 @@ function PaginaPedidos({ profile }) {
     if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))
       return toast('Cada NF deve conter pelo menos um item.','error');
 
-    // Revalida no banco no momento de salvar; evita usar aprovação desatualizada.
-    if (bonificacoesVinculadas.length) {
-      const ids = bonificacoesVinculadas.map(b=>b.id);
-      const conferencias=await sb.from('solicitacoes')
-        .select('id,cliente_id,status_fluxo,solicitacao_aprovacoes(etapa,status)')
-        .in('id',ids);
-      if(conferencias.error)return toast('Não foi possível conferir as aprovações: '+conferencias.error.message,'error');
-      const conferidas=conferencias.data||[];
-      if(conferidas.length!==ids.length || conferidas.some(b=>{
+    // Revalida com a mesma fonte autorizada utilizada na consulta do pedido.
+    // Em Administração de Vendas, RLS pode esconder aprovações no SELECT direto.
+    if(bonificacoesVinculadas.length){
+      const ids=bonificacoesVinculadas.map(b=>String(b.id));
+      let conferidas=[],erroConf=null;
+      if(['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel)){
+        const res=await sb.rpc('mc_listar_solicitacoes_adm_vendas');
+        erroConf=res.error;
+        if(!erroConf)conferidas=(res.data||[]).filter(b=>ids.includes(String(b.id)));
+      }else{
+        const res=await sb.from('solicitacoes')
+          .select('id,cliente_id,pedido_id,status_fluxo,solicitacao_aprovacoes(etapa,status)')
+          .in('id',ids);
+        erroConf=res.error;
+        conferidas=res.data||[];
+      }
+      if(erroConf)return toast('Não foi possível conferir as bonificações: '+erroConf.message,'error');
+      if(conferidas.length!==ids.length||conferidas.some(b=>{
         const aps=b.solicitacao_aprovacoes||[];
-        return b.cliente_id!==clienteAtivo.id || b.status_fluxo!=='aprovada' ||
-          !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) ||
-          !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
+        return String(b.cliente_id)!==String(clienteAtivo.id)||b.status_fluxo!=='aprovada'||
+          !!b.pedido_id||
+          !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))||
+          !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')||
           !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
-      })) return toast('Pedido bloqueado: uma bonificação ainda não possui aprovação final da Diretoria. Atualize a tela.','error');
+      }))return toast('Bonificação não liberada: confira o parecer Financeiro e a aprovação final da Diretoria.','error');
     }
     setSalvando(true);
     let pedidoId=pedidoEditandoId;
