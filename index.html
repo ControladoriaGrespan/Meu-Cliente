@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v96-solicitacoes-equipamentos-completos';
-console.info('[Meu Cliente] BUILD v96-solicitacoes-equipamentos-completos');
+window.__MEU_CLIENTE_BUILD__='v98-bonificacoes-rotas-cliente';
+console.info('[Meu Cliente] BUILD v98-bonificacoes-rotas-cliente');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -3428,12 +3428,39 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
   const [erroStatusRealizacao,setErroStatusRealizacao]=useState('');
   const [erroItensSolicitacoes,setErroItensSolicitacoes]=useState('');
+  const [rotasPorCliente,setRotasPorCliente]=useState({});
+  const [erroRotasSolicitacoes,setErroRotasSolicitacoes]=useState('');
 
   const ehVendedor = visao === 'vendedor';
   const podeBonificacao = modulo === 'vendas' && ['vendedor','supervisor','admin'].includes(visao);
   const podeAmostra = modulo === 'vendas' && ['vendedor','supervisor','tecnico','admin'].includes(visao);
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
+
+  async function carregarRotasSolicitacoes(lista) {
+    const ids=[...new Set((lista||[]).map(s=>s.cliente_id).filter(Boolean))];
+    if(!ids.length){setRotasPorCliente({});return;}
+    const mapa={};
+    for(let i=0;i<ids.length;i+=120){
+      const r=await sb.from('cliente_rotas')
+        .select('cliente_id,rotas(id,nome,ativo)')
+        .in('cliente_id',ids.slice(i,i+120));
+      if(r.error){
+        console.error('Rotas das solicitações:',r.error);
+        setErroRotasSolicitacoes('Não foi possível consultar as rotas dos clientes: '+r.error.message);
+        setRotasPorCliente({});
+        return;
+      }
+      (r.data||[]).forEach(v=>{
+        const rt=v.rotas;
+        if(!rt||rt.ativo===false)return;
+        if(!mapa[v.cliente_id])mapa[v.cliente_id]=[];
+        if(!mapa[v.cliente_id].some(x=>String(x.id)===String(rt.id)))mapa[v.cliente_id].push(rt);
+      });
+    }
+    Object.values(mapa).forEach(arr=>arr.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR')));
+    setRotasPorCliente(mapa);
+  }
 
   async function carregarItensSolicitacoes(lista) {
     const ids=(lista||[]).filter(s=>!s.categoria||s.categoria==='equipamento').map(s=>s.id).filter(Boolean);
@@ -3523,6 +3550,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   async function carregar() {
     setErroConsultaSolicitacoes('');
     setErroItensSolicitacoes('');
+    setErroRotasSolicitacoes('');
     setErroStatusRealizacao('');
     setEntregasPorSolicitacao({});
     const adminVendas=modulo==='administracao_vendas' &&
@@ -3539,7 +3567,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       }else{
         const lista=await carregarItensSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]);
         setSolicitacoes(lista);
-        await carregarSituacaoEquipamentos(lista);
+        await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
       }
       setFichas([]);
       return;
@@ -3561,7 +3589,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
     setFichas(rf.data||[]);
     const lista=await carregarItensSolicitacoes(rs.data||[]);
     setSolicitacoes(lista);
-    await carregarSituacaoEquipamentos(lista);
+    await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -3643,7 +3671,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       : (lista.length === 0
           ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: 'Nenhuma solicitação nesta situação.' }))
           : lista.map(x => h('div',{key:x.id},
-              h(CardSolicitacao,{s:x}),
+              h(CardSolicitacao,{s:x,rotas:rotasPorCliente[x.cliente_id]||[],erroRotas:erroRotasSolicitacoes}),
               podeConcluirAdm && subStatus==='realizacao' &&
                 ['bonificacao','amostra'].includes(x.categoria) &&
                 x.status_fluxo==='vinculada' &&
@@ -4510,7 +4538,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     ));
 }
 
-function CardSolicitacao({ s }) {
+function CardSolicitacao({ s,rotas=[],erroRotas='' }) {
   const cli = s.clientes || {};
   const itensEquip=itensDaSolicitacao(s);
   const cat = s.categoria || 'equipamento';
@@ -4541,6 +4569,11 @@ function CardSolicitacao({ s }) {
           ...itensEquip.map((it,i)=>h('div',{key:i,style:{fontSize:12,padding:'5px 0',borderBottom:'1px solid var(--border)'}},
             rotuloMovimentoEquipamento(it,s.tipo)+' · '+it.equipamento+' · '+it.quantidade+' un.'+
             (it.patrimonio?' · Patrimônio: '+it.patrimonio:''))))),
+    h('div',{style:{fontSize:12,marginTop:10,color:'var(--text-secondary)'}},
+      h('b',null,'Rotas do cliente ('+rotas.length+'): '),
+      erroRotas?'Consulta de rotas indisponível':rotas.length
+        ? rotas.map(r=>r.nome).join(' // ')
+        : 'Nenhuma rota vinculada'),
     s.descricao && h('div', { style: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 10 } }, s.descricao));
 }
 
@@ -8292,6 +8325,13 @@ function PaginaPedidos({ profile }) {
 
         if (erroConclusaoBonificacao) {
           toast('Pedido salvo, mas não foi possível vincular a bonificação: ' + erroConclusaoBonificacao.message, 'error');
+          return;
+        }
+        // O setor de Administração de Vendas já confirma a realização ao
+        // vincular a bonificação ao pedido. A RPC grava status e trilha de auditoria.
+        const conclusao=await sb.rpc('mc_concluir_solicitacao_adm_vendas',{p_solicitacao_id:b.id});
+        if(conclusao.error){
+          toast('Bonificação vinculada ao pedido, mas a conclusão automática falhou: '+conclusao.error.message,'error');
           return;
         }
       }
