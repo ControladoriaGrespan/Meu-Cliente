@@ -7645,38 +7645,63 @@ function PaginaPedidos({ profile }) {
       (tpItens || []).forEach(tp => { mapaTabelaPreco[tp.produto_id] = Number(tp.preco_unitario); });
       setTabelaPrecoCliente(mapaTabelaPreco);
     }
-    // Carrega também solicitações não elegíveis para informar a causa do bloqueio.
-    // A aprovação financeira + diretoria continua obrigatória, sem exceções.
-    const { data: bons, error: erroBons } = await sb.from('solicitacoes')
-      .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(etapa,status)')
-      .eq('cliente_id', cli.id).eq('categoria', 'bonificacao')
-      .order('created_at', { ascending: true });
+    // Consulta as bonificações sem embeds: evita que a falha de um relacionamento
+    // produtos/aprovações torne toda a lista invisível no pedido.
+    // O filtro por cliente e a liberação final continuam obrigatórios.
+    setDiagnosticoBonificacoes(null);
+    const {data:bons,error:erroBons}=await sb.from('solicitacoes')
+      .select('*').eq('cliente_id',cli.id).eq('categoria','bonificacao')
+      .order('created_at',{ascending:true});
     if(erroBons){
       console.error('Falha ao consultar bonificações do cliente',erroBons);
       setDiagnosticoBonificacoes({erro:erroBons.message,clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
       setBonificacoesAbertas([]);
     }else{
-      const candidatos=(bons||[]);
-      const aprovadas=candidatos.filter(b=>{
-        const aps=b.solicitacao_aprovacoes||[];
-        return b.status_fluxo==='aprovada' &&
-          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
-          aps.some(a=>a.etapa==='financeiro'&&a.status==='aprovado') &&
+      const candidatos=bons||[];
+      const ids=candidatos.map(b=>b.id);
+      let aprovacoes=[];
+      let erroAprovacoes=null;
+      if(ids.length){
+        const resposta=await sb.from('solicitacao_aprovacoes')
+          .select('solicitacao_id,etapa,status').in('solicitacao_id',ids);
+        erroAprovacoes=resposta.error;
+        aprovacoes=resposta.data||[];
+      }
+      const aprovacoesPorSolicitacao={};
+      aprovacoes.forEach(ap=>{
+        if(!aprovacoesPorSolicitacao[ap.solicitacao_id])aprovacoesPorSolicitacao[ap.solicitacao_id]=[];
+        aprovacoesPorSolicitacao[ap.solicitacao_id].push(ap);
+      });
+      const detalhes=candidatos.map(b=>({
+        ...b,
+        solicitacao_aprovacoes:aprovacoesPorSolicitacao[b.id]||[],
+        produtos:(produtos||[]).find(p=>p.id===b.produto_id)||null
+      }));
+      const aprovadas=detalhes.filter(b=>{
+        const aps=b.solicitacao_aprovacoes;
+        return b.status_fluxo==='aprovada' && !b.pedido_id &&
           aps.length>0 &&
+          aps.some(a=>a.etapa==='financeiro'&&a.status==='aprovado') &&
+          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
           aps.every(a=>['aprovado','nao_aplica'].includes(a.status));
       });
-      const bloqueadas=candidatos.filter(b=>b.status_fluxo==='aprovada'&&!aprovadas.some(x=>x.id===b.id));
-      setDiagnosticoBonificacoes({
-        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id,
-        bloqueadas:bloqueadas.map(b=>({
+      setBonificacoesAbertas(erroAprovacoes?[]:aprovadas);
+      const bloqueadas=detalhes.filter(b=>b.status_fluxo==='aprovada'&&!aprovadas.some(x=>x.id===b.id))
+        .map(b=>({
           codigo:b.codigo||codigoAuditoria(b,'BON'),
-          motivo:(b.solicitacao_aprovacoes||[]).map(ap=>ap.etapa+': '+ap.status).join(' | ')||'Sem etapas de aprovação disponíveis',
+          motivo:b.pedido_id?'Já vinculada ao pedido '+b.pedido_id:
+            (b.solicitacao_aprovacoes.length
+              ? b.solicitacao_aprovacoes.map(ap=>ap.etapa+': '+ap.status).join(' | ')
+              : 'Aprovações não retornadas na consulta'),
           id:b.id
-        })),
-        total:candidatos.length,
-        aprovadas:aprovadas.length
+        }));
+      setDiagnosticoBonificacoes({
+        erro:erroAprovacoes?'Falha ao consultar etapas de aprovação: '+erroAprovacoes.message:null,
+        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id,
+        bloqueadas,
+        total:candidatos.length,aprovadas:aprovadas.length,
+        semSolicitacoes:candidatos.length===0
       });
-      setBonificacoesAbertas(aprovadas);
     }
     setBonificacoesVinculadas([]);
 
@@ -8349,16 +8374,19 @@ function PaginaPedidos({ profile }) {
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
                 diagnosticoBonificacoes && (diagnosticoBonificacoes.erro ||
+                  diagnosticoBonificacoes.semSolicitacoes ||
                   (diagnosticoBonificacoes.bloqueadas||[]).length>0) &&
                   h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)'}},
                     h('div',{className:'section-title'},'Conferência das bonificações do cliente'),
                     diagnosticoBonificacoes.erro
                       ? h('div',{style:{fontSize:13,color:'var(--danger)'}},
                           'Não foi possível consultar as bonificações: '+diagnosticoBonificacoes.erro)
-                      : (diagnosticoBonificacoes.bloqueadas||[]).map(b=>
-                          h('div',{key:b.id,style:{fontSize:12,padding:'6px 0'}},
-                            h('strong',null,b.codigo+' — aprovações inconsistentes: '),
-                            b.motivo)),
+                      : diagnosticoBonificacoes.semSolicitacoes
+                        ? h('div',{style:{fontSize:12}},'Nenhuma solicitação de bonificação retornou para este cliente. Confira o acesso do usuário e o ID do cliente na rota.')
+                        : (diagnosticoBonificacoes.bloqueadas||[]).map(b=>
+                            h('div',{key:b.id,style:{fontSize:12,padding:'6px 0'}},
+                              h('strong',null,b.codigo+' — não disponível para pedido: '),
+                              b.motivo)),
                     h('div',{style:{fontSize:11,color:'var(--text-muted)',marginTop:5}},
                       'Cliente '+diagnosticoBonificacoes.clienteCodigo+
                       ' · Consulte a solicitação nas aprovações. Somente bonificações com Financeiro e Diretoria aprovados podem ser vinculadas.')),
