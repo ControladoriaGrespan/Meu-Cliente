@@ -126,7 +126,7 @@ GRANT EXECUTE ON FUNCTION public.mc_decidir_solicitacao_workflow(uuid,text,text)
 -- Parecer de Financeiro pode ser aprovado OU reprovado; Diretoria deve aprovar.
 CREATE OR REPLACE FUNCTION public.mc_validar_liberacao_bonificacao()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=public,pg_temp AS $
+SET search_path=public,pg_temp AS $guard$
 BEGIN
   IF NEW.categoria='bonificacao'
      AND NEW.status_fluxo IN ('aprovada','vinculada','concluida')
@@ -153,7 +153,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$guard$;
 
 -- Correção EXCLUSIVAMENTE da BON-000017. Mantém parecer e autor/datas históricos.
 -- Não duplica etapa da Diretoria.
