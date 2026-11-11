@@ -2482,7 +2482,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     if(semTelefone.length){
       toast('Programação enviada para Pendências. Sem WhatsApp cadastrado: '+semTelefone.map(x=>x.nome||'Supervisor').join(', ')+'.','info');
     }else{
-      toast('Programação enviada para Pendências dos supervisores e WhatsApp aberto.','success');
+      toast(ehCelularWhats()?'Programação enviada. Use os botões de WhatsApp para avisar os supervisores.':'Programação enviada para Pendências dos supervisores e WhatsApp aberto.','success');
     }
   }
   async function decidirProgramacao(aprovacao,status,observacao){
