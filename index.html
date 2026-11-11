@@ -4112,8 +4112,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       if (tipo === 'retirada' && !justificativa) return toast('Informe o motivo da retirada.', 'error');
       if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
       const primeiro = linhas[0], primeiraEntrega = entregas[0];
-      payload = { ...payload, tipo, equipamento: primeiro.equipamento, patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
-        justificativa: ['troca','retirada'].includes(tipo) ? justificativa : null };
+      const tipoNormalizado=String(tipo||'').trim().toLowerCase();
+      const justificativaNormalizada=String(justificativa||'').trim().normalize('NFC');
+      const motivosRetirada=['Baixo consumo','Encerramento do contrato'];
+      const motivosTroca=['Relacionamento','Equipamento Antigo','Equipamento Danificado'];
+      if(tipoNormalizado==='retirada'&&!motivosRetirada.includes(justificativaNormalizada))
+        return toast('Selecione um motivo válido para a retirada.','error');
+      if(tipoNormalizado==='troca'&&!motivosTroca.includes(justificativaNormalizada))
+        return toast('Selecione uma justificativa válida para a troca.','error');
+      payload = { ...payload, tipo:tipoNormalizado, equipamento: primeiro.equipamento,
+        patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
+        justificativa: ['troca','retirada'].includes(tipoNormalizado) ? justificativaNormalizada : null };
     } else if (categoria === 'bonificacao') {
       if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
       if (!modalidadeBonificacao) return toast('Informe se será acréscimo ou desconto do pedido.', 'error');
@@ -4132,7 +4141,12 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     setSalvando(false);
     if (error) {
       if (error.code === '23514' && String(error.message || '').includes('solicitacoes_justificativa_check')) {
-        return toast('Motivo de retirada não permitido pela regra atual do banco. Execute a migração 20261111_solicitacoes_motivos_retirada.sql no Supabase.', 'error');
+        console.error('[Meu Cliente] Erro de validação da solicitação', {
+          categoria:payload.categoria,tipo:payload.tipo,justificativa:payload.justificativa,
+          codigo:error.code,mensagem:error.message,detalhes:error.details,orientacao:error.hint
+        });
+        const resumo='Tipo: '+String(payload.tipo||'—')+' | Motivo: '+String(payload.justificativa||'—');
+        return toast('O banco rejeitou a justificativa. '+resumo+'. Verifique a regra/trigger da tabela solicitacoes.','error');
       }
       return toast(error.message, 'error');
     }
