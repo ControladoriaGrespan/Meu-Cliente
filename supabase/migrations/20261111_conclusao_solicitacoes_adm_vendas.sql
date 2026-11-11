@@ -5,6 +5,17 @@
 -- Requer pedido vinculado, impedindo conclusão sem execução documentada.
 BEGIN;
 
+-- Trilha de auditoria: quem confirmou a realização e quando.
+CREATE TABLE IF NOT EXISTS public.solicitacao_conclusoes_adm (
+  solicitacao_id uuid PRIMARY KEY REFERENCES public.solicitacoes(id),
+  pedido_id uuid NOT NULL REFERENCES public.pedidos(id),
+  concluido_por uuid NOT NULL REFERENCES public.usuarios(id),
+  concluido_em timestamptz NOT NULL DEFAULT now()
+);
+REVOKE ALL ON TABLE public.solicitacao_conclusoes_adm FROM PUBLIC;
+REVOKE ALL ON TABLE public.solicitacao_conclusoes_adm FROM anon;
+REVOKE ALL ON TABLE public.solicitacao_conclusoes_adm FROM authenticated;
+
 CREATE OR REPLACE FUNCTION public.mc_concluir_solicitacao_adm_vendas(p_solicitacao_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
@@ -51,6 +62,11 @@ BEGIN
  UPDATE public.solicitacoes
  SET status_fluxo='concluida'
  WHERE id=v_sol.id;
+
+ INSERT INTO public.solicitacao_conclusoes_adm
+   (solicitacao_id,pedido_id,concluido_por)
+ VALUES (v_sol.id,v_sol.pedido_id,auth.uid())
+ ON CONFLICT (solicitacao_id) DO NOTHING;
 
  RETURN jsonb_build_object('situacao','concluida','solicitacao_id',v_sol.id,'pedido_id',v_sol.pedido_id);
 END;
