@@ -2834,27 +2834,24 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }).eq('id', ap.id).eq('status','pendente').select('id');
     if (error) { if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
 
-    if(status==='aprovado'){
-      const {data:nextWait,error:erroProxima}=await sb.from('solicitacao_aprovacoes').select('id')
-        .eq('solicitacao_id',ap.solicitacao_id).eq('status','aguardando').order('ordem').limit(1).maybeSingle();
-      if(erroProxima){if(winRef&&!winRef.closed)winRef.close();return toast('Etapa registrada, mas falhou consulta da próxima etapa: '+erroProxima.message,'error');}
-      if(nextWait){
-        const {error:erroAvanco}=await sb.from('solicitacao_aprovacoes').update({status:'pendente'}).eq('id',nextWait.id);
-        if(erroAvanco){if(winRef&&!winRef.closed)winRef.close();return toast('Etapa registrada, mas falhou avanço: '+erroAvanco.message,'error');}
-      }else{
-        const {error:erroFinal}=await sb.from('solicitacoes').update({status_fluxo:'aprovada'}).eq('id',ap.solicitacao_id);
-        if(erroFinal){if(winRef&&!winRef.closed)winRef.close();return toast('Etapa registrada, mas a liberação final foi bloqueada: '+erroFinal.message,'error');}
-      }
-    } else if(status==='reprovado'){
-      const {error:erroReprova}=await sb.from('solicitacoes').update({status_fluxo:'reprovada'}).eq('id',ap.solicitacao_id);
-      if(erroReprova){if(winRef&&!winRef.closed)winRef.close();return toast('Etapa reprovada, mas falhou atualização do fluxo: '+erroReprova.message,'error');}
+    // Avanço é feito no banco, que vê TODAS as etapas mesmo quando RLS esconde
+    // Financeiro/Diretoria do usuário atual. Nunca concluir por 'nenhuma linha visível'.
+    const avanco=await sb.rpc('mc_avancar_fila_solicitacao',{p_solicitacao_id:ap.solicitacao_id});
+    if(avanco.error){
+      if(winRef&&!winRef.closed)winRef.close();
+      await carregar();
+      return toast('Etapa registrada, mas falhou a atualização segura da fila: '+avanco.error.message+'. Execute a migração do fluxo de aprovações.','error');
+    }
+    const proximaEtapa=avanco.data&&avanco.data.proxima_etapa
+      ? avanco.data.proxima_etapa:null;
+    if(status==='reprovado'){
+      // A RPC também encerra o fluxo reprovado; nunca abre a próxima etapa.
+      toast('Solicitação reprovada.','info');
     }
 
-    // avisa o proximo da fila da solicitacao
-    const { data: prox } = await sb.from('solicitacao_aprovacoes')
-      .select('*').eq('solicitacao_id', ap.solicitacao_id).eq('status', 'pendente')
-      .order('ordem').limit(1).maybeSingle();
-    if (prox) {
+    // O retorno da RPC informa a etapa real, sem depender de RLS para encontrá-la.
+    if (status==='aprovado' && proximaEtapa) {
+      const prox={etapa:proximaEtapa,responsavel_id:avanco.data.responsavel_id};
       let dest = [];
       if (prox.responsavel_id) {
         const { data } = await sb.from('usuarios').select('*').eq('id', prox.responsavel_id).single();
