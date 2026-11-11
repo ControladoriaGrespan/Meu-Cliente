@@ -4046,7 +4046,12 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     setSalvando(true);
     const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
     setSalvando(false);
-    if (error) return toast(error.message, 'error');
+    if (error) {
+      if (error.code === '23514' && String(error.message || '').includes('solicitacoes_justificativa_check')) {
+        return toast('Motivo de retirada não permitido pela regra atual do banco. Execute a migração 20261111_solicitacoes_motivos_retirada.sql no Supabase.', 'error');
+      }
+      return toast(error.message, 'error');
+    }
     if (categoria === 'equipamento') {
       const detalhes = [];
       equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
@@ -4089,7 +4094,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
         h(Campo, { label: 'Tipo', obrigatorio: true },
           modulo === 'administracao_vendas'
             ? h(Input, { value: 'Troca de equipamento', disabled: true })
-            : h('select', { className: 'form-select', value: tipo, onChange: e => setTipo(e.target.value) },
+            : h('select', { className: 'form-select', value: tipo, onChange: e => { setTipo(e.target.value); setJustificativa(''); } },
                 h('option', { value: '' }, 'Selecione...'),
                 h('option', { value: 'aumento' }, 'Aumento de equipamento'),
                 h('option', { value: 'troca' }, 'Troca de equipamento'),
