@@ -3405,7 +3405,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
   async function carregarSituacaoEquipamentos(lista){
-    const ids=(lista||[]).filter(s=>!s.categoria||s.categoria==='equipamento').map(s=>s.id).filter(Boolean);
+    const ids=(lista||[]).filter(s=>(!s.categoria||s.categoria==='equipamento') &&
+      !Array.isArray(s.entregas_operacionais)).map(s=>s.id).filter(Boolean);
     if(!ids.length){setEntregasPorSolicitacao({});return;}
     let todos=[];
     for(let i=0;i<ids.length;i+=150){
@@ -3564,6 +3565,9 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           color:subStatus===id?'var(--accent)':'var(--text-muted)',
           fontWeight:subStatus===id?700:500,fontSize:12}
       },nome+' ('+quantidadePorSituacao(id)+')'))),
+    subStatus==='concluido'&&lista.some(x=>x.status_fluxo==='reprovada') &&
+      h('div',{className:'card',style:{marginBottom:12,fontSize:12}},
+        'As solicitações reprovadas definitivamente aparecem aqui como processos encerrados sem realização, identificadas pelo status "reprovada".'),
     sub==='equipamento'&&erroStatusRealizacao &&
       h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)',fontSize:12}},
         erroStatusRealizacao,
@@ -8197,7 +8201,7 @@ function PaginaPedidos({ profile }) {
         }).eq('id', b.id);
 
         if (erroConclusaoBonificacao) {
-          toast('Pedido salvo, mas não foi possível concluir a bonificação: ' + erroConclusaoBonificacao.message, 'error');
+          toast('Pedido salvo, mas não foi possível vincular a bonificação: ' + erroConclusaoBonificacao.message, 'error');
           return;
         }
       }
@@ -8212,7 +8216,7 @@ function PaginaPedidos({ profile }) {
           vinculada_por: profile.id
         }).eq('id', a.id);
         if (erroConclusaoAmostra) {
-          toast('Pedido salvo, mas não foi possível concluir a amostra: ' + erroConclusaoAmostra.message, 'error');
+          toast('Pedido salvo, mas não foi possível vincular a amostra: ' + erroConclusaoAmostra.message, 'error');
           return;
         }
       }
