@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v95-equipamentos-bonificacao-logistica';
-console.info('[Meu Cliente] BUILD v95-equipamentos-bonificacao-logistica');
+window.__MEU_CLIENTE_BUILD__='v96-solicitacoes-equipamentos-completos';
+console.info('[Meu Cliente] BUILD v96-solicitacoes-equipamentos-completos');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1874,6 +1874,24 @@ function solicitarAssinaturaContrato(f){
   }
   return gerarContratoPDF(f,true);
 }
+// Fonte única dos equipamentos para tela e PDF. O campo legado s.equipamento
+// representa somente o primeiro item e não substitui solicitacao_equipamentos.
+function itensDaSolicitacao(s) {
+  if(!s||!(s.categoria==='equipamento'||!s.categoria))return [];
+  const itens=Array.isArray(s.solicitacao_equipamentos)?s.solicitacao_equipamentos:[];
+  if(itens.length)return itens.filter(i=>i&&i.equipamento).map(i=>({
+    equipamento:String(i.equipamento),quantidade:Number(i.quantidade)||1,
+    patrimonio:i.patrimonio||'',movimento:i.movimento||'equipamento'
+  }));
+  // Compatibilidade apenas com solicitações antigas sem registros de detalhe.
+  return s.equipamento?[{equipamento:s.equipamento,quantidade:Number(s.quantidade)||1,
+    patrimonio:s.patrimonio||'',movimento:'equipamento'}]:[];
+}
+function rotuloMovimentoEquipamento(item,tipo) {
+  return item.movimento==='coletar'?'Retirar / coletar':
+    item.movimento==='entregar'?'Entregar':
+    tipo==='retirada'?'Retirar':tipo==='manutencao'?'Manutenção':'Solicitado';
+}
 function baixarSolicitacaoPDF(s) {
   const cli=s.clientes||{},cod=codigoAuditoria(s,prefixoSolicitacao(s));
   const ctx=pdfDoc('Solicitação',cod,identificacaoCliente(cli)+(cli.cnpj_cpf?' | '+cli.cnpj_cpf:''));
@@ -1892,7 +1910,19 @@ function baixarSolicitacaoPDF(s) {
     pdfLinha2(ctx,'Tipo de Amostra',s.tipo_amostra==='kit'?'KIT':'Produto','Quantidade',fmtNum(s.quantidade||0));
     pdfTxt(ctx,'Produto',s.produtos?((s.produtos.codigo||'')+' - '+(s.produtos.descricao||'')):null);
   } else {
-    pdfLinha2(ctx,'Equipamento / Serviço',s.equipamento,'Patrimônio',s.patrimonio);
+    if(s.erroCarregamentoEquipamentos) {
+      alert('Não foi possível carregar os equipamentos desta solicitação. Atualize a tela antes de gerar o PDF.');
+      return;
+    }
+    const itens=itensDaSolicitacao(s);
+    pdfSec(ctx,'Relação de Equipamentos');
+    pdfTabela(ctx,[
+      {key:'movimento',label:'Movimento',w:33},
+      {key:'equipamento',label:'Equipamento',w:93},
+      {key:'quantidade',label:'Qtd.',w:17},
+      {key:'patrimonio',label:'Patrimônio',w:37}
+    ],itens.map(i=>({movimento:rotuloMovimentoEquipamento(i,s.tipo),
+      equipamento:i.equipamento,quantidade:String(i.quantidade),patrimonio:i.patrimonio||'—'})));
     pdfTxt(ctx,'Justificativa',s.justificativa);
   }
   pdfTxt(ctx,'Descrição',s.descricao);
@@ -3397,12 +3427,37 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const toast=useToast();
   const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
   const [erroStatusRealizacao,setErroStatusRealizacao]=useState('');
+  const [erroItensSolicitacoes,setErroItensSolicitacoes]=useState('');
 
   const ehVendedor = visao === 'vendedor';
   const podeBonificacao = modulo === 'vendas' && ['vendedor','supervisor','admin'].includes(visao);
   const podeAmostra = modulo === 'vendas' && ['vendedor','supervisor','tecnico','admin'].includes(visao);
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
+
+  async function carregarItensSolicitacoes(lista) {
+    const ids=(lista||[]).filter(s=>!s.categoria||s.categoria==='equipamento').map(s=>s.id).filter(Boolean);
+    if(!ids.length)return lista||[];
+    const porSolicitacao={};
+    // Não deixar uma falha de RLS ou consulta ocultar itens sem aviso.
+    for(let i=0;i<ids.length;i+=120){
+      const {data,error}=await sb.from('solicitacao_equipamentos')
+        .select('solicitacao_id,movimento,equipamento,quantidade,patrimonio')
+        .in('solicitacao_id',ids.slice(i,i+120));
+      if(error){
+        console.error('Falha ao carregar itens de equipamentos:',error);
+        setErroItensSolicitacoes('Não foi possível carregar a relação completa de equipamentos: '+error.message);
+        return (lista||[]).map(s=>({...s,erroCarregamentoEquipamentos:
+          !s.categoria||s.categoria==='equipamento'}));
+      }
+      (data||[]).forEach(d=>{
+        if(!porSolicitacao[d.solicitacao_id])porSolicitacao[d.solicitacao_id]=[];
+        porSolicitacao[d.solicitacao_id].push(d);
+      });
+    }
+    return (lista||[]).map(s=>({...s,solicitacao_equipamentos:
+      porSolicitacao[s.id]||s.solicitacao_equipamentos||[]}));
+  }
 
   async function carregarSituacaoEquipamentos(lista){
     const ids=(lista||[]).filter(s=>(!s.categoria||s.categoria==='equipamento') &&
@@ -3467,6 +3522,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   useEffect(() => { carregar(); }, [visao,modulo,profile.id]);
   async function carregar() {
     setErroConsultaSolicitacoes('');
+    setErroItensSolicitacoes('');
     setErroStatusRealizacao('');
     setEntregasPorSolicitacao({});
     const adminVendas=modulo==='administracao_vendas' &&
@@ -3481,7 +3537,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           '. Verifique a migração 20261111_solicitacoes_leitura_adm_vendas.sql no Supabase.');
         setSolicitacoes([]);
       }else{
-        const lista=Array.isArray(resultado.data)?resultado.data:[];
+        const lista=await carregarItensSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]);
         setSolicitacoes(lista);
         await carregarSituacaoEquipamentos(lista);
       }
@@ -3503,8 +3559,9 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       setErroConsultaSolicitacoes('Falha ao carregar solicitações: '+rs.error.message);
     }
     setFichas(rf.data||[]);
-    setSolicitacoes(rs.data||[]);
-    await carregarSituacaoEquipamentos(rs.data||[]);
+    const lista=await carregarItensSolicitacoes(rs.data||[]);
+    setSolicitacoes(lista);
+    await carregarSituacaoEquipamentos(lista);
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -4455,10 +4512,12 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
 
 function CardSolicitacao({ s }) {
   const cli = s.clientes || {};
+  const itensEquip=itensDaSolicitacao(s);
   const cat = s.categoria || 'equipamento';
   const tituloTipo = cat === 'bonificacao' ? 'Bonificação' : cat === 'amostra' ? 'Amostra' :
     s.tipo === 'troca' ? 'Troca' : s.tipo === 'retirada' ? 'Retirada' : s.tipo === 'aumento' ? 'Aumento' : 'Manutenção';
   let resumo = s.equipamento || '';
+  if(cat==='equipamento')resumo=itensEquip.length+' item(ns) de equipamento';
   if (cat === 'bonificacao') resumo = ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un. · ' + (s.modalidade_bonificacao === 'desconto' ? 'Desconto do pedido' : 'Acréscimo no pedido');
   if (cat === 'amostra') resumo = s.tipo_amostra === 'kit' ? 'KIT' : ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un.';
   return h('div', { className: 'card', key: s.id },
@@ -4475,6 +4534,13 @@ function CardSolicitacao({ s }) {
     h('div', { style:{marginBottom:8} },
           h('span', { className:'badge badge-red', style:{fontFamily:"'JetBrains Mono', monospace", fontWeight:700} }, codigoAuditoria(s, prefixoSolicitacao(s)))),
         h(StepperGenerico, { aprovacoes: s.solicitacao_aprovacoes }),
+    cat==='equipamento' && (s.erroCarregamentoEquipamentos
+      ? h('div',{className:'alert alert-error',style:{marginTop:10}},'Não foi possível carregar a lista completa dos equipamentos. Atualize a página.')
+      : h('div',{style:{marginTop:10}},
+          h('div',{style:{fontWeight:700,fontSize:12,marginBottom:6}},'Equipamentos da solicitação'),
+          ...itensEquip.map((it,i)=>h('div',{key:i,style:{fontSize:12,padding:'5px 0',borderBottom:'1px solid var(--border)'}},
+            rotuloMovimentoEquipamento(it,s.tipo)+' · '+it.equipamento+' · '+it.quantidade+' un.'+
+            (it.patrimonio?' · Patrimônio: '+it.patrimonio:''))))),
     s.descricao && h('div', { style: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 10 } }, s.descricao));
 }
 
