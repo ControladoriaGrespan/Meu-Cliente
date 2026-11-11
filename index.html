@@ -2780,7 +2780,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       // Quando o detalhe estiver bloqueado por RLS, conservar a pendência;
       // o salvamento terá uma segunda conferência obrigatória.
       setPendSolic(aprovsSolic.filter(ap=>
-        !ap.solicitacoes || !['reprovada','concluida','vinculada','aprovada'].includes(ap.solicitacoes.status_fluxo)
+        !ap.solicitacoes ||
+        (!['concluida','vinculada','aprovada'].includes(ap.solicitacoes.status_fluxo) &&
+         !(ap.solicitacoes.status_fluxo==='reprovada' &&
+           (ap.solicitacoes.categoria!=='bonificacao' ||
+            (ap.solicitacoes.solicitacao_aprovacoes||[]).some(x=>x.etapa==='diretoria'&&x.status==='reprovado'))))
       ));
     }catch(e){
       console.error('Falha ao carregar Pendências:',e);
@@ -2805,7 +2809,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     if(solEstado.error||!solEstado.data){
       return toast('Não foi possível confirmar o estado da solicitação. Atualize as pendências ou verifique o acesso no Supabase.','error');
     }
-    if(['reprovada','concluida','vinculada','aprovada'].includes(solEstado.data.status_fluxo)){
+    if(['concluida','vinculada','aprovada'].includes(solEstado.data.status_fluxo) ||
+      (solEstado.data.status_fluxo==='reprovada' && solEstado.data.categoria!=='bonificacao')){
       await carregar();
       return toast('Solicitação já '+solEstado.data.status_fluxo+'. Não é possível aprovar novamente.','error');
     }
@@ -2820,11 +2825,14 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       await carregar();
       return toast('Esta aprovação já foi decidida ou não está mais pendente. Atualize a fila.','error');
     }
-    if(etapas.some(x=>x.status==='reprovado')){
+    if(etapas.some(x=>x.status==='reprovado' &&
+        (solEstado.data.categoria!=='bonificacao'||x.etapa==='diretoria'))){
       await carregar();
-      return toast('Solicitação já possui etapa reprovada. Não é permitido continuar as aprovações.','error');
+      return toast('Solicitação possui veto definitivo. Não é permitido continuar as aprovações.','error');
     }
-    if(status==='aprovado'&&etapas.some(x=>x.ordem<atual.ordem&&!['aprovado','nao_aplica'].includes(x.status))){
+    if(status==='aprovado'&&etapas.some(x=>x.ordem<atual.ordem&&
+      !(solEstado.data.categoria==='bonificacao'?
+        ['aprovado','reprovado','nao_aplica']:['aprovado','nao_aplica']).includes(x.status))){
       return toast('Há etapas anteriores pendentes. A aprovação deve seguir a ordem do fluxo.','error');
     }
     const winRef = preAbrirJanelaWhats();
@@ -2844,13 +2852,13 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }
     const proximaEtapa=avanco.data&&avanco.data.proxima_etapa
       ? avanco.data.proxima_etapa:null;
-    if(status==='reprovado'){
-      // A RPC também encerra o fluxo reprovado; nunca abre a próxima etapa.
-      toast('Solicitação reprovada.','info');
+    if(status==='reprovado' && solEstado.data.categoria==='bonificacao' && ap.etapa!=='diretoria'){
+      toast('Parecer desfavorável registrado. A bonificação seguirá para a próxima etapa.','info');
     }
 
     // O retorno da RPC informa a etapa real, sem depender de RLS para encontrá-la.
-    if (status==='aprovado' && proximaEtapa) {
+    if (proximaEtapa && (status==='aprovado' ||
+        (solEstado.data.categoria==='bonificacao' && ap.etapa!=='diretoria' && status==='reprovado'))) {
       const prox={etapa:proximaEtapa,responsavel_id:avanco.data.responsavel_id};
       let dest = [];
       if (prox.responsavel_id) {
@@ -3328,7 +3336,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             linhaInfo('Detalhes', sol.descricao)),
           h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' },onClick:e=>e.stopPropagation() },
             h('button', { className: 'btn btn-success', onClick: () => setDecidindo({ solAp: ap, status: 'aprovado' }) }, '✓ Aprovar'),
-            h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) }, '✗ Reprovar')));
+            h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ solAp: ap, status: 'reprovado' }) },
+              sol.categoria==='bonificacao'&&ap.etapa!=='diretoria'?'✗ Parecer desfavorável':'✗ Reprovar')));
       })),
 
     etapa==='supervisor' && totalProgSupervisor>0 && renderPendenciasSupervisorDireto(),
@@ -7720,9 +7729,9 @@ function PaginaPedidos({ profile }) {
         const aps=b.solicitacao_aprovacoes;
         return b.status_fluxo==='aprovada' && !b.pedido_id &&
           aps.length>0 &&
-          aps.some(a=>a.etapa==='financeiro'&&a.status==='aprovado') &&
+          aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) &&
           aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') &&
-          aps.every(a=>['aprovado','nao_aplica'].includes(a.status));
+          aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
       });
       setBonificacoesAbertas(erroAprovacoes?[]:aprovadas);
       const bloqueadas=detalhes.filter(b=>b.status_fluxo==='aprovada'&&!aprovadas.some(x=>x.id===b.id))
@@ -7884,8 +7893,9 @@ function PaginaPedidos({ profile }) {
     if (bonificacoesVinculadas.some(b => b.id === sol.id)) return;
     const aps = sol.solicitacao_aprovacoes || [];
     if (sol.status_fluxo !== 'aprovada' ||
+        !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) ||
         !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
-        !aps.every(a=>['aprovado','nao_aplica'].includes(a.status))) {
+        !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status))) {
       return toast('Bonificação bloqueada: falta aprovação final da Diretoria.','error');
     }
 
@@ -7975,8 +7985,9 @@ function PaginaPedidos({ profile }) {
       if(conferidas.length!==ids.length || conferidas.some(b=>{
         const aps=b.solicitacao_aprovacoes||[];
         return b.cliente_id!==clienteAtivo.id || b.status_fluxo!=='aprovada' ||
+          !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) ||
           !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
-          !aps.every(a=>['aprovado','nao_aplica'].includes(a.status));
+          !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
       })) return toast('Pedido bloqueado: uma bonificação ainda não possui aprovação final da Diretoria. Atualize a tela.','error');
     }
     setSalvando(true);
