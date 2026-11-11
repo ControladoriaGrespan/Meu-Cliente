@@ -167,7 +167,10 @@ BEGIN
  RETURN NEW;
 END;
 $$;
--- Nota: deixar guard transacional efetivo via RPC e RLS.
+DROP TRIGGER IF EXISTS trg_mc_bloquear_decisao_solicitacao_direta ON public.solicitacao_aprovacoes;
+CREATE TRIGGER trg_mc_bloquear_decisao_solicitacao_direta
+BEFORE UPDATE OF status,aprovador_id ON public.solicitacao_aprovacoes
+FOR EACH ROW EXECUTE FUNCTION public.mc_bloquear_decisao_solicitacao_direta();
 COMMIT;
 
 -- Diagnóstico não destrutivo:
