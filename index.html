@@ -3388,6 +3388,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 function PaginaSolicitacoes({ profile, visao, modulo }) {
   const [fichas, setFichas] = useState(null);
   const [solicitacoes, setSolicitacoes] = useState(null);
+  const [erroConsultaSolicitacoes,setErroConsultaSolicitacoes] = useState('');
   const [detalhe, setDetalhe] = useState(null);
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
@@ -3398,29 +3399,42 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
-  useEffect(() => { carregar(); }, [visao]);
+  useEffect(() => { carregar(); }, [visao,modulo,profile.id]);
   async function carregar() {
-    const [rf, rs] = await Promise.all([
+    setErroConsultaSolicitacoes('');
+    const adminVendas=modulo==='administracao_vendas' &&
+      ['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
+    // Perfil administrativo possui consulta de leitura de todas as solicitações,
+    // independente de carteiras. O banco valida auth.uid() e papel ativo.
+    if(adminVendas){
+      const resultado=await sb.rpc('mc_listar_solicitacoes_adm_vendas');
+      if(resultado.error){
+        console.error('Solicitações Administração de Vendas:',resultado.error);
+        setErroConsultaSolicitacoes('Não foi possível consultar o histórico: '+resultado.error.message+
+          '. Verifique a migração 20261111_solicitacoes_leitura_adm_vendas.sql no Supabase.');
+        setSolicitacoes([]);
+      }else{
+        setSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]);
+      }
+      setFichas([]);
+      return;
+    }
+    const [rf,rs]=await Promise.all([
       ehVendedor
         ? sb.from('fichas_clientes')
             .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(etapa, status, decidido_em, observacao)')
-            .eq('vendedor_id', profile.id).order('created_at', { ascending: false })
-        : Promise.resolve({ data: [] }),
+            .eq('vendedor_id',profile.id).order('created_at',{ascending:false})
+        : Promise.resolve({data:[]}),
       sb.from('solicitacoes')
         .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
-        .order('created_at', { ascending: false })
+        .order('created_at',{ascending:false})
     ]);
-    setFichas(rf.data || []);
-    let listaSolic = rs.data || [];
-    if (modulo === 'administracao_vendas' && profile.papel === 'adm_vendas') {
-      const idsVend = await vendedoresVisiveis(profile);
-      if (Array.isArray(idsVend)) {
-        const {data: cls}=idsVend.length ? await sb.from('clientes').select('id').in('vendedor_id',idsVend) : {data:[]};
-        const idsCli=new Set((cls||[]).map(c=>c.id));
-        listaSolic=listaSolic.filter(x=>idsCli.has(x.cliente_id));
-      }
+    if(rs.error){
+      console.error('Consulta de solicitações:',rs.error);
+      setErroConsultaSolicitacoes('Falha ao carregar solicitações: '+rs.error.message);
     }
-    setSolicitacoes(listaSolic);
+    setFichas(rf.data||[]);
+    setSolicitacoes(rs.data||[]);
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -3450,6 +3464,11 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
         h('div', { className: 'page-title' }, 'Solicitações'),
         h('div', { className: 'page-sub' }, 'Equipamentos · bonificações · envio de amostras')),
       podeCriar && h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Solicitação')),
+
+    erroConsultaSolicitacoes && h('div',{className:'card',style:{borderColor:'var(--danger)',marginBottom:12,color:'var(--danger)'}},
+      h('strong',null,'Erro ao consultar solicitações'),
+      h('div',{style:{marginTop:6,fontSize:13}},erroConsultaSolicitacoes),
+      h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:10},onClick:carregar},'Tentar novamente')),
 
     h('div', { className: 'tabs', style: { display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 18, flexWrap: 'wrap' } },
       abas.map(a => h('button', {
