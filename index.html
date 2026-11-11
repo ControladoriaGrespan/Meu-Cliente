@@ -8585,14 +8585,14 @@ function PaginaPedidos({ profile }) {
                       ? h('div',{style:{fontSize:13,color:'var(--danger)'}},
                           'Não foi possível consultar as bonificações: '+diagnosticoBonificacoes.erro)
                       : diagnosticoBonificacoes.semSolicitacoes
-                        ? h('div',{style:{fontSize:12}},'Nenhuma solicitação de bonificação retornou para este cliente. Confira o acesso do usuário e o ID do cliente na rota.')
+                        ? h('div',{style:{fontSize:12}},'Não há solicitações de bonificação cadastradas para este cliente nesta consulta.')
                         : (diagnosticoBonificacoes.bloqueadas||[]).map(b=>
                             h('div',{key:b.id,style:{fontSize:12,padding:'6px 0'}},
                               h('strong',null,b.codigo+' — não disponível para pedido: '),
                               b.motivo)),
                     h('div',{style:{fontSize:11,color:'var(--text-muted)',marginTop:5}},
                       'Cliente '+diagnosticoBonificacoes.clienteCodigo+
-                      ' · Consulte a solicitação nas aprovações. Somente bonificações com Financeiro e Diretoria aprovados podem ser vinculadas.')),
+                      ' · Consulte a solicitação nas aprovações. A vinculação exige parecer do Financeiro e aprovação final da Diretoria.')),
                 bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
                   h('div', { className: 'section-title' }, 'Bonificações aprovadas em aberto'),
                   bonificacoesAbertas.map(b => {
