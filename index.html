@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v104-pendencias-fila-completa';
-console.info('[Meu Cliente] BUILD v104-pendencias-fila-completa');
+window.__MEU_CLIENTE_BUILD__='v105-conclusao-atomica-bonificacoes';
+console.info('[Meu Cliente] BUILD v105-conclusao-atomica-bonificacoes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -8326,26 +8326,25 @@ function PaginaPedidos({ profile }) {
     }finally{setSalvando(false);}
 
     if (bonificacoesVinculadas.length) {
+      // Um único comando seguro cria vínculo + conclusão na mesma transação.
+      // O UPDATE direto em solicitacoes podia retornar zero linhas silenciosamente
+      // quando a Administração de Vendas tinha RLS de somente leitura.
       for (const b of bonificacoesVinculadas) {
-        const { error: erroConclusaoBonificacao } = await sb.from('solicitacoes').update({
-          status_fluxo: 'vinculada',
-          pedido_id: pedidoId,
-          vinculada_em: new Date().toISOString(),
-          vinculada_por: profile.id
-        }).eq('id', b.id);
-
-        if (erroConclusaoBonificacao) {
-          toast('Pedido salvo, mas não foi possível vincular a bonificação: ' + erroConclusaoBonificacao.message, 'error');
-          return;
-        }
-        // O setor de Administração de Vendas já confirma a realização ao
-        // vincular a bonificação ao pedido. A RPC grava status e trilha de auditoria.
-        const conclusao=await sb.rpc('mc_concluir_solicitacao_adm_vendas',{p_solicitacao_id:b.id});
-        if(conclusao.error){
-          toast('Bonificação vinculada ao pedido, mas a conclusão automática falhou: '+conclusao.error.message,'error');
+        const conclusao=await sb.rpc('mc_vincular_concluir_bonificacao',{
+          p_solicitacao_id:b.id,p_pedido_id:pedidoId
+        });
+        if(conclusao.error||conclusao.data?.situacao!=='concluida'){
+          const msg=conclusao.error?.message||'Confirmação de conclusão não retornada pelo banco';
+          toast('Pedido confirmado, mas a bonificação '+(b.codigo||b.id)+
+            ' ainda não foi concluída: '+msg+
+            '. Verifique a migração v105 no Supabase antes de tentar novamente.','error');
+          await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
           return;
         }
       }
+      setBonificacoesVinculadas([]);
+      await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
+      toast('Bonificação vinculada ao pedido e concluída com sucesso.','success');
     }
 
     if (amostrasVinculadas.length) {
