@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v100-bonificacao-parecer-financeiro';
-console.info('[Meu Cliente] BUILD v100-bonificacao-parecer-financeiro');
+window.__MEU_CLIENTE_BUILD__='v104-pendencias-fila-completa';
+console.info('[Meu Cliente] BUILD v104-pendencias-fila-completa');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2765,6 +2765,17 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           detalhesFicha=fallback.data||[];
         }else detalhesFicha=df.data||[];
       }
+      // Ler a fila completa por ficha; o SELECT incorporado pode estar limitado por RLS.
+      // A consulta adicional não altera o acesso: utiliza apenas permissões do usuário.
+      if(fichaIds.length){
+        const historico=await sb.from('ficha_aprovacoes')
+          .select('id,ficha_id,etapa,ordem,status,observacao,decidido_em')
+          .in('ficha_id',fichaIds);
+        if(!historico.error){
+          const hm={};(historico.data||[]).forEach(a=>(hm[a.ficha_id]??=[]).push(a));
+          detalhesFicha=detalhesFicha.map(f=>({...f,ficha_aprovacoes:hm[f.id]||f.ficha_aprovacoes||[]}));
+        }else console.warn('Histórico completo de fichas indisponível:',historico.error);
+      }
       const mapaFicha=new Map(detalhesFicha.map(f=>[String(f.id),f]));
       const pendenciasEnriquecidas=aprovacoesFicha.map(ap=>({
         ...ap,fichas_clientes:mapaFicha.get(String(ap.ficha_id))||null
@@ -2804,17 +2815,30 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           recuperados.filter(Boolean).forEach(sol=>{if(sol&&sol.id)sm.set(String(sol.id),sol);});
         }
 
+        // Carregar histórico completo uma única vez por lote, sem depender
+        // da relação embutida, que pode retornar somente a etapa atual.
+        const hist=await sb.from('solicitacao_aprovacoes')
+          .select('id,solicitacao_id,ordem,etapa,status,observacao,decidido_em')
+          .in('solicitacao_id',solIds);
+        if(!hist.error){
+          const hm={};(hist.data||[]).forEach(a=>(hm[a.solicitacao_id]??=[]).push(a));
+          sols.forEach(sol=>{sol.solicitacao_aprovacoes=hm[sol.id]||sol.solicitacao_aprovacoes||[];});
+          sm.forEach((sol,id)=>{sol.solicitacao_aprovacoes=hm[id]||sol.solicitacao_aprovacoes||[];});
+        }else console.warn('Histórico completo de solicitações indisponível:',hist.error);
         aprovsSolic=aprovsSolic.map(ap=>({...ap,solicitacoes:sm.get(String(ap.solicitacao_id))||null}));
       }
       // A fila não deve oferecer aprovação de solicitações já reprovadas/encerradas.
       // Quando o detalhe estiver bloqueado por RLS, conservar a pendência;
       // o salvamento terá uma segunda conferência obrigatória.
       setPendSolic(aprovsSolic.filter(ap=>
-        !ap.solicitacoes ||
+        // Apenas a etapa ativa pertence à fila; se há responsável designado,
+        // só esse usuário a enxerga (exceto consulta no Modo Admin).
+        (ehPreview||!ap.responsavel_id||String(ap.responsavel_id)===String(profile.id)) &&
+        (!ap.solicitacoes ||
         (!['concluida','vinculada','aprovada'].includes(ap.solicitacoes.status_fluxo) &&
          !(ap.solicitacoes.status_fluxo==='reprovada' &&
            (ap.solicitacoes.categoria!=='bonificacao' ||
-            (ap.solicitacoes.solicitacao_aprovacoes||[]).some(x=>x.etapa==='diretoria'&&x.status==='reprovado'))))
+            (ap.solicitacoes.solicitacao_aprovacoes||[]).some(x=>x.etapa==='diretoria'&&x.status==='reprovado')))))
       ));
     }catch(e){
       console.error('Falha ao carregar Pendências:',e);
@@ -3324,7 +3348,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                 sol.tipo === 'troca' ? 'Troca' :
                 sol.tipo === 'aumento' ? 'Aumento' : 'Manutenção'),
               sol.justificativa && h('span', { className: 'badge badge-gray' }, sol.justificativa))),
-          h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: sol.solicitacao_aprovacoes })),
+          h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: sol.solicitacao_aprovacoes, atualId:ap.id })),
           h('div', { style: { marginBottom: 12 } },
             sol.categoria === 'equipamento' && linhaInfo('Serviço', sol.equipamento),
             sol.categoria === 'bonificacao' && linhaInfo('Produto', sol.produtos ? ((sol.produtos.codigo || '') + ' — ' + (sol.produtos.descricao || '')) : null),
@@ -3356,7 +3380,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               h('div', { style: { textAlign: 'right' } },
                 h('div', { style: { fontSize: 18, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(f.faturamento_previsto)),
                 h('div', { className: 'kpi-label' }, 'faturamento previsto/mês'))),
-            h('div', { style: { marginBottom: 12 } }, h(Stepper, { aprovacoes: f.ficha_aprovacoes })),
+            h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: f.ficha_aprovacoes, atualId:ap.id })),
             h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2px 24px', marginBottom: 14, alignItems: 'start' } },
               linhaInfo('Vendedor', f.usuarios && f.usuarios.nome),
               linhaInfo('Cidade', (f.cidade || '') + (f.estado ? '/' + f.estado : '')),
@@ -4223,15 +4247,34 @@ function rotaSolicitacao(tipo, justificativa, categoria, papel='vendedor') {
   return pos<0?todas:todas.slice(pos);
 }
 
-function StepperGenerico({ aprovacoes }) {
-  const ordenadas = [...(aprovacoes || [])].sort((a, b) => a.ordem - b.ordem);
-  if (!ordenadas.length) return null;
-  const icones = { aprovado: '✓', reprovado: '✗', pendente: '●', aguardando: '○', nao_aplica: '–' };
-  return h('div', { className: 'stepper' },
-    ordenadas.map((ap, i) => h(React.Fragment, { key: ap.id || ap.etapa },
-      i > 0 && h('span', { className: 'step-arrow' }, '›'),
-      h('span', { className: `badge ${STATUS_CLASSE[ap.status]}` },
-        (icones[ap.status] || '○') + ' ' + (ROLE_LABELS[ap.etapa] || ap.etapa)))));
+function StepperGenerico({ aprovacoes, atualId }) {
+  const ordenadas=[...(aprovacoes||[])].filter(Boolean).sort((a,b)=>(Number(a.ordem)||0)-(Number(b.ordem)||0)
+    ||String(a.etapa||'').localeCompare(String(b.etapa||'')));
+  if(!ordenadas.length)return h('div',{className:'page-sub'},'Histórico de aprovações indisponível.');
+  const icones={aprovado:'✓',reprovado:'✗',pendente:'●',aguardando:'○',nao_aplica:'–'};
+  const grupos=[];
+  ordenadas.forEach(ap=>{
+    let grupo=grupos[grupos.length-1];
+    if(!grupo||grupo.ordem!==ap.ordem)grupos.push(grupo={ordem:ap.ordem,itens:[]});
+    grupo.itens.push(ap);
+  });
+  return h('div',{className:'stepper',style:{display:'flex',alignItems:'center',flexWrap:'wrap',gap:5}},
+    ...grupos.map((g,i)=>h(React.Fragment,{key:'ordem_'+g.ordem},
+      i>0&&h('span',{className:'step-arrow',style:{margin:'0 3px'}},'›'),
+      h('span',{style:{display:'inline-flex',gap:4,flexWrap:'wrap',alignItems:'center',
+        padding:g.itens.length>1?'3px 5px':0,
+        border:g.itens.length>1?'1px dashed var(--border)':'none',borderRadius:6}},
+        ...g.itens.map(ap=>h('span',{
+          key:ap.id||ap.etapa,
+          className:'badge '+(STATUS_CLASSE[ap.status]||'badge-gray'),
+          title:(ROLE_LABELS[ap.etapa]||ap.etapa)+' — '+
+            ({aprovado:'Aprovado',reprovado:'Reprovado',pendente:'Pendente de decisão',
+              aguardando:'Aguardando etapa anterior',nao_aplica:'Não se aplica'}[ap.status]||ap.status||'—')+
+            (ap.observacao?' | Observação: '+ap.observacao:'')+
+            (ap.decidido_em?' | Data: '+fmtData(ap.decidido_em):''),
+          style:atualId&&String(ap.id)===String(atualId)?{outline:'1px solid var(--accent)',outlineOffset:1}:{}
+        },(icones[ap.status]||'○')+' '+(ROLE_LABELS[ap.etapa]||ap.etapa))))))
+  );
 }
 
 const JUSTIFICATIVAS = ['Relacionamento', 'Equipamento Danificado'];
