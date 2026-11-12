@@ -784,9 +784,9 @@ function ehCelularWhats() {
 // O envio exige confirmação pelo usuário dentro do WhatsApp (não há API WhatsApp integrada).
 const MC_WHATS_STORAGE='mc_whats_pendentes_v106';
 function numeroWhats(telefone){
-  let numero=String(telefone||'').replace(/\\D/g,'');
-  if(/^\\d{10,11}$/.test(numero))numero='55'+numero;
-  return /^\\d{12,13}$/.test(numero)&&numero.startsWith('55')?numero:null;
+  let numero=String(telefone||'').replace(/\D/g,'');
+  if(/^\d{10,11}$/.test(numero))numero='55'+numero;
+  return /^\d{12,13}$/.test(numero)&&numero.startsWith('55')?numero:null;
 }
 function urlWhats(telefone,mensagem){
   const num=numeroWhats(telefone);
