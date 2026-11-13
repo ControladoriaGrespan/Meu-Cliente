@@ -6906,6 +6906,21 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const minhaFilaAgendas=agendasParaAprovar.filter(a=>
     (supervisor&&a.origem_papel==='lider_tec_panificacao'&&a.supervisor_id===profile.id) ||
     (papelVisao==='coordenador'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id));
+  function abrirAgendaParaRevisao(a){
+    // O deslocamento de semana permite revisar agendas de semanas futuras
+    // sem aprovar às cegas. A ação de aprovação permanece na fila.
+    const hojeSegunda=new Date();
+    hojeSegunda.setHours(12,0,0,0);
+    hojeSegunda.setDate(hojeSegunda.getDate()-((hojeSegunda.getDay()+6)%7));
+    const alvo=new Date(a.semana_inicio+'T12:00:00');
+    if(!Number.isNaN(alvo.getTime())){
+      setSemana(Math.round((alvo.getTime()-hojeSegunda.getTime())/(7*86400000)));
+    }
+    setFiltroSupervisor('');
+    setFiltroLider('');
+    setFiltroTecnico('');
+    setTecnicoAgenda(a.tecnico_id);
+  }
   async function tramitarAgenda(id,acao){
     if(emPreview)return toast('Aprovações indisponíveis na simulação de perfil.','error');
     if(!id)return toast('Não existe agenda semanal para este técnico.','error');
@@ -7080,6 +7095,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           'Enviada por: '+(a.origem_papel==='supervisor_tec_panificacao'
             ?usuariosPorId[a.supervisor_id]?.nome:usuariosPorId[a.lider_id]?.nome)),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          h('button',{className:'btn btn-secondary btn-sm',onClick:()=>abrirAgendaParaRevisao(a)},'Ver agenda'),
           h('button',{className:'btn btn-primary btn-sm',disabled:salvando||emPreview,
             onClick:()=>tramitarAgenda(a.id,'aprovar')},'Aprovar agenda'),
           h('button',{className:'btn btn-secondary btn-sm',disabled:salvando||emPreview,
