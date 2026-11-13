@@ -2665,6 +2665,25 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     return blocos.length?h('div',null,...blocos):h('div',{className:'card'},h(Empty,{icon:'✓',texto:modoSupervisor?'Nenhuma programação de rota aguardando sua análise.':'Nenhuma rota neste status.'}));
   }
 
+  async function enriquecerBonificacoesPendentes(lista){
+    const ids=[...new Set((lista||[]).map(ap=>ap.solicitacoes).filter(sol=>sol?.categoria==='bonificacao').map(sol=>sol.id))];
+    if(!ids.length)return lista||[];
+    const mapa={};
+    for(let i=0;i<ids.length;i+=120){
+      const r=await sb.from('solicitacao_bonificacao_itens')
+        .select('solicitacao_id,produto_id,quantidade,ordem,produtos(codigo,descricao)')
+        .in('solicitacao_id',ids.slice(i,i+120)).order('ordem');
+      if(r.error){
+        console.warn('Produtos da bonificação na fila de aprovações:',r.error);
+        toast('Não foi possível consultar todos os produtos de bonificação. Verifique a migração v111.','error');
+        return lista||[];
+      }
+      (r.data||[]).forEach(it=>(mapa[it.solicitacao_id]??=[]).push(it));
+    }
+    return (lista||[]).map(ap=>ap.solicitacoes?.categoria==='bonificacao'
+      ? {...ap,solicitacoes:{...ap.solicitacoes,solicitacao_bonificacao_itens:mapa[ap.solicitacoes.id]||[]}} : ap);
+  }
+
   useEffect(() => { carregar(); carregarProgramacoesRota(); carregarFilaSupervisorDireta(); }, [visao, profile&&profile.id]);
   async function carregar() {
     setPendentes(null);
@@ -2748,7 +2767,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         const adm=await sb.rpc('mc_admin_listar_pendencias');
         if(adm.error)throw new Error('Fila administrativa indisponível. Execute a migração v110: '+adm.error.message);
         setPendentes(Array.isArray(adm.data?.fichas)?adm.data.fichas:[]);
-        setPendSolic(Array.isArray(adm.data?.solicitacoes)?adm.data.solicitacoes:[]);
+        setPendSolic(await enriquecerBonificacoesPendentes(Array.isArray(adm.data?.solicitacoes)?adm.data.solicitacoes:[]));
         return;
       }
       // DEMAIS ETAPAS
@@ -2860,7 +2879,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       // A fila não deve oferecer aprovação de solicitações já reprovadas/encerradas.
       // Quando o detalhe estiver bloqueado por RLS, conservar a pendência;
       // o salvamento terá uma segunda conferência obrigatória.
-      setPendSolic(aprovsSolic.filter(ap=>
+      setPendSolic(await enriquecerBonificacoesPendentes(aprovsSolic.filter(ap=>
         // Apenas a etapa ativa pertence à fila; se há responsável designado,
         // só esse usuário a enxerga (exceto consulta no Modo Admin).
         (etapa==='admin'||ehPreview||!ap.responsavel_id||String(ap.responsavel_id)===String(profile.id)) &&
@@ -2869,7 +2888,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
          !(ap.solicitacoes.status_fluxo==='reprovada' &&
            (ap.solicitacoes.categoria!=='bonificacao' ||
             (ap.solicitacoes.solicitacao_aprovacoes||[]).some(x=>x.etapa==='diretoria'&&x.status==='reprovado')))))
-      ));
+      )));
     }catch(e){
       console.error('Falha ao carregar Pendências:',e);
       setPendentes([]);
@@ -2925,7 +2944,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         sol.tipo === 'retirada' ? 'RETIRADA DE EQUIPAMENTO' :
         sol.tipo === 'aumento' ? 'AUMENTO DE EQUIPAMENTO' : 'MANUTENÇÃO';
       const detalheMsg = sol.categoria === 'equipamento' ? `\nServiço: ${sol.equipamento || '—'}` :
-        sol.categoria === 'bonificacao' ? `\nQuantidade: ${sol.quantidade || '—'}` :
+        sol.categoria === 'bonificacao'
+          ? '\nProdutos: '+((sol.solicitacao_bonificacao_itens?.length
+            ? sol.solicitacao_bonificacao_itens
+            : [{produtos:sol.produtos,quantidade:sol.quantidade}])
+            .map(it=>(it.produtos?.codigo||'Produto')+' '+fmtNum(it.quantidade||0)).join('; ')) :
         `\nTipo: ${sol.tipo_amostra === 'kit' ? 'KIT' : 'Produto'}`;
       const msg = `🔧 Solicitação de ${tipoMsg} aguardando sua aprovação\n*${sol.clientes && sol.clientes.razao_social}*${detalheMsg}\n\nAcesse o sistema:\n${linkSistema()}`;
       if(ehCelularWhats())agendarAvisoWhats(dest,msg);
@@ -3386,8 +3409,13 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: sol.solicitacao_aprovacoes, atualId:ap.id })),
           h('div', { style: { marginBottom: 12 } },
             sol.categoria === 'equipamento' && linhaInfo('Serviço', sol.equipamento),
-            sol.categoria === 'bonificacao' && linhaInfo('Produto', sol.produtos ? ((sol.produtos.codigo || '') + ' — ' + (sol.produtos.descricao || '')) : null),
-            sol.categoria === 'bonificacao' && linhaInfo('Quantidade', sol.quantidade),
+            sol.categoria === 'bonificacao' && h('div',{style:{marginBottom:8}},
+              h('strong',null,'Produtos da Bonificação'),
+              ...((sol.solicitacao_bonificacao_itens?.length
+                ? sol.solicitacao_bonificacao_itens
+                : [{produtos:sol.produtos,quantidade:sol.quantidade}])
+                .map((it,i)=>h('div',{key:'produto_ap_'+i,style:{fontSize:12,padding:'4px 0'}},
+                  [it.produtos?.codigo,it.produtos?.descricao].filter(Boolean).join(' — ')+' · '+fmtNum(it.quantidade||0)+' un.')))),
             sol.categoria === 'bonificacao' && linhaInfo('Aplicação', sol.modalidade_bonificacao === 'desconto' ? 'Desconto do pedido' : 'Acréscimo no pedido'),
             sol.categoria === 'amostra' && linhaInfo('Amostra', sol.tipo_amostra === 'kit' ? 'KIT' : (sol.produtos ? ((sol.produtos.codigo || '') + ' — ' + (sol.produtos.descricao || '')) : 'Produto')),
             sol.categoria === 'amostra' && linhaInfo('Quantidade', sol.quantidade),
