@@ -6601,7 +6601,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [visitas,setVisitas]=useState([]);
   const [agendasSemana,setAgendasSemana]=useState([]);
   const [agendasParaAprovar,setAgendasParaAprovar]=useState([]);
-  const [abaVisita,setAbaVisita]=useState('agenda');
   const [acompanhaLider,setAcompanhaLider]=useState(false);
   const [participantes,setParticipantes]=useState([]);
   const [excecao,setExcecao]=useState(false);
@@ -7191,7 +7190,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}},
             h('div',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setTecnicoAgenda('')},'← Todas as equipes'),
               h('b',{style:{marginLeft:12}},usuario?.nome||'Técnico')),
-            h('div',{style:{fontSize:12}},'Aprovação: '+(agendaAtual?.status||'Sem agenda')+(agendaAtual?.lider_id?' · Responsável: '+(usuariosPorId[agendaAtual.lider_id]?.nome||'Líder'):'')),
+            h('div',{style:{fontSize:12}},'Aprovação: '+(agendaAtual?.status||'Sem agenda')+
+              (agendaAtual?.origem_papel==='supervisor_tec_panificacao'
+                ? ' · Origem: Supervisor · Aprovação: Coordenador'
+                :agendaAtual?.lider_id?' · Origem: Líder · Aprovação: Supervisor':'') ),
             (lider||supervisor)&&agendaAtual&&['rascunho','devolvida'].includes(agendaAtual.status)&&
               ((lider&&agendaAtual.origem_papel==='lider_tec_panificacao'&&agendaAtual.lider_id===profile.id)||
                (supervisor&&agendaAtual.origem_papel==='supervisor_tec_panificacao'&&agendaAtual.supervisor_id===profile.id))&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
