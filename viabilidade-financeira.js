@@ -99,7 +99,7 @@ function PaginaViabilidadeFinanceira({profile}){
  }
  async function salvar(){
   if(!ficha||!calc)return;
-  if([p.custo_pct,p.tributos_pct,p.reajuste,p.fator_usado,p.ir_csll_pct].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0||Number(x)>100)))
+  if([p.custo_pct,p.tributos_pct,p.reajuste,p.fator_usado,p.ir_csll_pct,p.custo_bonif_pct].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0||Number(x)>100)))
    return toast('Percentuais devem estar entre 0 e 100.','error');
   if([p.despesas,p.pix,p.boleto,p.nota,p.pedido_ref,p.despesa_kg,...equip.map(x=>x.valor)].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0)))
    return toast('Os valores devem ser não negativos.','error');
@@ -219,7 +219,7 @@ function PaginaViabilidadeFinanceira({profile}){
   h('p',null,'Payback estimado do equipamento: '+(!calc.completo?'Pendente':calc.payback?calc.payback+' meses':'Não recuperado em 60 meses')),
   h('p',{className:'page-sub'},'Simulação gerencial; receita reajusta por ano, despesas fixas não. Não equivale a fluxo de caixa contábil.'));
  const parecerTab=h('div',{className:'card'},h('h3',null,'Parecer e versões'),
-  h('p',{className:'page-sub'},'O parecer não modifica o workflow de aprovação da Ficha.'),
+  h('p',{className:'page-sub'},'Parecer financeiro independente do workflow da Ficha. Favorável → Aprovados; Desfavorável → Parecer Desfavorável. A aprovação comercial permanece inalterada.'),
   h(Campo,{label:'Situação'},h('select',{className:'form-select',value:status,onChange:e=>setStatus(e.target.value)},
    ...[['rascunho','Rascunho'],['em_analise','Em análise'],['favoravel','Favorável'],
     ['condicionada','Condicionada'],['desfavoravel','Desfavorável']].map(([k,l])=>h('option',{key:k,value:k},l)))),
