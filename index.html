@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v108-visita-tecnica-dupla-alcada';
-console.info('[Meu Cliente] BUILD v108-visita-tecnica-dupla-alcada');
+window.__MEU_CLIENTE_BUILD__='v110-admin-operacional';
+console.info('[Meu Cliente] BUILD v110-admin-operacional');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2262,8 +2262,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [detalhe, setDetalhe] = useState(null);
   const [origemAprovacao,setOrigemAprovacao] = useState(null);
 
-  // no preview do admin, o papel "admin" nao tem fila propria: mostra supervisor
-  const etapa = visao === 'admin' ? 'supervisor' : visao;
+  // Admin real lista todas as etapas; modo Ver como continua sendo simulação.
+  const etapa = visao;
   const [pendSolic, setPendSolic] = useState(null);
   const [demandasManut,setDemandasManut]=useState(null);
   const [subManut,setSubManut]=useState('envio');
@@ -2739,9 +2739,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
       // DEMAIS ETAPAS
       // Busca primeiro as aprovações: embeds de ficha podem falhar ou voltar null por RLS.
-      let q=sb.from('ficha_aprovacoes')
-        .select('*')
-        .eq('etapa',etapa).eq('status','pendente');
+      let q=sb.from('ficha_aprovacoes').select('*').eq('status','pendente');
+      if(etapa!=='admin')q=q.eq('etapa',etapa);
 
       if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
         q=q.eq('responsavel_id',profile.id);
@@ -2750,9 +2749,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       // Solicitações: primeiro busca a APROVAÇÃO pendente e depois enriquece os dados.
       // Não dependemos do embed solicitacoes(...) para a fila existir, porque RLS/relação
       // pode devolver solicitacoes=null mesmo com a aprovação corretamente pendente.
-      let qs=sb.from('solicitacao_aprovacoes')
-        .select('*')
-        .eq('etapa',etapa).eq('status','pendente');
+      let qs=sb.from('solicitacao_aprovacoes').select('*').eq('status','pendente');
+      if(etapa!=='admin')qs=qs.eq('etapa',etapa);
 
       if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
         qs=qs.eq('responsavel_id',profile.id);
@@ -2851,7 +2849,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       setPendSolic(aprovsSolic.filter(ap=>
         // Apenas a etapa ativa pertence à fila; se há responsável designado,
         // só esse usuário a enxerga (exceto consulta no Modo Admin).
-        (ehPreview||!ap.responsavel_id||String(ap.responsavel_id)===String(profile.id)) &&
+        (etapa==='admin'||ehPreview||!ap.responsavel_id||String(ap.responsavel_id)===String(profile.id)) &&
         (!ap.solicitacoes ||
         (!['concluida','vinculada','aprovada'].includes(ap.solicitacoes.status_fluxo) &&
          !(ap.solicitacoes.status_fluxo==='reprovada' &&
@@ -3338,6 +3336,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         h('div', { className: 'page-title' }, 'Pendências'),
         h('div', { className: 'page-sub' },
           ehPreview ? `Visualização de teste — fila de todos os ${(ROLE_LABELS[etapa]||etapa||'usuário').toLowerCase()}s`
+                    : etapa==='admin'?'Administrador · todas as etapas pendentes de Fichas e Solicitações'
                     : `Solicitações aguardando sua decisão como ${ROLE_LABELS[etapa]||etapa||'usuário'}`))),
 
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
@@ -6596,7 +6595,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const supervisor=papelVisao==='supervisor_tec_panificacao';
   const tecnico=papelVisao==='tec_panificacao';
   const lider=papelVisao==='lider_tec_panificacao';
-  const podeAgendar=(lider||supervisor)&&!emPreview;
+  const adminReal=profile.papel==='admin'&&!emPreview;
+  const podeAgendar=(lider||supervisor||adminReal)&&!emPreview;
   const [usuarios,setUsuarios]=useState([]);
   const [visitas,setVisitas]=useState([]);
   const [agendasSemana,setAgendasSemana]=useState([]);
@@ -6737,13 +6737,13 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     (!supervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)||
       duplosLider.some(d=>d.ativo&&d.tecnico_id===u.id&&usuarios.some(l=>l.id===d.lider_id&&l.supervisor_id===profile.id))));
   const lideres=usuarios.filter(u=>u.papel==='lider_tec_panificacao'&&u.ativo!==false&&(!supervisor||u.supervisor_id===profile.id)&&(!lider||u.id===profile.id)&&(!filtroSupervisor||u.supervisor_id===filtroSupervisor));
-  const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(lider?
+  const equipeParticipantes=usuarios.filter(u=>u.ativo!==false&&(adminReal?['supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(u.papel):lider?
     (u.id===profile.id||(u.papel==='tec_panificacao'&&(u.supervisor_id===profile.id||
       duplosLider.some(d=>d.ativo&&d.lider_id===profile.id&&d.tecnico_id===u.id)))):
     supervisor?(u.id===profile.id||(u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)||
       (u.papel==='tec_panificacao'&&(usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===profile.id)||
        duplosLider.some(d=>d.ativo&&d.tecnico_id===u.id&&usuarios.some(l=>l.id===d.lider_id&&l.supervisor_id===profile.id))))):false));
-  const tecnicosFiltro=[...tecnicos,...usuarios.filter(u=>u.ativo!==false&&((lider&&u.id===profile.id)||(supervisor&&(u.id===profile.id||u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id))))].filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
+  const tecnicosFiltro=[...tecnicos,...usuarios.filter(u=>u.ativo!==false&&(adminReal?['supervisor_tec_panificacao','lider_tec_panificacao'].includes(u.papel):((lider&&u.id===profile.id)||(supervisor&&(u.id===profile.id||u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)))))].filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
   useEffect(()=>{if(autorizado)carregar();},[semana]);
@@ -6794,7 +6794,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   // A RPC e a hierarquia atual usam a mesma matriz territorial.
   // Se a RPC retornar um status antigo, a consulta local permite selecionar
   // o cliente; a funcao vt_agendar_equipe continua validando no banco.
-  const clienteNoTerritorio=c=>Boolean(c&&(c.dentro_carteira===true||vendedoresTerritorio.has(c.vendedor_id)));
+  const clienteNoTerritorio=c=>Boolean(c&&(adminReal||c.dentro_carteira===true||vendedoresTerritorio.has(c.vendedor_id)));
   useEffect(()=>{
     if(!form&&!checkinRapido)return;
     const seq=++buscaClienteSeq.current;
@@ -6828,13 +6828,13 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(!form?.cliente_id||!form?.data_visita||!form?.hora_inicio||!form?.hora_fim||!participantes.length)return toast('Informe cliente, participantes, início e fim.','error');
     const minutos=paraMin(form.hora_fim)-paraMin(form.hora_inicio);
     if(minutos<15||minutos>600)return toast('O horário final deve ser posterior ao início (15 minutos a 10 horas).','error');
-    if(repetirVisitas&&(!(lider||supervisor)||!dataFimVisitas||dataFimVisitas<form.data_visita))return toast('Selecione um período válido para replicar.','error');
+    if(repetirVisitas&&(!(lider||supervisor||adminReal)||!dataFimVisitas||dataFimVisitas<form.data_visita))return toast('Selecione um período válido para replicar.','error');
     // O Supervisor pode planejar visitas normais, mas a sua semana exige aprovação do Coordenador.
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
     if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
     const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
     if(!clienteSelecionado)return toast('Pesquise e selecione um cliente válido antes de agendar.','error');
-    if(!excecao&&!clienteNoTerritorio(clienteSelecionado))
+    if(!excecao&&!adminReal&&!clienteNoTerritorio(clienteSelecionado))
       return toast('Cliente não identificado na carteira técnica. Confira o supervisor comercial do vendedor e os vínculos da matriz, ou solicite exceção ao Supervisor Técnico.','error');
     setSalvando(true);
     try{if(!repetirVisitas)for(const id of participantes){await validarHorarioParticipante(id);}setAlertaAgenda('Horários validados.');}catch(e){setSalvando(false);setAlertaAgenda(e.message);return toast('Agenda bloqueada: '+e.message,'error');}
@@ -6855,7 +6855,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     }
     setSalvando(false);
     if(error)return toast('Erro ao agendar: '+error.message,'error');
-    toast('Visita(s) planejadas. Envie a agenda ao '+(supervisor?'Coordenador':'Supervisor Técnico')+' para aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);setRepetirVisitas(false);carregar();
+    toast('Visita(s) planejadas. Envie a agenda ao '+(supervisor||adminReal?'Coordenador':'Supervisor Técnico')+' para aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);setRepetirVisitas(false);carregar();
   }
   async function registrar(v,acao){
     if(emPreview||v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return toast('Somente o participante pode registrar seu atendimento.','error');
@@ -6904,7 +6904,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const statusAgenda=id=>agendasSemana.find(a=>a.tecnico_id===id);
   const minhaFilaAgendas=agendasParaAprovar.filter(a=>
     (supervisor&&a.origem_papel==='lider_tec_panificacao'&&a.supervisor_id===profile.id) ||
-    (papelVisao==='coordenador'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id));
+    (papelVisao==='coordenador'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id) || adminReal);
   function abrirAgendaParaRevisao(a){
     // O deslocamento de semana permite revisar agendas de semanas futuras
     // sem aprovar às cegas. A ação de aprovação permanece na fila.
@@ -7080,11 +7080,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       ...duplosLider.filter(d=>d.ativo).map(d=>h('div',{key:d.lider_id+d.tecnico_id,style:{padding:6}},
         (usuariosPorId[d.lider_id]?.nome||'Líder')+' → '+(usuariosPorId[d.tecnico_id]?.nome||'Técnico')+' ',
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularLiderDuplo(d.lider_id,d.tecnico_id)},'Desativar')))),
-    (supervisor||papelVisao==='coordenador')&&h('div',{className:'card',style:{marginBottom:14}},
+    (supervisor||papelVisao==='coordenador'||adminReal)&&h('div',{className:'card',style:{marginBottom:14}},
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',marginBottom:10}},
         h('h3',{style:{margin:0}},'Agendas para aprovação ('+minhaFilaAgendas.length+')'),
         h('button',{className:'btn btn-secondary btn-sm',disabled:carregando,onClick:carregar},'Atualizar pendências')),
-      h('p',{className:'page-sub'},supervisor
+      h('p',{className:'page-sub'},adminReal?'Administrador · todas as agendas aguardando aprovação.':supervisor
         ?'Agendas enviadas pelos Líderes Técnicos da sua equipe.'
         :'Agendas enviadas pelos Supervisores Técnicos vinculados a você.'),
       !minhaFilaAgendas.length&&h('p',{style:{fontSize:12,color:'var(--text-muted)'}},'Nenhuma agenda aguardando sua aprovação.'),
@@ -7194,11 +7194,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               (agendaAtual?.origem_papel==='supervisor_tec_panificacao'
                 ? ' · Origem: Supervisor · Aprovação: Coordenador'
                 :agendaAtual?.lider_id?' · Origem: Líder · Aprovação: Supervisor':'') ),
-            (lider||supervisor)&&agendaAtual&&['rascunho','devolvida'].includes(agendaAtual.status)&&
+            (lider||supervisor||adminReal)&&agendaAtual&&['rascunho','devolvida'].includes(agendaAtual.status)&&
               ((lider&&agendaAtual.origem_papel==='lider_tec_panificacao'&&agendaAtual.lider_id===profile.id)||
-               (supervisor&&agendaAtual.origem_papel==='supervisor_tec_panificacao'&&agendaAtual.supervisor_id===profile.id))&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
+               (supervisor&&agendaAtual.origem_papel==='supervisor_tec_panificacao'&&agendaAtual.supervisor_id===profile.id)||adminReal)&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
             ((supervisor&&agendaAtual?.origem_papel==='lider_tec_panificacao'&&agendaAtual?.supervisor_id===profile.id)||
-              (papelVisao==='coordenador'&&agendaAtual?.origem_papel==='supervisor_tec_panificacao'&&agendaAtual?.coordenador_id===profile.id))&&
+              (papelVisao==='coordenador'&&agendaAtual?.origem_papel==='supervisor_tec_panificacao'&&agendaAtual?.coordenador_id===profile.id)||adminReal)&&
               agendaAtual?.status==='pendente'&&h('div',{style:{display:'flex',gap:6}},
               h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'aprovar')},'Aprovar semana'),
               h('button',{className:'btn btn-secondary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'devolver')},'Devolver para ajustes')),
