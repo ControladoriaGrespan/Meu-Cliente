@@ -94,9 +94,9 @@ function PaginaViabilidadeFinanceira({profile}){
  }
  async function salvar(){
   if(!ficha||!calc)return;
-  if([p.custo_pct,p.tributos_pct,p.reajuste,p.fator_usado].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0||Number(x)>100)))
+  if([p.custo_pct,p.tributos_pct,p.reajuste,p.fator_usado,p.ir_csll_pct].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0||Number(x)>100)))
    return toast('Percentuais devem estar entre 0 e 100.','error');
-  if([p.despesas,p.pix,p.boleto,p.nota,p.pedido_ref,...equip.map(x=>x.valor)].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0)))
+  if([p.despesas,p.pix,p.boleto,p.nota,p.pedido_ref,p.despesa_kg,...equip.map(x=>x.valor)].some(x=>x!==''&&(!Number.isFinite(Number(x))||Number(x)<0)))
    return toast('Os valores devem ser não negativos.','error');
   if(status==='favoravel'&&!calc.completo)return toast('Complete as premissas antes de registrar parecer favorável.','error');
   if(['favoravel','desfavoravel','condicionada'].includes(status)&&!parecer.trim())return toast('Informe a justificativa.','error');
@@ -126,17 +126,43 @@ function PaginaViabilidadeFinanceira({profile}){
  const titulo=h('div',{className:'page-head'},h('div',null,
   h('div',{className:'page-title'},'Análise de Viabilidade Financeira'),
   h('div',{className:'page-sub'},'Ficha · custos e bonificações · investimento · cinco anos · parecer')));
+
+ const condicaoDe=f=>situacoes[f.id]?.situacao||'rascunho';
+ const naFila=f=>{
+  const st=condicaoDe(f);
+  return fila==='aprovados'?st==='favoravel':
+   fila==='desfavoraveis'?st==='desfavoravel':!['favoravel','desfavoravel'].includes(st);
+ };
+ const exibidos=lista.filter(naFila);
+ const totais={pendentes:0,aprovados:0,desfavoraveis:0};
+ lista.forEach(f=>{const st=condicaoDe(f);
+  if(st==='favoravel')totais.aprovados++;
+  else if(st==='desfavoravel')totais.desfavoraveis++;
+  else totais.pendentes++;
+ });
  const pesquisa=h('div',{className:'card',style:{marginBottom:14}},
+  h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}},
+   ...[['pendentes','Pendentes de Aprovação'],['aprovados','Aprovados'],
+    ['desfavoraveis','Parecer Desfavorável']].map(([k,l])=>
+     h('button',{key:k,className:'btn '+(fila===k?'btn-primary':'btn-secondary')+' btn-sm',
+      onClick:()=>{setFila(k);setFicha(null);}},l+' ('+totais[k]+')'))),
   h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-   h('input',{className:'form-input',placeholder:'Razão social, fantasia ou CNPJ',
+   h('input',{className:'form-input',placeholder:'Pesquisar razão social, fantasia ou CNPJ',
     value:busca,onChange:e=>setBusca(e.target.value),onKeyDown:e=>{if(e.key==='Enter')pesquisar();}}),
-   h('button',{className:'btn btn-primary',disabled:busy,onClick:pesquisar},'Pesquisar')),
+   h('button',{className:'btn btn-primary',disabled:busy,onClick:pesquisar},busy?'Buscando...':'Pesquisar')),
   erro&&h('p',{style:{color:'#b91c1c'}},erro),
-  h('select',{className:'form-select',style:{marginTop:8,width:'100%'},
-   value:ficha?.id||'',onChange:e=>{const f=lista.find(x=>x.id===e.target.value);if(f)escolher(f);}},
-   h('option',{value:''},'Selecione uma Ficha'),
-   ...lista.map(f=>h('option',{key:f.id,value:f.id},f.razao_social+' · '+(f.cnpj_cpf||'')))));
- if(!ficha||!calc)return h('div',null,titulo,pesquisa,h('div',{className:'card'},'Selecione uma Ficha para começar.'));
+  h('p',{className:'page-sub'},'Exibindo '+exibidos.length+' cliente(s). Use a pesquisa para localizar Fichas anteriores.'),
+  !exibidos.length&&h('p',null,'Nenhuma Ficha nesta situação.'),
+  ...exibidos.map(f=>h('div',{key:f.id,style:{padding:12,marginTop:9,
+    border:'1px solid var(--border)',borderRadius:8,
+    display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}},
+   h('div',null,
+    h('div',{style:{fontWeight:700}},f.razao_social||f.nome_fantasia||'Cliente'),
+    h('div',{className:'page-sub'},(f.cnpj_cpf||'')+' · '+dinheiro(f.faturamento_previsto)+'/mês'),
+    h('div',{className:'page-sub'},'Análise: '+(condicaoDe(f)==='favoravel'?'Aprovado':
+      condicaoDe(f)==='desfavoravel'?'Parecer desfavorável':'Pendente de decisão'))),
+   h('button',{className:'btn btn-primary btn-sm',onClick:()=>escolher(f)},'Analisar cliente'))));
+ if(!ficha||!calc)return h('div',null,titulo,pesquisa);
  const resumo=h('div',{className:'card'},h('h3',null,ficha.razao_social),
   h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(165px,1fr))',gap:10}},
    indicador('Receita mensal',dinheiro(calc.receita)),indicador('Consumo mensal',fmtNum(calc.kg)+' kg'),
@@ -164,7 +190,7 @@ function PaginaViabilidadeFinanceira({profile}){
   calc.faltas.length>0&&h('p',{style:{color:'#a15c00'}},'Pendências: '+calc.faltas.join(' · ')),
   h('h3',null,'Composição do primeiro mês'),
   h('table',{className:'data-table'},h('tbody',null,
-   linha('Receita',dinheiro(c.fat)),linha('Produção',dinheiro(c.prod)),linha('Tributos',dinheiro(c.impostos)),
+   linha('Receita',dinheiro(c.fat)),linha('Produção',dinheiro(c.prod)),linha('Tributos',dinheiro(c.impostos)),linha('Despesas operacionais/kg',dinheiro(c.operacionaisKg)),linha('IR/CSLL estimados',dinheiro(c.ircsll)),
    linha('Custo de bonificação',dinheiro(c.custoBonus)),linha('Introdução',dinheiro(c.intMes)),
    linha('Despesas e descontos',dinheiro(c.despesas)),
    linha('Resultado',calc.completo?dinheiro(c.resultado):'Pendente'))));
@@ -200,5 +226,5 @@ function PaginaViabilidadeFinanceira({profile}){
  const atual=aba==='premissas'?premissas:aba==='equipamentos'?equipamentos:aba==='projecao'?projecao:parecerTab;
  const botao=h('div',{style:{display:'flex',justifyContent:'flex-end',marginTop:14}},
   h('button',{className:'btn btn-primary',disabled:busy,onClick:salvar},busy?'Salvando...':'Salvar análise e registrar versão'));
- return h('div',null,titulo,pesquisa,resumo,tabs,atual,botao);
+ return h('div',null,titulo,pesquisa,h('button',{className:'btn btn-secondary btn-sm',style:{marginBottom:12},onClick:()=>setFicha(null)},'Voltar à lista'),resumo,tabs,atual,botao);
 }
