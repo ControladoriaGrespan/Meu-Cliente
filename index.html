@@ -1923,7 +1923,11 @@ function baixarSolicitacaoPDF(s) {
   pdfSec(ctx,'Dados da Solicitação');
   pdfLinha2(ctx,'Categoria',categoria,'Tipo',s.tipo||'—');
   if(s.categoria==='bonificacao'){
-    pdfLinha2(ctx,'Produto',s.produtos?((s.produtos.codigo||'')+' - '+(s.produtos.descricao||'')):null,'Quantidade',fmtNum(s.quantidade||0));
+    const itens=Array.isArray(s.solicitacao_bonificacao_itens)&&s.solicitacao_bonificacao_itens.length
+      ? s.solicitacao_bonificacao_itens : [{produtos:s.produtos,quantidade:s.quantidade}];
+    pdfSec(ctx,'Produtos da Bonificação');
+    pdfTabela(ctx,[{key:'produto',label:'Produto',w:145},{key:'quantidade',label:'Qtd.',w:35}],
+      itens.map(it=>({produto:[it.produtos?.codigo,it.produtos?.descricao].filter(Boolean).join(' - '),quantidade:fmtNum(it.quantidade||0)})));
     pdfTxt(ctx,'Aplicação',s.modalidade_bonificacao==='desconto'?'Desconto do pedido':'Acréscimo / bonificação');
   } else if(s.categoria==='amostra'){
     pdfLinha2(ctx,'Tipo de Amostra',s.tipo_amostra==='kit'?'KIT':'Produto','Quantidade',fmtNum(s.quantidade||0));
@@ -3506,6 +3510,25 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       porSolicitacao[s.id]||s.solicitacao_equipamentos||[]}));
   }
 
+  async function carregarItensBonificacoes(lista){
+    const ids=(lista||[]).filter(s=>s.categoria==='bonificacao').map(s=>s.id).filter(Boolean);
+    if(!ids.length)return lista||[];
+    const mapa={};
+    for(let i=0;i<ids.length;i+=120){
+      const {data,error}=await sb.from('solicitacao_bonificacao_itens')
+        .select('solicitacao_id,produto_id,quantidade,ordem,produtos(codigo,descricao)')
+        .in('solicitacao_id',ids.slice(i,i+120)).order('ordem');
+      if(error){
+        console.warn('Itens de bonificação indisponíveis:',error);
+        setErroItensSolicitacoes('Não foi possível consultar todos os produtos das bonificações: '+error.message);
+        return lista||[];
+      }
+      (data||[]).forEach(it=>(mapa[it.solicitacao_id]??=[]).push(it));
+    }
+    return (lista||[]).map(s=>s.categoria==='bonificacao'
+      ? {...s,solicitacao_bonificacao_itens:mapa[s.id]||[]} : s);
+  }
+
   async function carregarSituacaoEquipamentos(lista){
     const ids=(lista||[]).filter(s=>(!s.categoria||s.categoria==='equipamento') &&
       !Array.isArray(s.entregas_operacionais)).map(s=>s.id).filter(Boolean);
@@ -3585,7 +3608,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
           '. Verifique a migração 20261111_solicitacoes_leitura_adm_vendas.sql no Supabase.');
         setSolicitacoes([]);
       }else{
-        const lista=await carregarItensSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]);
+        const lista=await carregarItensBonificacoes(await carregarItensSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]));
         setSolicitacoes(lista);
         await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
       }
@@ -3607,7 +3630,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
       setErroConsultaSolicitacoes('Falha ao carregar solicitações: '+rs.error.message);
     }
     setFichas(rf.data||[]);
-    const lista=await carregarItensSolicitacoes(rs.data||[]);
+    const lista=await carregarItensBonificacoes(await carregarItensSolicitacoes(rs.data||[]));
     setSolicitacoes(lista);
     await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
   }
@@ -4341,6 +4364,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
   const [quantidade, setQuantidade] = useState('');
+  const novaLinhaBonificacao=()=>({produto_id:'',quantidade:''});
+  const [itensBonificacao,setItensBonificacao]=useState([novaLinhaBonificacao()]);
   const [modalidadeBonificacao, setModalidadeBonificacao] = useState('');
   const [tipoAmostra, setTipoAmostra] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -4384,7 +4409,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   useEffect(() => {
     setTipo(modulo === 'administracao_vendas' && categoria === 'equipamento' ? 'troca' : '');
     setEquipamentosSolicitados([novaLinhaEquip()]); setEquipamentosEntrega([novaLinhaEquip()]);
-    setJustificativa(''); setProdutoId(''); setQuantidade(''); setModalidadeBonificacao(''); setTipoAmostra('');
+    setJustificativa(''); setProdutoId(''); setQuantidade(''); setItensBonificacao([novaLinhaBonificacao()]); setModalidadeBonificacao(''); setTipoAmostra('');
   }, [categoria]);
 
   async function criarAprovacaoManual(solicitacaoId, etapa) {
@@ -4430,9 +4455,14 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
         patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
         justificativa: ['troca','retirada'].includes(tipoNormalizado) ? justificativaNormalizada : null };
     } else if (categoria === 'bonificacao') {
-      if (!produtoId || Number(quantidade) <= 0) return toast('Informe produto e quantidade da bonificação.', 'error');
+      if(!itensBonificacao.length||itensBonificacao.length>100||
+         itensBonificacao.some(it=>!it.produto_id||!Number.isFinite(Number(it.quantidade))||Number(it.quantidade)<=0||Number(it.quantidade)>1000000))
+        return toast('Informe produto e quantidade válida em todas as linhas (até 100 produtos).','error');
+      if(new Set(itensBonificacao.map(it=>String(it.produto_id))).size!==itensBonificacao.length)
+        return toast('O mesmo produto não pode ser incluído duas vezes. Ajuste a quantidade em uma única linha.','error');
       if (!modalidadeBonificacao) return toast('Informe se será acréscimo ou desconto do pedido.', 'error');
-      payload = { ...payload, tipo: 'bonificacao', produto_id: produtoId, quantidade: Number(quantidade),
+      payload = { ...payload, tipo: 'bonificacao', produto_id: itensBonificacao[0].produto_id,
+        quantidade: Number(itensBonificacao[0].quantidade),
         modalidade_bonificacao: modalidadeBonificacao, status_fluxo: 'aberta' };
     } else {
       if (!tipoAmostra) return toast('Informe KIT ou Produto.', 'error');
@@ -4443,7 +4473,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     }
 
     setSalvando(true);
-    const { data: nova, error } = await sb.from('solicitacoes').insert(payload).select().single();
+    // Bonificação usa uma transação no Supabase: cabeçalho + todos os itens ou nenhum.
+    // O INSERT legado continua disparando exatamente os mesmos triggers de aprovação.
+    const resultado=categoria==='bonificacao'
+      ? await sb.rpc('mc_criar_bonificacao_multiplos_itens',{
+          p_cliente_id:clienteId,p_solicitante_id:profile.id,p_descricao:descricao.trim()||null,
+          p_modalidade:modalidadeBonificacao,
+          p_itens:itensBonificacao.map(it=>({produto_id:it.produto_id,quantidade:Number(it.quantidade)}))
+        })
+      : await sb.from('solicitacoes').insert(payload).select().single();
+    const error=resultado.error;
+    const nova=categoria==='bonificacao'?{id:resultado.data}:resultado.data;
     setSalvando(false);
     if (error) {
       // Diagnóstico visível para usuários de celular, inclusive quando o toast desaparece.
@@ -4546,11 +4586,17 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
             (tipo === 'retirada' ? ['Baixo consumo','Encerramento do contrato'] : JUSTIFICATIVAS).map(j => h('option', { key: j, value: j }, j))))),
 
       categoria === 'bonificacao' && h(React.Fragment, null,
-        h(Campo, { label: 'Produto', obrigatorio: true },
-          h(SearchSelect, { value: produtoId, placeholder: 'Buscar produto...', onChange: setProdutoId,
-            items: produtos.map(p => ({ value: p.id, label: p.codigo + ' — ' + p.descricao, search: p.codigo + ' ' + p.descricao, code: p.codigo })) })),
-        h(Campo, { label: 'Quantidade', obrigatorio: true },
-          h(Input, { type: 'number', min: 1, value: quantidade, onChange: e => setQuantidade(e.target.value) })),
+        h('div',{style:{gridColumn:'1 / -1'}},
+          h('div',{style:{fontWeight:700,fontSize:13,marginBottom:8}},'Produtos da bonificação *'),
+          ...itensBonificacao.map((it,i)=>h('div',{key:'bon_item_'+i,style:{display:'grid',gridTemplateColumns:'minmax(180px,1fr) 110px 42px',gap:8,alignItems:'center',marginBottom:9}},
+            h(SearchSelect,{value:it.produto_id,placeholder:'Buscar produto...',onChange:v=>setItensBonificacao(prev=>prev.map((x,j)=>j===i?{...x,produto_id:v}:x)),
+              items:produtos.map(p=>({value:p.id,label:p.codigo+' — '+p.descricao,search:p.codigo+' '+p.descricao,code:p.codigo}))}),
+            h(Input,{type:'number',min:0.001,step:'any',placeholder:'Quantidade',value:it.quantidade,
+              onChange:e=>{const v=e.target.value;setItensBonificacao(prev=>prev.map((x,j)=>j===i?{...x,quantidade:v}:x));}}),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:itensBonificacao.length===1,
+              onClick:()=>setItensBonificacao(prev=>prev.filter((_,j)=>j!==i))},'×'))),
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',disabled:itensBonificacao.length>=100,
+            onClick:()=>setItensBonificacao(prev=>[...prev,novaLinhaBonificacao()])},'+ Adicionar produto')),
         h(Campo, { label: 'Aplicação no pedido', obrigatorio: true },
           h('select', { className: 'form-select', value: modalidadeBonificacao, onChange: e => setModalidadeBonificacao(e.target.value) },
             h('option', { value: '' }, 'Selecione...'),
@@ -4588,7 +4634,10 @@ function CardSolicitacao({ s,rotas=[],erroRotas='' }) {
     s.tipo === 'troca' ? 'Troca' : s.tipo === 'retirada' ? 'Retirada' : s.tipo === 'aumento' ? 'Aumento' : 'Manutenção';
   let resumo = s.equipamento || '';
   if(cat==='equipamento')resumo=itensEquip.length+' item(ns) de equipamento';
-  if (cat === 'bonificacao') resumo = ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un. · ' + (s.modalidade_bonificacao === 'desconto' ? 'Desconto do pedido' : 'Acréscimo no pedido');
+  const itensBonificacao=Array.isArray(s.solicitacao_bonificacao_itens)&&s.solicitacao_bonificacao_itens.length
+    ? s.solicitacao_bonificacao_itens
+    : [{produto_id:s.produto_id,quantidade:s.quantidade,produtos:s.produtos}];
+  if (cat === 'bonificacao') resumo = itensBonificacao.length+' produto(s) · '+(s.modalidade_bonificacao === 'desconto' ? 'Desconto do pedido' : 'Acréscimo no pedido');
   if (cat === 'amostra') resumo = s.tipo_amostra === 'kit' ? 'KIT' : ((s.produtos && (s.produtos.codigo + ' — ' + s.produtos.descricao)) || 'Produto') + ' · ' + fmtNum(s.quantidade || 0) + ' un.';
   return h('div', { className: 'card', key: s.id },
     h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 10 } },
@@ -4604,6 +4653,9 @@ function CardSolicitacao({ s,rotas=[],erroRotas='' }) {
     h('div', { style:{marginBottom:8} },
           h('span', { className:'badge badge-red', style:{fontFamily:"'JetBrains Mono', monospace", fontWeight:700} }, codigoAuditoria(s, prefixoSolicitacao(s)))),
         h(StepperGenerico, { aprovacoes: s.solicitacao_aprovacoes }),
+    cat==='bonificacao' && h('div',{style:{marginTop:9}},
+      ...itensBonificacao.map((it,i)=>h('div',{key:'b_'+i,style:{fontSize:12,padding:'4px 0',borderBottom:'1px solid var(--border)'}},
+        ((it.produtos?.codigo||'')+' — '+(it.produtos?.descricao||'Produto'))+' · '+fmtNum(it.quantidade||0)+' un.'))),
     cat==='equipamento' && (s.erroCarregamentoEquipamentos
       ? h('div',{className:'alert alert-error',style:{marginTop:10}},'Não foi possível carregar a lista completa dos equipamentos. Atualize a página.')
       : h('div',{style:{marginTop:10}},
@@ -8049,7 +8101,25 @@ function PaginaPedidos({ profile }) {
         clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
       setBonificacoesAbertas([]);
     }else{
+      const idsBons=candidatos.map(b=>b.id).filter(Boolean);
+      const mapaItens={};
+      let erroItensBons=null;
+      for(let i=0;i<idsBons.length;i+=120){
+        const ri=await sb.from('solicitacao_bonificacao_itens')
+          .select('solicitacao_id,produto_id,quantidade,ordem,produtos(codigo,descricao)')
+          .in('solicitacao_id',idsBons.slice(i,i+120)).order('ordem');
+        if(ri.error){erroItensBons=ri.error;break;}
+        (ri.data||[]).forEach(it=>(mapaItens[it.solicitacao_id]??=[]).push(it));
+      }
+      if(erroItensBons){
+        console.warn('Não foi possível carregar itens das bonificações para o pedido:',erroItensBons);
+        setDiagnosticoBonificacoes({erro:'Itens de bonificações indisponíveis: '+erroItensBons.message,clienteId:cli.id});
+        setBonificacoesAbertas([]);
+        setBonificacoesVinculadas([]);
+        return;
+      }
       const detalhes=candidatos.map(b=>({
+        solicitacao_bonificacao_itens:mapaItens[b.id]||[],
         ...b,
         solicitacao_aprovacoes:b.solicitacao_aprovacoes||[],
         produtos:b.produtos||(produtos||[]).find(p=>p.id===b.produto_id)||null
@@ -8223,62 +8293,33 @@ function PaginaPedidos({ profile }) {
   }
 
   function vincularBonificacao(sol) {
-    if (bonificacoesVinculadas.some(b => b.id === sol.id)) return;
-    const aps = sol.solicitacao_aprovacoes || [];
-    if (sol.status_fluxo !== 'aprovada' ||
-        !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status)) ||
-        !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado') ||
-        !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status))) {
+    if(bonificacoesVinculadas.some(b=>b.id===sol.id))return;
+    const aps=sol.solicitacao_aprovacoes||[];
+    if(sol.status_fluxo!=='aprovada'||
+       !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))||
+       !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')||
+       !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status)))
       return toast('Bonificação bloqueada: falta aprovação final da Diretoria.','error');
-    }
-
-    const qtdBonificacao = Number(sol.quantidade || 0);
-    if (!sol.produto_id || qtdBonificacao <= 0) {
-      return toast('A solicitação de bonificação não possui produto/quantidade válida.', 'error');
-    }
-
-    setItens(prev => {
-      const novos = prev.map(it => ({ ...it }));
-
-      // Regra comercial:
-      // Se o pedido já possui o mesmo produto como COMPRA, a bonificação
-      // abate a quantidade comprada e fica demonstrada em uma linha separada.
-      const idxCompra = novos.findIndex(it =>
-        it.produto_id === sol.produto_id &&
-        (it.tipo_item || 'venda') !== 'bonificacao'
-      );
-
-      if (idxCompra >= 0) {
-        const qtdCompra = Number(novos[idxCompra].quantidade || 0);
-
-        if (qtdBonificacao > qtdCompra) {
-          toast(
-            'A bonificação de ' + fmtNum(qtdBonificacao) +
-            ' é maior que a quantidade de compra (' + fmtNum(qtdCompra) + ').',
-            'error'
-          );
-          return prev;
-        }
-
-        novos[idxCompra].quantidade = qtdCompra - qtdBonificacao;
+    const todos=Array.isArray(sol.solicitacao_bonificacao_itens)&&sol.solicitacao_bonificacao_itens.length
+      ? sol.solicitacao_bonificacao_itens : [{produto_id:sol.produto_id,quantidade:sol.quantidade}];
+    if(!todos.length||todos.some(it=>!it.produto_id||!Number.isFinite(Number(it.quantidade))||Number(it.quantidade)<=0)||
+       new Set(todos.map(it=>String(it.produto_id))).size!==todos.length)
+      return toast('Itens da bonificação incompletos ou duplicados.','error');
+    const copia=itens.map(it=>({...it}));
+    for(const bon of todos){
+      const qtd=Number(bon.quantidade);
+      const idx=copia.findIndex(it=>String(it.produto_id)===String(bon.produto_id)&&(it.tipo_item||'venda')!=='bonificacao');
+      if(idx>=0){
+        const compra=Number(copia[idx].quantidade||0);
+        if(qtd>compra)return toast('A bonificação de '+fmtNum(qtd)+' excede a compra de '+fmtNum(compra)+' para um dos produtos.','error');
+        copia[idx].quantidade=compra-qtd;
       }
-
-      const prod = produtos.find(p => p.id === sol.produto_id);
-      novos.push({
-        produto_id: sol.produto_id,
-        codigo: prod && prod.codigo,
-        descricao: prod && prod.descricao,
-        unidade: prod && prod.unidade,
-        quantidade: qtdBonificacao,
-        valor_unitario: 0,
-        tipo_item: 'bonificacao',
-        solicitacao_bonificacao_id: sol.id,numero_nf:1,codigo_operacao:'04'
-      });
-
-      return novos;
-    });
-
-    setBonificacoesVinculadas([...bonificacoesVinculadas, sol]);
+      const prod=produtos.find(p=>String(p.id)===String(bon.produto_id));
+      copia.push({produto_id:bon.produto_id,codigo:prod?.codigo,descricao:prod?.descricao,unidade:prod?.unidade,
+        quantidade:qtd,valor_unitario:0,tipo_item:'bonificacao',solicitacao_bonificacao_id:sol.id,numero_nf:1,codigo_operacao:'04'});
+    }
+    setItens(copia);
+    setBonificacoesVinculadas(prev=>[...prev,sol]);
   }
 
   function vincularAmostra(sol) {
@@ -8796,8 +8837,10 @@ function PaginaPedidos({ profile }) {
                     return h('div', { key: b.id, style: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' } },
                       h('div', { style: { fontSize: 12 } },
                         h('div', { style:{fontWeight:700, color:'var(--grespan-red)', marginBottom:3} }, codigoAuditoria(b, 'BON')),
-                        h('strong', null, (b.produtos && b.produtos.codigo) || 'Produto'),
-                        ' · ' + ((b.produtos && b.produtos.descricao) || '') + ' · ' + fmtNum(b.quantidade || 0) + ' un.',
+                        ...((b.solicitacao_bonificacao_itens?.length
+                          ? b.solicitacao_bonificacao_itens : [{produtos:b.produtos,quantidade:b.quantidade}])
+                          .map((it,i)=>h('div',{key:'item_'+i},
+                            h('strong',null,it.produtos?.codigo||'Produto'),' · '+(it.produtos?.descricao||'')+' · '+fmtNum(it.quantidade||0)+' un.'))),
                         h('div', { style: { color: 'var(--text-muted)', marginTop: 2 } }, b.modalidade_bonificacao === 'desconto' ? 'Aplicar como desconto do pedido' : 'Adicionar ao pedido como bonificação')),
                       h('button', { className: vinc ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm', disabled: vinc, onClick: () => vincularBonificacao(b) }, vinc ? 'Vinculada' : 'Vincular'));
                   })),
