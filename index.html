@@ -525,8 +525,8 @@ a {
 <div id="root"></div>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v110-admin-operacional';
-console.info('[Meu Cliente] BUILD v110-admin-operacional');
+window.__MEU_CLIENTE_BUILD__='v111-viabilidade-financeira';
+console.info('[Meu Cliente] BUILD v111-viabilidade-financeira');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -652,7 +652,7 @@ function menuForModulo(modulo, papel) {
     {id:'pedidos',label:'Pedidos',icon:'▤'},{id:'rotas',label:'Rotas',icon:'⚙'},
     {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
     {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
-  if(modulo==='financeiro') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
+  if(modulo==='financeiro') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'analise_viabilidade',label:'Análise de Viabilidade',icon:'▥'},{id:'fichas',label:'Fichas',icon:'≡'}];
   if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'entregas_equipamentos',label:'Entregas e Rotas',icon:'⌖'}];
   if(modulo==='administracao') return [
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
@@ -2129,6 +2129,7 @@ function DetalheFicha({ ficha, onClose }) {
 // =====================================================================
 // PAGINA: FICHAS (tabela geral - hierarquia garantida pelo RLS)
 // =====================================================================
+function PaginaViabilidadeFinanceira({profile}){return h('div',null,'Análise de Viabilidade');}
 function PaginaFichas({ profile }) {
   const [fichas, setFichas] = useState(null);
   const [busca, setBusca] = useState('');
@@ -10043,6 +10044,7 @@ function App() {
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile, modulo });
   else if (paginaAtual === 'solicitacoes') conteudo = h(PaginaSolicitacoes, { profile, visao, modulo });
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
+  else if (paginaAtual === 'analise_viabilidade') conteudo = h(PaginaViabilidadeFinanceira,{profile});
   else if (paginaAtual === 'logistica_fichas') conteudo=h(PaginaLogisticaFichas,{profile});
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
