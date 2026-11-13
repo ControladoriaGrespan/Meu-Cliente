@@ -3,7 +3,12 @@ const MC_CUSTOS_TABARATO={forno_gas:4998,forno_eletrico:4998,forno:4998,
 freezer_horizontal:2984.46,freezer_vertical:7174.18,expositor:9750,mini_camara:8444.17,
 armario_completo:2077.99,armario_vazio:1277.79,armario_esqueleto:1023.82,
 camara_20:11250,camara_40:12250,esteiras:40.01,assadeiras:54.76,forno_queijo:3089.71};
-const MC_PREMISSAS_TABARATO={custo_pct:60,tributos_pct:7,ir_csll_pct:34,despesa_kg:3.4728980165837706};
+const MC_PREMISSAS_TABARATO={
+  custo_pct:54.44831002263629, // % Lucro: MP + embalagem / faturamento
+  tributos_pct:7,ir_csll_pct:34,
+  despesa_kg:3.4728980165837706,
+  custo_bonif_pct:67 // Dados e Calculos: produto 60% + ICMS 7%
+};
 
 /* Meu Cliente v111 - Análise Financeira. Requer React, h, sb, Campo, fmtMoeda do index.html. */
 function mcCalculoViabilidade(f,p,eq){
@@ -29,7 +34,7 @@ function mcCalculoViabilidade(f,p,eq){
   const fat=receita*Math.pow(1+n(p.reajuste)/100,Math.floor((mes-1)/12));
   const bonBase=periodicidade.includes('1 pedido')?n(p.pedido_ref)*fat/(receita||1):fat;
   const bonificacao=periodicidade.includes('1 parcela')&&mes>1?0:bonBase*bon;
-  const custoBonus=bonificacao*(desconto?1:(custo||0));
+  const custoBonus=bonificacao*(desconto?1:n(p.custo_bonif_pct)/100);
   const intMes=mes<=prazo&&prazo?introducao/prazo:0;
   const prod=fat*(custo||0),impostos=fat*(trib||0);
   const despesas=n(p.despesas)+n(p.pix)+n(p.boleto)+n(p.nota);
@@ -179,10 +184,11 @@ function PaginaViabilidadeFinanceira({profile}){
   ['pedido_ref','Valor de um pedido (R$)'],['reajuste','Reajuste anual (%)'],
   ['fator_usado','Valor relativo equipamento usado (%)'],
   ['despesa_kg','Despesas operacionais por kg (R$) — Excel'],
+  ['custo_bonif_pct','Custo bonificação em produto (%) — Excel'],
   ['ir_csll_pct','IR/CSLL sobre lucro positivo (%) — Excel']];
  const c=calc.primeiro;
  const premissas=h('div',{className:'card'},h('h3',null,'Premissas financeiras'),
-  h('p',{className:'page-sub'},'Referência TABARATO: produção 60%, ICMS 7%, PIS/COFINS 0%, IR/CSLL 34%. Valores históricos revisáveis. Consumo Meu Cliente: 80g e 26 dias/mês.'),
+  h('p',{className:'page-sub'},'Referência TABARATO: MP + embalagem 54,45% (aba % Lucro); bonificação produto 67% (60% produção + 7% ICMS); ICMS 7%, PIS/COFINS 0% e IR/CSLL 34%. Premissas históricas revisáveis. Consumo Meu Cliente: 80g e 26 dias/mês.'),
   h('p',null,'Preço/kg '+dinheiro(ficha.preco_kg)+' · Consumo diário '+fmtNum(ficha.consumo_previsto)+' pães'),
   h('p',null,'Introdução '+dinheiro(ficha.verba_introducao)+' · '+(ficha.duracao_verba||0)+' meses'),
   h('p',null,'Bonificação '+(ficha.bonificacao_percentual||0)+'% · '+(ficha.bonificacao_periodicidade||'—')+' · '+(ficha.bonificacao_modalidade||'Produto')),
