@@ -444,7 +444,7 @@ BEGIN
 END;
 $mc$;
 CREATE OR REPLACE FUNCTION public.vt_decidir_excecao(p_atendimento uuid,p_aprovar boolean,p_motivo text DEFAULT '')
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $admin_excecao$
 DECLARE v public.vt_aprovacoes_excecao%ROWTYPE;
 BEGIN
  IF public.vt_papel() NOT IN ('coordenador','admin') THEN RAISE EXCEPTION 'Somente Coordenador Comercial pode aprovar exceções';END IF;
@@ -454,7 +454,8 @@ BEGIN
  UPDATE public.vt_aprovacoes_excecao SET status=CASE WHEN p_aprovar THEN 'aprovada' ELSE 'devolvida' END,
  aprovado_por=auth.uid(),aprovado_em=now(),coordenador_id=CASE WHEN public.vt_papel()='admin' THEN v.coordenador_id ELSE auth.uid() END,motivo_devolucao=CASE WHEN p_aprovar THEN null ELSE p_motivo END
  WHERE atendimento_id=p_atendimento;
-END $;
+END;
+$admin_excecao$;
 REVOKE ALL ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) TO authenticated;
 REVOKE ALL ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) FROM PUBLIC,anon;
