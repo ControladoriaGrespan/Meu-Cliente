@@ -33,14 +33,17 @@ function mcCalculoViabilidade(f,p,eq){
   const intMes=mes<=prazo&&prazo?introducao/prazo:0;
   const prod=fat*(custo||0),impostos=fat*(trib||0);
   const despesas=n(p.despesas)+n(p.pix)+n(p.boleto)+n(p.nota);
-  const resultado=fat-prod-impostos-despesas-custoBonus-intMes;
-  if(mes===1)primeiro={fat,prod,impostos,despesas,custoBonus,intMes,resultado};
+  const operacionaisKg=kg*n(p.despesa_kg);
+  const lucroTributavel=Math.max(0,fat-prod-impostos-despesas-operacionaisKg-custoBonus-intMes);
+  const ircsll=lucroTributavel*n(p.ir_csll_pct)/100;
+  const resultado=fat-prod-impostos-despesas-operacionaisKg-custoBonus-intMes-ircsll;
+  if(mes===1)primeiro={fat,prod,impostos,despesas,operacionaisKg,ircsll,custoBonus,intMes,resultado};
   acumulado+=resultado;
   if(!faltas.length&&payback===null&&acumulado>=0)payback=mes;
   const idx=Math.floor((mes-1)/12);
   if(!anos[idx])anos[idx]={ano:idx+1,receita:0,prod:0,impostos:0,despesas:0,acordos:0,resultado:0};
   const a=anos[idx];a.receita+=fat;a.prod+=prod;a.impostos+=impostos;
-  a.despesas+=despesas;a.acordos+=custoBonus+intMes;a.resultado+=resultado;
+  a.despesas+=despesas+operacionaisKg+ircsll;a.acordos+=custoBonus+intMes;a.resultado+=resultado;
  }
  return {kg,receita,investimento,primeiro,anos,payback,faltas,completo:!faltas.length};
 }
