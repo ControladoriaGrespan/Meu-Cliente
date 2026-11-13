@@ -6840,7 +6840,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(repetirVisitas&&(!(lider||supervisor||adminReal)||!dataFimVisitas||dataFimVisitas<form.data_visita))return toast('Selecione um período válido para replicar.','error');
     // O Supervisor pode planejar visitas normais, mas a sua semana exige aprovação do Coordenador.
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
-    if(excecao&&(!supervisor||!justificativaExcecao.trim()))return toast('Exceção exige supervisor e justificativa.','error');
+    if(excecao&&(!(supervisor||adminReal)||!justificativaExcecao.trim()))return toast('Exceção exige Supervisor Técnico ou Administrador e justificativa.','error');
     const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
     if(!clienteSelecionado)return toast('Pesquise e selecione um cliente válido antes de agendar.','error');
     if(!excecao&&!adminReal&&!clienteNoTerritorio(clienteSelecionado))
@@ -7108,7 +7108,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             onClick:()=>tramitarAgenda(a.id,'aprovar')},'Aprovar agenda'),
           h('button',{className:'btn btn-secondary btn-sm',disabled:salvando||emPreview,
             onClick:()=>tramitarAgenda(a.id,'devolver')},'Devolver para ajustes'))))),
-    papelVisao==='coordenador'&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
+    (papelVisao==='coordenador'||adminReal)&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
       excecoes.length===0?h('p',null,'Nenhuma exceção pendente.'):excecoes.map(e=>h('div',{key:e.atendimento_id,style:{padding:10,borderBottom:'1px solid var(--border)'}},
         h('b',null,'Supervisor: '+(usuariosPorId[e.supervisor_tecnico_id]?.nome||'—')),
         h('p',null,'Justificativa: '+e.justificativa),
@@ -7298,15 +7298,15 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',{style:{gridColumn:'1/-1'}},h('b',null,'Participantes do atendimento'),
           equipeParticipantes.map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
             h('input',{type:'checkbox',checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
-        supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O planejamento normal da agenda cabe ao Líder Técnico. O Supervisor aprova a semana ou agenda uma exceção territorial.'),
-        supervisor&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
+        supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O Supervisor agenda sua equipe; a agenda normal será enviada ao Coordenador para aprovação. Exceções territoriais exigem justificativa.'),
+        (supervisor||adminReal)&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
         excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
         h(Campo,{label:'Horário início'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
         h(Campo,{label:'Horário fim'},h('input',{className:'form-input',type:'time',value:form.hora_fim||'10:00',onChange:e=>{setForm(x=>({...x,hora_fim:e.target.value}));setDuracao(paraMin(e.target.value)-paraMin(form.hora_inicio));}})),
         h(Campo,{label:'Tipo de atendimento'},h('select',{className:'form-select',value:tipoAtendimento,onChange:e=>setTipoAtendimento(e.target.value)},h('option',{value:'producao'},'Produção'),h('option',{value:'treinamento'},'Treinamento'))),
         tipoAtendimento==='treinamento'&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#a15c00'}},'Check-out de Treinamento ainda não configurado; não é permitido concluir com o formulário de Produção.'),
-        lider&&h('div',{style:{gridColumn:'1/-1',padding:10,border:'1px solid var(--border)',borderRadius:8}},
+        (lider||supervisor||adminReal)&&h('div',{style:{gridColumn:'1/-1',padding:10,border:'1px solid var(--border)',borderRadius:8}},
           h('label',null,h('input',{type:'checkbox',checked:repetirVisitas,onChange:e=>setRepetirVisitas(e.target.checked)}),' Replicar a tarefa por período'),
           repetirVisitas&&h('div',{style:{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}},
             h('input',{type:'date',className:'form-input',value:dataFimVisitas,onChange:e=>setDataFimVisitas(e.target.value)}),
