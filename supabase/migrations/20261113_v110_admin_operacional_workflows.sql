@@ -406,8 +406,7 @@ BEGIN
     to_jsonb(a) || jsonb_build_object('fichas_clientes',
       to_jsonb(f) || jsonb_build_object(
         'usuarios',jsonb_build_object('nome',u.nome),
-        'clientes',CASE WHEN c.id IS NULL THEN NULL ELSE
-          jsonb_build_object('codigo_totvs',c.codigo_totvs) END,
+        'clientes',NULL,
         'ficha_aprovacoes',
           (SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.ordem),'[]'::jsonb)
            FROM public.ficha_aprovacoes h WHERE h.ficha_id=f.id)
@@ -416,7 +415,6 @@ BEGIN
   FROM public.ficha_aprovacoes a
   JOIN public.fichas_clientes f ON f.id=a.ficha_id
   LEFT JOIN public.usuarios u ON u.id=f.vendedor_id
-  LEFT JOIN public.clientes c ON c.id=f.cliente_id
   WHERE a.status='pendente';
 
   RETURN jsonb_build_object('solicitacoes',v_sol,'fichas',v_fichas);
