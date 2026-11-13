@@ -19,7 +19,14 @@ ALTER TABLE public.solicitacao_bonificacao_itens ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS mc_bon_itens_select ON public.solicitacao_bonificacao_itens;
 CREATE POLICY mc_bon_itens_select ON public.solicitacao_bonificacao_itens FOR SELECT TO authenticated
 USING (EXISTS (SELECT 1 FROM public.solicitacoes s WHERE s.id=solicitacao_id));
-GRANT SELECT ON public.solicitacao_bonificacao_itens TO authenticated;
+DROP POLICY IF EXISTS mc_bon_itens_insert ON public.solicitacao_bonificacao_itens;
+CREATE POLICY mc_bon_itens_insert ON public.solicitacao_bonificacao_itens FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+ SELECT 1 FROM public.solicitacoes s
+ WHERE s.id=solicitacao_id AND s.solicitante_id=auth.uid()
+ AND s.categoria='bonificacao' AND s.status_fluxo='aberta'
+));
+GRANT SELECT, INSERT ON public.solicitacao_bonificacao_itens TO authenticated;
 
 -- Função INVOKER: preserva as permissões/RLS, triggers, códigos e etapas originais
 -- do INSERT em solicitacoes. Se qualquer item falhar, o cabeçalho inteiro é revertido.
@@ -30,6 +37,8 @@ CREATE OR REPLACE FUNCTION public.mc_criar_bonificacao_multiplos_itens(
 DECLARE v_id uuid; v_primeiro jsonb; v_item jsonb; v_ids uuid[] := ARRAY[]::uuid[];
  v_produto uuid; v_qtd numeric; v_ordem integer := 0;
 BEGIN
+ IF auth.uid() IS NULL OR p_solicitante_id IS DISTINCT FROM auth.uid() THEN
+  RAISE EXCEPTION 'Solicitante não corresponde ao usuário autenticado'; END IF;
  IF p_itens IS NULL OR jsonb_typeof(p_itens)<>'array' OR jsonb_array_length(p_itens)=0
    OR jsonb_array_length(p_itens)>100 THEN RAISE EXCEPTION 'Informe de 1 a 100 produtos.'; END IF;
  IF p_modalidade NOT IN ('acrescimo','desconto') THEN RAISE EXCEPTION 'Modalidade inválida.'; END IF;
