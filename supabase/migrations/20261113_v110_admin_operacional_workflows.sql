@@ -423,6 +423,43 @@ $admin$;
 REVOKE ALL ON FUNCTION public.mc_admin_listar_pendencias() FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.mc_admin_listar_pendencias() TO authenticated;
 
+-- Exceções territoriais: Admin ativo pode criar e decidir sem assumir
+-- o papel do Coordenador. aprovado_por guarda o ID real do Administrador.
+CREATE OR REPLACE FUNCTION public.vt_agendar_excecao(
+ p_participantes uuid[],p_cliente uuid,p_data date,p_hora time,p_duracao integer,
+ p_tipo_atendimento text,p_objetivo text,p_observacoes text,p_justificativa text
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $mc$
+DECLARE v_atendimento uuid;
+BEGIN
+ IF public.vt_papel() NOT IN ('supervisor_tec_panificacao','admin')
+   THEN RAISE EXCEPTION 'Somente Supervisor Técnico pode agendar exceções';END IF;
+ IF p_tipo_atendimento NOT IN ('producao','treinamento')
+   THEN RAISE EXCEPTION 'Tipo de atendimento inválido';END IF;
+ v_atendimento:=public.vt_agendar_equipe(
+    p_participantes,p_cliente,p_data,p_hora,p_duracao,
+    p_objetivo,p_observacoes,true,p_justificativa);
+ UPDATE public.visitas_tecnicas SET tipo_atendimento=p_tipo_atendimento
+ WHERE atendimento_id=v_atendimento;
+ RETURN v_atendimento;
+END;
+$mc$;
+CREATE OR REPLACE FUNCTION public.vt_decidir_excecao(p_atendimento uuid,p_aprovar boolean,p_motivo text DEFAULT '')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+DECLARE v public.vt_aprovacoes_excecao%ROWTYPE;
+BEGIN
+ IF public.vt_papel() NOT IN ('coordenador','admin') THEN RAISE EXCEPTION 'Somente Coordenador Comercial pode aprovar exceções';END IF;
+ SELECT * INTO v FROM public.vt_aprovacoes_excecao WHERE atendimento_id=p_atendimento FOR UPDATE;
+ IF NOT FOUND OR v.status<>'pendente' THEN RAISE EXCEPTION 'Exceção não está pendente';END IF;
+ IF NOT p_aprovar AND length(trim(p_motivo))=0 THEN RAISE EXCEPTION 'Informe motivo da devolução';END IF;
+ UPDATE public.vt_aprovacoes_excecao SET status=CASE WHEN p_aprovar THEN 'aprovada' ELSE 'devolvida' END,
+ aprovado_por=auth.uid(),aprovado_em=now(),coordenador_id=CASE WHEN public.vt_papel()='admin' THEN v.coordenador_id ELSE auth.uid() END,motivo_devolucao=CASE WHEN p_aprovar THEN null ELSE p_motivo END
+ WHERE atendimento_id=p_atendimento;
+END $;
+REVOKE ALL ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.vt_agendar_excecao(uuid[],uuid,date,time,integer,text,text,text,text) TO authenticated;
+REVOKE ALL ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.vt_decidir_excecao(uuid,boolean,text) TO authenticated;
+
 COMMIT;
 
 -- Auditoria somente leitura: aprovações pendentes de todas as etapas.
