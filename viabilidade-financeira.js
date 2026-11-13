@@ -1,3 +1,9 @@
+// Referências TABARATO.xlsx (valores históricos; forno provisório, catálogo externo ausente).
+const MC_CUSTOS_TABARATO={forno_gas:4998,forno_eletrico:4998,forno:4998,
+freezer_horizontal:2984.46,freezer_vertical:7174.18,expositor:9750,mini_camara:8444.17,
+armario_completo:2077.99,armario_vazio:1277.79,armario_esqueleto:1023.82,
+camara_20:11250,camara_40:12250,esteiras:40.01,assadeiras:54.76,forno_queijo:3089.71};
+const MC_PREMISSAS_TABARATO={custo_pct:60,tributos_pct:7,ir_csll_pct:34,despesa_kg:3.4728980165837706};
 
 /* Meu Cliente v111 - Análise Financeira. Requer React, h, sb, Campo, fmtMoeda do index.html. */
 function mcCalculoViabilidade(f,p,eq){
@@ -42,8 +48,9 @@ function PaginaViabilidadeFinanceira({profile}){
  const toast=useToast();
  const ok=['financeiro','admin'].includes(profile.papel);
  const [busca,setBusca]=React.useState(''),[lista,setLista]=React.useState([]);
+ const [fila,setFila]=React.useState('pendentes'),[situacoes,setSituacoes]=React.useState({});
  const [ficha,setFicha]=React.useState(null),[historico,setHistorico]=React.useState([]);
- const padrao={custo_pct:'',tributos_pct:'',despesas:0,pix:0,boleto:0,nota:0,pedido_ref:'',reajuste:0,fator_usado:50};
+ const padrao={...MC_PREMISSAS_TABARATO,despesas:0,pix:0,boleto:0,nota:0,pedido_ref:'',reajuste:0,fator_usado:50};
  const [p,setP]=React.useState(padrao),[equip,setEquip]=React.useState([]);
  const [status,setStatus]=React.useState('rascunho'),[parecer,setParecer]=React.useState('');
  const [aba,setAba]=React.useState('premissas'),[erro,setErro]=React.useState(''),[busy,setBusy]=React.useState(false);
@@ -51,10 +58,14 @@ function PaginaViabilidadeFinanceira({profile}){
  const calc=ficha?mcCalculoViabilidade(ficha,p,equip):null;
  async function pesquisar(){
   setBusy(true);
-  const {data,error}=await sb.rpc('mc_viabilidade_listar_fichas',{p_busca:busca,p_limite:150});
+  const [fr,ar]=await Promise.all([
+   sb.rpc('mc_viabilidade_listar_fichas',{p_busca:busca.trim(),p_limite:300}),
+   sb.from('mc_viabilidade_analises').select('ficha_id,situacao,atualizado_em')
+  ]);
   setBusy(false);
-  if(error)setErro('Execute o SQL v111: '+error.message);
-  else{setLista(Array.isArray(data)?data:[]);setErro('');}
+  if(fr.error||ar.error){setErro('Falha ao consultar: '+(fr.error?.message||ar.error?.message));return;}
+  const mapa={};(ar.data||[]).forEach(a=>mapa[a.ficha_id]=a);
+  setSituacoes(mapa);setLista(Array.isArray(fr.data)?fr.data:[]);setErro('');
  }
  React.useEffect(()=>{if(ok)pesquisar();},[profile.id]);
  async function escolher(f){
@@ -65,9 +76,12 @@ function PaginaViabilidadeFinanceira({profile}){
   const anteriores=a?.parametros?.equipamentos||[];
   const itens=Object.entries(f.equipamentos_quantidades||{})
     .filter(([k,v])=>!k.endsWith('_esteiras')&&Number(v)>0)
-    .map(([k,v])=>({chave:k,qtd:Number(v),valor:anteriores.find(x=>x.chave===k)?.valor??''}));
-  if(!itens.length&&Number(f.forno_quantidade)>0){
-   itens.push({chave:'forno',qtd:Number(f.forno_quantidade),valor:anteriores.find(x=>x.chave==='forno')?.valor??''});
+    .map(([k,v])=>({chave:k,qtd:Number(v),valor:anteriores.find(x=>x.chave===k)?.valor??MC_CUSTOS_TABARATO[k]??''}));
+  if(!itens.some(x=>x.chave.startsWith('forno'))&&Number(f.forno_quantidade)>0)
+   itens.push({chave:'forno',qtd:Number(f.forno_quantidade),valor:anteriores.find(x=>x.chave==='forno')?.valor??MC_CUSTOS_TABARATO.forno});
+  for(const [chave,coluna] of [['esteiras','esteiras_quantidade'],['assadeiras','assadeiras_quantidade']]){
+   const qtd=Number(f[coluna])||0;
+   if(qtd>0&&!itens.some(x=>x.chave===chave))itens.push({chave,qtd,valor:anteriores.find(x=>x.chave===chave)?.valor??MC_CUSTOS_TABARATO[chave]});
   }
   setEquip(itens);setStatus(a?.situacao||'rascunho');setParecer(a?.parecer||'');
   if(a){
@@ -95,7 +109,7 @@ function PaginaViabilidadeFinanceira({profile}){
    p_dados_ficha:snapshot,p_resultados:calc,p_situacao:status,p_parecer:parecer});
   setBusy(false);
   if(error)return toast('Erro ao salvar análise: '+error.message,'error');
-  toast('Análise salva · versão '+data.versao,'success');await escolher(ficha);
+  toast('Análise salva · versão '+data.versao,'success');await pesquisar();await escolher(ficha);
  }
  function campo(k,l){
   return h(Campo,{label:l,key:k},h('input',{className:'form-input',type:'number',min:0,step:'0.01',
@@ -134,10 +148,12 @@ function PaginaViabilidadeFinanceira({profile}){
   ['despesas','Despesas mensais (R$)'],['pix','PIX mensal (R$)'],
   ['boleto','Desconto boleto (R$)'],['nota','Desconto NF (R$)'],
   ['pedido_ref','Valor de um pedido (R$)'],['reajuste','Reajuste anual (%)'],
-  ['fator_usado','Valor relativo equipamento usado (%)']];
+  ['fator_usado','Valor relativo equipamento usado (%)'],
+  ['despesa_kg','Despesas operacionais por kg (R$) — Excel'],
+  ['ir_csll_pct','IR/CSLL sobre lucro positivo (%) — Excel']];
  const c=calc.primeiro;
  const premissas=h('div',{className:'card'},h('h3',null,'Premissas financeiras'),
-  h('p',{className:'page-sub'},'Padrão Meu Cliente: 80 g/pão e 26 dias/mês. TABARATO: 70 g e 30 dias. Custos não são presumidos.'),
+  h('p',{className:'page-sub'},'Referência TABARATO: produção 60%, ICMS 7%, PIS/COFINS 0%, IR/CSLL 34%. Valores históricos revisáveis. Consumo Meu Cliente: 80g e 26 dias/mês.'),
   h('p',null,'Preço/kg '+dinheiro(ficha.preco_kg)+' · Consumo diário '+fmtNum(ficha.consumo_previsto)+' pães'),
   h('p',null,'Introdução '+dinheiro(ficha.verba_introducao)+' · '+(ficha.duracao_verba||0)+' meses'),
   h('p',null,'Bonificação '+(ficha.bonificacao_percentual||0)+'% · '+(ficha.bonificacao_periodicidade||'—')+' · '+(ficha.bonificacao_modalidade||'Produto')),
