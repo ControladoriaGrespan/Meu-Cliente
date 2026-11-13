@@ -2737,6 +2737,15 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         return;
       }
 
+      // Administrador real: fila completa com detalhes autorizados pela RPC
+      // SECURITY DEFINER, sem depender de RLS de carteiras/equipes.
+      if(etapa==='admin'&&!ehPreview){
+        const adm=await sb.rpc('mc_admin_listar_pendencias');
+        if(adm.error)throw new Error('Fila administrativa indisponível. Execute a migração v110: '+adm.error.message);
+        setPendentes(Array.isArray(adm.data?.fichas)?adm.data.fichas:[]);
+        setPendSolic(Array.isArray(adm.data?.solicitacoes)?adm.data.solicitacoes:[]);
+        return;
+      }
       // DEMAIS ETAPAS
       // Busca primeiro as aprovações: embeds de ficha podem falhar ou voltar null por RLS.
       let q=sb.from('ficha_aprovacoes').select('*').eq('status','pendente');
