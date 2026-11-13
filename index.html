@@ -523,11 +523,11 @@ a {
 </head>
 <body>
 <div id="root"></div>
-<script src="./viabilidade-financeira.js?v=111"></script>
+<script src="./viabilidade-financeira.js?v=112"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v111-viabilidade-financeira';
-console.info('[Meu Cliente] BUILD v111-viabilidade-financeira');
+window.__MEU_CLIENTE_BUILD__='v112-viabilidade-tela-corrigida';
+console.info('[Meu Cliente] BUILD v112-viabilidade-tela-corrigida');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2130,7 +2130,6 @@ function DetalheFicha({ ficha, onClose }) {
 // =====================================================================
 // PAGINA: FICHAS (tabela geral - hierarquia garantida pelo RLS)
 // =====================================================================
-function PaginaViabilidadeFinanceira({profile}){return h('div',null,'Análise de Viabilidade');}
 function PaginaFichas({ profile }) {
   const [fichas, setFichas] = useState(null);
   const [busca, setBusca] = useState('');
