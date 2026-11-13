@@ -8140,11 +8140,15 @@ function PaginaPedidos({ profile }) {
         (ri.data||[]).forEach(it=>(mapaItens[it.solicitacao_id]??=[]).push(it));
       }
       if(erroItensBons){
+        const faltaMigracao=['42P01','PGRST205','PGRST204'].includes(String(erroItensBons.code||''));
         console.warn('Não foi possível carregar itens das bonificações para o pedido:',erroItensBons);
-        setDiagnosticoBonificacoes({erro:'Itens de bonificações indisponíveis: '+erroItensBons.message,clienteId:cli.id});
-        setBonificacoesAbertas([]);
-        setBonificacoesVinculadas([]);
-        return;
+        if(!faltaMigracao){
+          setDiagnosticoBonificacoes({erro:'Itens de bonificações indisponíveis: '+erroItensBons.message,clienteId:cli.id});
+          setBonificacoesAbertas([]);
+          setBonificacoesVinculadas([]);
+          return;
+        }
+        // Antes da v111, solicitações antigas continuam utilizando o produto legado.
       }
       const detalhes=candidatos.map(b=>({
         solicitacao_bonificacao_itens:mapaItens[b.id]||[],
