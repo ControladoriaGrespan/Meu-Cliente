@@ -18,7 +18,11 @@ ON CONFLICT(solicitacao_id,produto_id) DO NOTHING;
 ALTER TABLE public.solicitacao_bonificacao_itens ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS mc_bon_itens_select ON public.solicitacao_bonificacao_itens;
 CREATE POLICY mc_bon_itens_select ON public.solicitacao_bonificacao_itens FOR SELECT TO authenticated
-USING (EXISTS (SELECT 1 FROM public.solicitacoes s WHERE s.id=solicitacao_id));
+USING (
+ EXISTS (SELECT 1 FROM public.solicitacoes s WHERE s.id=solicitacao_id)
+ OR EXISTS (SELECT 1 FROM public.usuarios u WHERE u.id=auth.uid()
+   AND u.ativo=true AND u.papel::text IN ('adm_vendas','gestao_adm_vendas','admin'))
+);
 DROP POLICY IF EXISTS mc_bon_itens_insert ON public.solicitacao_bonificacao_itens;
 CREATE POLICY mc_bon_itens_insert ON public.solicitacao_bonificacao_itens FOR INSERT TO authenticated
 WITH CHECK (EXISTS (
