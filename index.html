@@ -6712,6 +6712,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [filtroLider,setFiltroLider]=useState('');
   const [filtroTecnico,setFiltroTecnico]=useState('');
   const [form,setForm]=useState(null);
+  const [editandoVisita,setEditandoVisita]=useState(null);
   const [buscaCliente,setBuscaCliente]=useState('');
   const [buscandoClientes,setBuscandoClientes]=useState(false);
   const [erroBuscaClientes,setErroBuscaClientes]=useState('');
@@ -6994,6 +6995,30 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     return true;
   });
   const statusAgenda=id=>agendasSemana.find(a=>a.tecnico_id===id);
+  const rotuloAgenda=s=>({rascunho:'Criada',pendente:'Enviada p/ Aprovação',aprovada:'Aprovada',devolvida:'Solicitado correção'}[s]||'Não criada');
+  const hojeISO=dataISO(new Date());
+  const podeEditarVisita=v=>!!(lider&&!emPreview&&v&&v.data_visita>=hojeISO&&v.status==='agendada'&&!v.checkin_em&&!v.checkout_em&&agendasSemana.some(a=>a.id===v.agenda_semana_id&&a.lider_id===profile.id&&a.origem_papel==='lider_tec_panificacao'));
+  function abrirEdicaoVisita(v){
+    if(!podeEditarVisita(v))return toast('Visita não editável pelo Líder.','error');
+    setVisitaAberta(null);setEditandoVisita(v);setParticipantes([v.tecnico_id]);
+    setTipoAtendimento(v.tipo_atendimento||'producao');setRepetirVisitas(false);setExcecao(false);
+    setClientes([]);setBuscaCliente(v.clientes?.codigo_totvs||v.clientes?.razao_social||'');
+    setForm({cliente_id:v.cliente_id,tecnico_id:v.tecnico_id,data_visita:v.data_visita,hora_inicio:String(v.hora_inicio||'08:00').slice(0,5),
+      hora_fim:formatMin(paraMin(v.hora_inicio)+Number(v.duracao_min||120)),objetivo:v.objetivo||'',observacoes:v.observacoes||''});
+  }
+  async function salvarEdicaoVisita(){
+    if(!editandoVisita||!form)return;
+    if(form.data_visita<hojeISO)return toast('Não é permitido editar datas anteriores a hoje.','error');
+    setSalvando(true);
+    const {data,error}=await sb.rpc('vt_editar_visita_planejada',{
+      p_visita:editandoVisita.id,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora_inicio:form.hora_inicio,
+      p_hora_fim:form.hora_fim,p_tipo_atendimento:tipoAtendimento,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||''
+    });
+    setSalvando(false);
+    if(error)return toast('Não foi possível editar: '+error.message,'error');
+    setForm(null);setEditandoVisita(null);setBuscaCliente('');setClientes([]);
+    toast(data?.reanalisada?'Agenda reenviada para aprovação do Supervisor.':'Visita alterada na agenda Criada.','success');carregar();
+  }
   const minhaFilaAgendas=agendasParaAprovar.filter(a=>
     (supervisor&&a.origem_papel==='lider_tec_panificacao'&&a.supervisor_id===profile.id) ||
     (papelVisao==='coordenador'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id) || adminReal);
@@ -7264,7 +7289,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                     const atrasos=lista.some(v=>statusVisita(v)==='atrasada');
                     const realizados=lista.filter(v=>v.checkin_em).length;
                     return h('button',{key:dias[i].iso,style:{background:atrasos?paleta.atrasada.bg:lista.length?paleta.agendada.bg:'#f5f6f8',border:'1px solid #e2e5e9',borderRadius:7,minHeight:69,cursor:'pointer',fontSize:12,color:'#263043'},onClick:()=>setTecnicoAgenda(u.id)},
-                      h('b',null,lista.length+' visita(s)'),h('div',null,'Agenda: '+(statusAgenda(u.id)?.status||'Sem envio')),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
+                      h('b',null,lista.length+' visita(s)'),h('div',null,'Agenda: '+rotuloAgenda(statusAgenda(u.id)?.status)),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
                       realizados?h('div',null,realizados+' check-in(s)'):null);
                   }));
               })));
@@ -7282,7 +7307,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}},
             h('div',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setTecnicoAgenda('')},'← Todas as equipes'),
               h('b',{style:{marginLeft:12}},usuario?.nome||'Técnico')),
-            h('div',{style:{fontSize:12}},'Aprovação: '+(agendaAtual?.status||'Sem agenda')+
+            h('div',{style:{fontSize:12}},'Status da agenda: '+rotuloAgenda(agendaAtual?.status)+
               (agendaAtual?.origem_papel==='supervisor_tec_panificacao'
                 ? ' · Origem: Supervisor · Aprovação: Coordenador'
                 :agendaAtual?.lider_id?' · Origem: Líder · Aprovação: Supervisor':'') ),
@@ -7334,6 +7359,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
           visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
           lider&&!emPreview&&equipeParticipantes.some(u=>u.id===visitaAberta.tecnico_id)&&h('button',{className:'btn btn-secondary',onClick:()=>copiarVisita(visitaAberta)},'Copiar visita'),
+          podeEditarVisita(visitaAberta)&&h('button',{className:'btn btn-primary',onClick:()=>abrirEdicaoVisita(visitaAberta)},'Editar visita'),
           visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
           visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
           visitaAberta.status==='concluida'&&h('button',{className:'btn btn-secondary',onClick:()=>pdfVisita(visitaAberta)},'PDF da visita')))),
@@ -7374,22 +7400,25 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           'Somente Líder/Supervisor e clientes da própria carteira. Para clientes de outra carteira, utilize a programação por exceção.')
       )
     ),
-    form&&h(Modal,{titulo:'Agendar visita técnica',largo:true,onClose:()=>setForm(null),acoes:[
-      h('button',{className:'btn btn-secondary',onClick:()=>setForm(null)},'Cancelar'),
-      h('button',{className:'btn btn-primary',disabled:salvando,onClick:gravar},salvando?'Salvando...':'Salvar visita')]},
+    form&&h(Modal,{titulo:editandoVisita?'Editar visita técnica':'Agendar visita técnica',largo:true,
+      onClose:()=>{setForm(null);setEditandoVisita(null);},acoes:[
+      h('button',{className:'btn btn-secondary',disabled:salvando,onClick:()=>{setForm(null);setEditandoVisita(null);}},'Cancelar'),
+      h('button',{className:'btn btn-primary',disabled:salvando,onClick:editandoVisita?salvarEdicaoVisita:gravar},
+        salvando?'Salvando...':editandoVisita?'Salvar e reenviar aprovação':'Salvar visita')]},
       h('div',{className:'form-grid'},
-        h('div',{style:{gridColumn:'1/-1'}},h('b',null,'Participantes do atendimento'),
-          equipeParticipantes.map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
-            h('input',{type:'checkbox',checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
+        h('div',{style:{gridColumn:'1/-1'}},h('b',null,editandoVisita?'Participante (fixo)':'Participantes do atendimento'),
+          equipeParticipantes.filter(u=>!editandoVisita||u.id===editandoVisita.tecnico_id).map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
+            h('input',{type:'checkbox',disabled:!!editandoVisita,checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
+        editandoVisita&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#9a3412'}},'Alterações em agenda já enviada serão submetidas novamente ao Supervisor.'),
         supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O Supervisor agenda sua equipe; a agenda normal será enviada ao Coordenador para aprovação. Exceções territoriais exigem justificativa.'),
-        (supervisor||adminReal)&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
+        !editandoVisita&&(supervisor||adminReal)&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
         excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
         h(Campo,{label:'Horário início'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
         h(Campo,{label:'Horário fim'},h('input',{className:'form-input',type:'time',value:form.hora_fim||'10:00',onChange:e=>{setForm(x=>({...x,hora_fim:e.target.value}));setDuracao(paraMin(e.target.value)-paraMin(form.hora_inicio));}})),
         h(Campo,{label:'Tipo de atendimento'},h('select',{className:'form-select',value:tipoAtendimento,onChange:e=>setTipoAtendimento(e.target.value)},h('option',{value:'producao'},'Produção'),h('option',{value:'treinamento'},'Treinamento'))),
         tipoAtendimento==='treinamento'&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#a15c00'}},'Check-out de Treinamento ainda não configurado; não é permitido concluir com o formulário de Produção.'),
-        (lider||supervisor||adminReal)&&h('div',{style:{gridColumn:'1/-1',padding:10,border:'1px solid var(--border)',borderRadius:8}},
+        !editandoVisita&&(lider||supervisor||adminReal)&&h('div',{style:{gridColumn:'1/-1',padding:10,border:'1px solid var(--border)',borderRadius:8}},
           h('label',null,h('input',{type:'checkbox',checked:repetirVisitas,onChange:e=>setRepetirVisitas(e.target.checked)}),' Replicar a tarefa por período'),
           repetirVisitas&&h('div',{style:{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}},
             h('input',{type:'date',className:'form-input',value:dataFimVisitas,onChange:e=>setDataFimVisitas(e.target.value)}),
