@@ -7167,15 +7167,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const nomes={agendada:'Agendada',em_andamento:'Em visita',concluida:'Concluída',cancelada:'Cancelada'};
   if(!autorizado)return h('div',{className:'card'},'Acesso não autorizado.');
   return h('div',null,
-    h('style',null,`@media(max-width:767px){
-      .vt-desktop-grid,.vt-general-desktop{display:none!important}
-      .vt-mobile-list{display:block!important}
-      .vt-mobile-day{border:1px solid var(--border);border-radius:10px;padding:12px;margin:0 0 14px;background:var(--bg-card)}
-      .vt-mobile-visit{border:1px solid var(--border);border-radius:8px;padding:12px;margin:9px 0;cursor:pointer;min-height:76px}
-      .vt-mobile-visit:focus-visible{outline:2px solid var(--accent)}
-      .vt-mobile-visit .btn{min-height:40px}
-    }
-    @media(min-width:768px){.vt-mobile-list{display:none!important}}`),
+
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'Visita Técnica'),h('div',{className:'page-sub'},'Agenda semanal · Check-in e checkout · Qualidade')),
       (lider||supervisor)&&!emPreview&&h('button',{className:'btn btn-secondary',style:{marginRight:8},onClick:abrirCheckinRapido},'✓ Check-in agora'),
@@ -7193,8 +7185,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           h('option',{value:''},'Todos os líderes Tec'),lideres.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
         !tecnico&&h('select',{className:'form-select',style:{maxWidth:230},value:filtroTecnico,onChange:e=>setFiltroTecnico(e.target.value)},
           h('option',{value:''},'Todos os técnicos'),tecnicosFiltro.map(u=>h('option',{key:u.id,value:u.id},u.nome))))),
-    papelVisao==='admin'&&h('div',{className:'card',style:{marginBottom:14}},
-      h('h3',null,'Matriz de territórios comerciais × equipes técnicas'),
+    papelVisao==='admin'&&h('details',{className:'card',style:{marginBottom:14}},
+      h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Matriz de territórios comerciais × equipes técnicas'),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,260px),1fr))',gap:10,alignItems:'end',width:'100%',minWidth:0}},
         h('select',{className:'form-select',style:{width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},value:supervisorTecnicoVinculo,onChange:e=>setSupervisorTecnicoVinculo(e.target.value)},h('option',{value:''},'Supervisor Tec'),supervisores.map(u=>h('option',{key:u.id,value:u.id},u.nome))),
         h('select',{className:'form-select',style:{width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},value:supervisorComercial,onChange:e=>setSupervisorComercial(e.target.value)},h('option',{value:''},'Supervisor de Vendas'),usuarios.filter(u=>u.papel==='supervisor').map(u=>h('option',{key:u.id,value:u.id},u.nome))),
@@ -7202,8 +7194,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       vinculosTerritorio.map(v=>h('div',{key:v.supervisor_tecnico_id+v.supervisor_comercial_id,style:{padding:6}},
         (usuariosPorId[v.supervisor_tecnico_id]?.nome||'Supervisor Tec')+' → '+(usuariosPorId[v.supervisor_comercial_id]?.nome||'Supervisor Vendas')+' ',
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularTerritorio(v.supervisor_tecnico_id,v.supervisor_comercial_id)},'Remover')))),
-    papelVisao==='admin'&&h('div',{className:'card',style:{marginBottom:14}},
-      h('h3',null,'Vínculos adicionais · Técnicos × Líderes'),
+    papelVisao==='admin'&&h('details',{className:'card',style:{marginBottom:14}},
+      h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Vínculos adicionais · Técnicos × Líderes'),
       h('div',{className:'page-sub'},'Um técnico pode atender a dois líderes. A agenda de uma mesma semana continua com um responsável pelo envio e aprovação.'),
       h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}},
         h('select',{className:'form-select',value:liderAdicional,onChange:e=>setLiderAdicional(e.target.value)},
@@ -7214,9 +7206,9 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       ...duplosLider.filter(d=>d.ativo).map(d=>h('div',{key:d.lider_id+d.tecnico_id,style:{padding:6}},
         (usuariosPorId[d.lider_id]?.nome||'Líder')+' → '+(usuariosPorId[d.tecnico_id]?.nome||'Técnico')+' ',
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>desvincularLiderDuplo(d.lider_id,d.tecnico_id)},'Desativar')))),
-    (supervisor||papelVisao==='coordenador'||adminReal)&&h('div',{className:'card',style:{marginBottom:14}},
-      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',marginBottom:10}},
-        h('h3',{style:{margin:0}},'Agendas para aprovação ('+minhaFilaAgendas.length+')'),
+    (supervisor||papelVisao==='coordenador'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
+      h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Agendas para aprovação ('+minhaFilaAgendas.length+')'),
+      h('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10,marginTop:10}},
         h('button',{className:'btn btn-secondary btn-sm',disabled:carregando,onClick:carregar},'Atualizar pendências')),
       h('p',{className:'page-sub'},adminReal?'Administrador · todas as agendas aguardando aprovação.':supervisor
         ?'Agendas enviadas pelos Líderes Técnicos da sua equipe.'
@@ -7233,7 +7225,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             onClick:()=>tramitarAgenda(a.id,'aprovar')},'Aprovar agenda'),
           h('button',{className:'btn btn-secondary btn-sm',disabled:salvando||emPreview,
             onClick:()=>tramitarAgenda(a.id,'devolver')},'Devolver para ajustes'))))),
-    (papelVisao==='coordenador'||adminReal)&&h('div',{className:'card',style:{marginBottom:14}},h('h3',null,'Exceções aguardando aprovação'),
+    (papelVisao==='coordenador'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
+      h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Exceções aguardando aprovação ('+excecoes.length+')'),
       excecoes.length===0?h('p',null,'Nenhuma exceção pendente.'):excecoes.map(e=>h('div',{key:e.atendimento_id,style:{padding:10,borderBottom:'1px solid var(--border)'}},
         h('b',null,'Supervisor: '+(usuariosPorId[e.supervisor_tecnico_id]?.nome||'—')),
         h('p',null,'Justificativa: '+e.justificativa),
@@ -7294,11 +7287,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             h('span',{style:{background:paleta[k].bg,width:13,height:13,borderRadius:3,border:'1px solid #ccc'}}),nome)));
         if(!selecionado){
           return h('div',null,h('b',null,'Agenda geral da equipe'),h('p',{style:{fontSize:12,color:'var(--muted)',marginBottom:12}},'Clique no técnico para abrir a agenda detalhada. Cada quadrado mostra visitas e tempo total previsto.'),legenda,
-            h('div',{className:'vt-mobile-list'},equipe.map(u=>h('button',{
-              key:u.id,className:'btn btn-secondary',style:{display:'block',width:'100%',minHeight:60,marginBottom:9,textAlign:'left',whiteSpace:'normal'},
-              onClick:()=>setTecnicoAgenda(u.id)
-            },h('b',null,u.nome),h('div',{style:{fontSize:12}},'Status: '+rotuloAgenda(statusAgenda(u.id)?.status))))),
-            h('div',{className:'vt-general-desktop',style:{minWidth:900}},
+            h('div',{style:{minWidth:900}},
               h('div',{style:{display:'grid',gridTemplateColumns:'180px repeat(7,minmax(95px,1fr))',gap:5,marginBottom:5}},
                 h('b',null,'Técnico'),dias.map(d=>h('b',{key:d.iso,style:{textAlign:'center',fontSize:12}},d.label))),
               equipe.map(u=>{
@@ -7343,23 +7332,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             agendaAtual?.observacao_aprovacao&&h('div',{style:{fontSize:12}},'Devolução: '+agendaAtual.observacao_aprovacao),
             h('span',{style:{fontSize:12}},'Hoje: '+concluidas+'/'+hoje.length+' concluídas · '+(atualVisita?'Visita '+indice+'/'+hoje.length+' — '+(statusVisita(atualVisita)==='atrasada'?'Atrasada':atualVisita.status==='em_andamento'?'Check-in realizado':'Agendada'):'Sem visita pendente'))),
           legenda,
-          h('div',{className:'vt-mobile-list'},
-            ...dias.map((d,di)=>h('div',{key:d.iso,className:'vt-mobile-day'},
-              h('div',{style:{fontWeight:700,fontSize:14}},d.label),
-              !agenda[di].length&&h('p',{style:{fontSize:12,color:'var(--text-muted)',marginTop:8}},'Nenhuma visita programada'),
-              ...agenda[di].map(v=>h('div',{key:v.id,className:'vt-mobile-visit',
-                style:{borderLeft:'5px solid '+paleta[statusVisita(v)].fg},
-                onClick:()=>setVisitaAberta(v),role:'button',tabIndex:0,
-                onKeyDown:e=>{if(e.key==='Enter')setVisitaAberta(v);}},
-                h('b',null,String(v.hora_inicio||'').slice(0,5)+' – '+formatMin(paraMin(v.hora_inicio)+Number(v.duracao_min||120))),
-                h('div',{style:{fontWeight:650,marginTop:5,fontSize:13}},
-                  (v.clientes?.codigo_totvs||'')+' — '+(v.clientes?.razao_social||v.clientes?.nome_fantasia||'Cliente')),
-                h('div',{style:{fontSize:12,marginTop:4}},(nomes[v.status]||v.status)+' · '+(v.tipo_atendimento==='treinamento'?'Treinamento':'Produção')),
-                podeEditarVisita(v)&&h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:9,minHeight:40},
-                  onClick:e=>{e.stopPropagation();abrirEdicaoVisita(v);}},'Editar visita'))),
-              podeAgendar&&d.iso>=hojeISO&&h('button',{className:'btn btn-secondary btn-sm',style:{width:'100%',minHeight:42,marginTop:10},
-                onClick:()=>abrirAgendamento(selecionado,d.iso,'08:00')},'+ Agendar neste dia')))),
-          h('div',{className:'vt-desktop-grid',style:{display:'grid',gridTemplateColumns:'65px repeat(7,minmax(140px,1fr))',minWidth:1100}},
+          h('div',{style:{display:'grid',gridTemplateColumns:'65px repeat(7,minmax(140px,1fr))',minWidth:1100}},
             h('div',{style:{position:'sticky',top:0,background:'var(--card,#fff)',zIndex:2,padding:8}},'Hora'),
             dias.map(d=>h('div',{key:d.iso,style:{position:'sticky',top:0,background:'var(--card,#fff)',zIndex:2,textAlign:'center',padding:8,fontWeight:700,borderBottom:'1px solid #ddd'}},d.label)),
             h('div',{style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd'}},
