@@ -1565,13 +1565,13 @@ function codigoAuditoria(obj, fallbackPrefixo) {
 function identificacaoCliente(c) {
   if (!c) return 'SEM CÓDIGO — Cliente não identificado';
   const codigo = c.codigo_totvs || 'SEM CÓDIGO';
-  const nome = c.razao_social || c.nome || 'Cliente não identificado';
+  const nome = c.nome_fantasia || c.razao_social || c.nome || 'Cliente não identificado';
   return codigo + ' — ' + nome;
 }
 function identificacaoFichaCliente(f) {
   if (!f) return 'SEM CÓDIGO — Cliente não identificado';
   const codigo = f.codigo_totvs || (f.clientes && f.clientes.codigo_totvs) || 'SEM CÓDIGO';
-  return codigo + ' — ' + (f.razao_social || 'Cliente não identificado');
+  return codigo + ' — ' + (f.nome_fantasia || f.clientes?.nome_fantasia || f.razao_social || 'Cliente não identificado');
 }
 function prefixoSolicitacao(s) {
   if (!s) return 'SOL';
@@ -2218,7 +2218,7 @@ function PopupOrigemAprovacao({ origem, onClose }) {
   const rota = origem.rota || {};
   const titulo = tipo==='solicitacao' ? 'Solicitação original' : 'Programação original';
   const numero = ref.codigo_totvs || '';
-  const nome = ref.razao_social || 'Cliente';
+  const nome = ref.nome_fantasia || ref.razao_social || 'Cliente';
   return h(Modal, {
     titulo:titulo, sub:(numero ? numero+' — ' : '')+nome,
     largo:true, onClose:onClose,
@@ -2699,7 +2699,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         let rs={data:[],error:null};
         try{
           rs=await sb.from('solicitacao_aprovacoes')
-            .select('*, solicitacoes(*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
+            .select('*, solicitacoes(*, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*))')
             .eq('etapa','manutencao').eq('status','pendente')
             .order('criado_em',{ascending:true});
         }catch(e){
@@ -2841,7 +2841,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         let sols=[];
         if(solIds.length){
           const rsol=await sb.from('solicitacoes')
-            .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
+            .select('*, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
             .in('id',solIds);
           if(rsol.error)console.error('Pendências - detalhes solicitações:',rsol.error);
           else sols=rsol.data||[];
@@ -3397,6 +3397,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 10 } },
             h('div', null,
               h('div', { style: { fontSize: 16, fontWeight: 600 } }, identificacaoCliente(cli)),
+              cli.nome_fantasia && cli.razao_social && cli.nome_fantasia.trim().toLowerCase()!==cli.razao_social.trim().toLowerCase()
+                && h('div',{style:{fontSize:11,color:'var(--text-muted)'}},'Razão social: '+cli.razao_social),
               h('div', { style: { fontSize: 12, color: 'var(--text-muted)' } },
                 'Solicitado por ' + ((sol.usuarios && sol.usuarios.nome) || '—') + ' em ' + fmtData(sol.created_at))),
             h('div', { style: { display: 'flex', gap: 6, alignItems: 'flex-start' } },
@@ -3439,6 +3441,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 12 } },
               h('div', null,
                 h('div', { style: { fontSize: 16, fontWeight: 600 } }, identificacaoFichaCliente(f)),
+                f.nome_fantasia && f.razao_social && f.nome_fantasia.trim().toLowerCase()!==f.razao_social.trim().toLowerCase()
+                  && h('div',{style:{fontSize:11,color:'var(--text-muted)'}},'Razão social: '+f.razao_social),
                 h('div', { style: { fontSize: 12, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" } }, f.cnpj_cpf)),
               h('div', { style: { textAlign: 'right' } },
                 h('div', { style: { fontSize: 18, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(f.faturamento_previsto)),
@@ -3650,7 +3654,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
             .eq('vendedor_id',profile.id).order('created_at',{ascending:false})
         : Promise.resolve({data:[]}),
       sb.from('solicitacoes')
-        .select('*, clientes(razao_social, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
+        .select('*, clientes(razao_social, nome_fantasia, cnpj_cpf, codigo_totvs), usuarios:solicitante_id(nome), produtos(codigo, descricao), solicitacao_aprovacoes(*)')
         .order('created_at',{ascending:false})
     ]);
     if(rs.error){
