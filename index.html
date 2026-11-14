@@ -7168,7 +7168,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   if(!autorizado)return h('div',{className:'card'},'Acesso não autorizado.');
   return h('div',null,
     h('style',null,`@media(max-width:767px){
-      .vt-desktop-grid{display:none!important}
+      .vt-desktop-grid,.vt-general-desktop{display:none!important}
       .vt-mobile-list{display:block!important}
       .vt-mobile-day{border:1px solid var(--border);border-radius:10px;padding:12px;margin:0 0 14px;background:var(--bg-card)}
       .vt-mobile-visit{border:1px solid var(--border);border-radius:8px;padding:12px;margin:9px 0;cursor:pointer;min-height:76px}
@@ -7294,7 +7294,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             h('span',{style:{background:paleta[k].bg,width:13,height:13,borderRadius:3,border:'1px solid #ccc'}}),nome)));
         if(!selecionado){
           return h('div',null,h('b',null,'Agenda geral da equipe'),h('p',{style:{fontSize:12,color:'var(--muted)',marginBottom:12}},'Clique no técnico para abrir a agenda detalhada. Cada quadrado mostra visitas e tempo total previsto.'),legenda,
-            h('div',{style:{minWidth:900}},
+            h('div',{className:'vt-mobile-list'},equipe.map(u=>h('button',{
+              key:u.id,className:'btn btn-secondary',style:{display:'block',width:'100%',minHeight:60,marginBottom:9,textAlign:'left',whiteSpace:'normal'},
+              onClick:()=>setTecnicoAgenda(u.id)
+            },h('b',null,u.nome),h('div',{style:{fontSize:12}},'Status: '+rotuloAgenda(statusAgenda(u.id)?.status))))),
+            h('div',{className:'vt-general-desktop',style:{minWidth:900}},
               h('div',{style:{display:'grid',gridTemplateColumns:'180px repeat(7,minmax(95px,1fr))',gap:5,marginBottom:5}},
                 h('b',null,'Técnico'),dias.map(d=>h('b',{key:d.iso,style:{textAlign:'center',fontSize:12}},d.label))),
               equipe.map(u=>{
