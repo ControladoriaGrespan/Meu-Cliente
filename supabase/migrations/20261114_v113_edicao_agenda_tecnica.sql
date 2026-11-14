@@ -78,4 +78,53 @@ END;
 $vtedit$;
 REVOKE ALL ON FUNCTION public.vt_editar_visita_planejada(uuid,uuid,date,time,time,text,text,text) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.vt_editar_visita_planejada(uuid,uuid,date,time,time,text,text,text) TO authenticated;
+
+-- Inclusão de novas visitas em semanas já enviadas/aprovadas: operação atômica.
+CREATE OR REPLACE FUNCTION public.vt_incluir_visita_agenda(
+ p_participantes uuid[],p_cliente uuid,p_data date,p_hora_inicio time,p_hora_fim time,
+ p_tipo_atendimento text,p_objetivo text,p_observacoes text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $vtinclude$
+DECLARE v_part uuid; v_ag public.agendas_tecnicas_semanais%ROWTYPE;
+ v_semana date; v_hoje date := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
+ v_mudados uuid[]:='{}';v_atendimento uuid;v_duracao integer;
+BEGIN
+ IF public.vt_papel()<>'lider_tec_panificacao'
+ THEN RAISE EXCEPTION 'Somente Líder Técnico pode incluir visita na agenda';END IF;
+ IF p_data<v_hoje THEN RAISE EXCEPTION 'Não é permitido agendar em data anterior a hoje';END IF;
+ v_duracao:=(extract(epoch FROM (p_hora_fim-p_hora_inicio))/60)::integer;
+ IF v_duracao NOT BETWEEN 15 AND 600 THEN RAISE EXCEPTION 'Duração inválida';END IF;
+ IF p_tipo_atendimento NOT IN ('producao','treinamento')
+ THEN RAISE EXCEPTION 'Tipo de atendimento inválido';END IF;
+ IF coalesce(array_length(p_participantes,1),0) NOT BETWEEN 1 AND 20
+ THEN RAISE EXCEPTION 'Selecione entre 1 e 20 participantes';END IF;
+ v_semana:=p_data-(extract(isodow FROM p_data)::integer-1);
+ FOR v_part IN SELECT DISTINCT x FROM unnest(p_participantes) AS x ORDER BY x LOOP
+  SELECT * INTO v_ag FROM public.agendas_tecnicas_semanais
+   WHERE tecnico_id=v_part AND semana_inicio=v_semana FOR UPDATE;
+  IF FOUND THEN
+    IF v_ag.origem_papel IS DISTINCT FROM 'lider_tec_panificacao'
+       OR v_ag.lider_id IS DISTINCT FROM auth.uid()
+    THEN RAISE EXCEPTION 'Agenda de participante não pertence ao Líder'; END IF;
+    IF v_ag.status IN ('pendente','aprovada','devolvida') THEN
+      IF EXISTS(SELECT 1 FROM public.visitas_tecnicas x WHERE x.agenda_semana_id=v_ag.id
+       AND (x.checkin_em IS NOT NULL OR x.checkout_em IS NOT NULL OR x.status='em_andamento'))
+      THEN RAISE EXCEPTION 'Agenda já possui atendimento iniciado e não pode voltar para aprovação';END IF;
+      UPDATE public.agendas_tecnicas_semanais SET status='rascunho',atualizado_em=now() WHERE id=v_ag.id;
+      v_mudados:=array_append(v_mudados,v_ag.id);
+    END IF;
+  END IF;
+ END LOOP;
+ v_atendimento:=public.vt_agendar_equipe(p_participantes,p_cliente,p_data,p_hora_inicio,
+   v_duracao,p_objetivo,p_observacoes,false,'');
+ UPDATE public.visitas_tecnicas SET tipo_atendimento=p_tipo_atendimento WHERE atendimento_id=v_atendimento;
+ UPDATE public.agendas_tecnicas_semanais
+   SET status='pendente',enviado_em=now(),aprovado_em=NULL,aprovado_por=NULL,
+       observacao_aprovacao=NULL,atualizado_em=now()
+   WHERE id=ANY(v_mudados);
+ RETURN jsonb_build_object('atendimento',v_atendimento,'reanalisadas',cardinality(v_mudados));
+END;
+$vtinclude$;
+REVOKE ALL ON FUNCTION public.vt_incluir_visita_agenda(uuid[],uuid,date,time,time,text,text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.vt_incluir_visita_agenda(uuid[],uuid,date,time,time,text,text,text) TO authenticated;
+
 COMMIT;
