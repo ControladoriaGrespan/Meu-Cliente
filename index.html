@@ -6934,10 +6934,18 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const parametros=excecao?
       {p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,p_hora:form.hora_inicio,p_duracao:minutos,p_tipo_atendimento:tipoAtendimento,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||'',p_justificativa:justificativaExcecao}:
       {p_participantes:participantes,p_cliente:form.cliente_id,p_inicio:form.data_visita,p_fim:repetirVisitas?dataFimVisitas:form.data_visita,p_dias:repetirVisitas?diasRepeticao:[(new Date(form.data_visita+'T12:00:00').getDay()+6)%7+1],p_hora_inicio:form.hora_inicio,p_hora_fim:form.hora_fim,p_tipo_atendimento:tipoAtendimento,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||''};
-    let {error}=await sb.rpc(excecao?'vt_agendar_excecao':'vt_programar_periodo',parametros);
+    const incluirNaAgenda=lider&&!excecao&&!repetirVisitas;
+    const retorno=incluirNaAgenda
+      ? await sb.rpc('vt_incluir_visita_agenda',{
+          p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,
+          p_hora_inicio:form.hora_inicio,p_hora_fim:form.hora_fim,
+          p_tipo_atendimento:tipoAtendimento,p_objetivo:form.objetivo||'',p_observacoes:form.observacoes||''
+        })
+      : await sb.rpc(excecao?'vt_agendar_excecao':'vt_programar_periodo',parametros);
+    let {error}=retorno;
     // Mantém a operação antiga de Produção avulsa até a migração ser executada.
     // Recorrência e Treinamento dependem necessariamente das novas funções.
-    if(error&&/Could not find the function|schema cache|does not exist/i.test(error.message||'')&&
+    if(error&&!incluirNaAgenda&&/Could not find the function|schema cache|does not exist/i.test(error.message||'')&&
        tipoAtendimento==='producao'&&!repetirVisitas){
       const anterior=await sb.rpc('vt_agendar_equipe',{
         p_participantes:participantes,p_cliente:form.cliente_id,p_data:form.data_visita,
