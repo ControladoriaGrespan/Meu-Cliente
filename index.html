@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v125-edicao-quantidade-equipamentos';
-console.info('[Meu Cliente] BUILD v125-edicao-quantidade-equipamentos');
+window.__MEU_CLIENTE_BUILD__='v126-prazo-contrato-ficha';
+console.info('[Meu Cliente] BUILD v126-prazo-contrato-ficha');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1157,7 +1157,7 @@ function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, 
 const FORM_VAZIO = {
   razao_social: '', nome_fantasia: '', cnpj_cpf: '', representante_nome: '', representante_cpf: '', rua: '', numero: '', bairro: '', cidade: '', estado: '', cep: '',
   entrega_rua: '', entrega_numero: '', entrega_bairro: '', entrega_cidade: '', entrega_estado: '', entrega_cep: '',
-  telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '', contrato: '',
+  telefone: '', email: '', numero_checkouts: '', numero_lojas: '', preco_kg: '', prazo_pagamento: '', consumo_previsto: '', contrato: '', contrato_prazo_meses: '',
   verba_introducao: '', verba_manutencao_cliente: '', verba_negociacao_cliente: '', duracao_verba: '', tecnico_panificacao: '', senioridade_tecnico: '',
   precisa_equipamento: '', equipamento_condicao: '', forno_tipo: '', forno_quantidade: '',
   forno_esteiras: '', freezer_tipos: [], armario_tipo: '', camara_climatica: '',
@@ -1262,8 +1262,12 @@ function PaginaEmissao({ profile, onSaved }) {
       ['tecnico_panificacao','Técnico de Panificação'], ['precisa_equipamento','Precisa de Equipamento'], ['contrato','Contrato'],
       ['entrega_rua','Rua de Entrega'],['entrega_numero','Número de Entrega'],['entrega_bairro','Bairro de Entrega'],['entrega_cidade','Cidade de Entrega'],['entrega_estado','Estado de Entrega'],['entrega_cep','CEP de Entrega'],
     ];
+    if(f.contrato==='Sim')obrig.push(['contrato_prazo_meses','Prazo do contrato']);
     const faltando = obrig.filter(([k]) => !String(f[k] || '').trim()).map(([, l]) => l);
     if (faltando.length) return toast('Preencha: ' + faltando.join(', '), 'error');
+    const prazoContrato=Number(f.contrato_prazo_meses);
+    if(f.contrato==='Sim'&&(!/^\d+$/.test(f.contrato_prazo_meses)||!Number.isInteger(prazoContrato)||prazoContrato<1||prazoContrato>2147483647))
+      return toast('Informe o prazo do contrato em meses inteiros positivos.','error');
     if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe o prazo da Verba de Introdução em meses inteiros positivos.', 'error');
     if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
@@ -1295,6 +1299,7 @@ function PaginaEmissao({ profile, onSaved }) {
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
       entrega_rua:f.entrega_rua.trim(), entrega_numero:f.entrega_numero.trim(), entrega_bairro:f.entrega_bairro.trim(), entrega_cidade:f.entrega_cidade.trim(), entrega_estado:f.entrega_estado.toUpperCase(), entrega_cep:f.entrega_cep, contrato:f.contrato==='Sim',
+      contrato_prazo_meses:f.contrato==='Sim'?prazoContrato:null,
       telefone: f.telefone, email: f.email.trim(),
       numero_checkouts: num(f.numero_checkouts), numero_lojas: num(f.numero_lojas),
       preco_kg: moedaParaNumero(f.preco_kg),
@@ -1427,7 +1432,12 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'section-title' }, 'Negociação Comercial'),
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Vendedor', obrigatorio: true }, h(Input, { value: profile.nome, disabled: true })),
-        h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>set('contrato',e.target.value)})),
+        h(Campo,{label:'Contrato',obrigatorio:true},h(Select,{opcoes:['Sim','Não'],value:f.contrato,onChange:e=>{
+          const contrato=e.target.value;
+          setF(prev=>({...prev,contrato,contrato_prazo_meses:contrato==='Sim'?prev.contrato_prazo_meses:''}));
+        }})),
+        f.contrato==='Sim'&&h(Campo,{label:'Prazo do contrato (meses)',obrigatorio:true},
+          h(Input,{type:'number',min:1,step:1,inputMode:'numeric',value:f.contrato_prazo_meses,onChange:e=>set('contrato_prazo_meses',e.target.value)})),
         h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').replace(/^0+(?=\d)/,'').slice(0,3))) })),
         tabelaSugeridaFicha.texto && h('div',{style:{gridColumn:'1 / -1',fontSize:12,padding:'8px 12px',borderRadius:6,background:tabelaSugeridaFicha.estado==='encontrada'?'#ecfdf5':'#fff7ed',color:tabelaSugeridaFicha.estado==='encontrada'?'#047857':'#9a3412'}},tabelaSugeridaFicha.texto),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
@@ -2131,6 +2141,7 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades }) {
       h('div', null,
         h('div', { className: 'section-title' }, 'Negociação Comercial'),
         linhaInfo('Contrato',f.contrato?'Sim':'Não'),
+        f.contrato&&f.contrato_prazo_meses!=null&&linhaInfo('Prazo do contrato',f.contrato_prazo_meses+(f.contrato_prazo_meses===1?' mês':' meses')),
         linhaInfo('Preço Kg', fmtMoeda(f.preco_kg)),
         linhaInfo('Consumo previsto', f.consumo_previsto ? fmtNum(f.consumo_previsto) + ' pães/dia  (' + fmtNum(Math.round(f.consumo_previsto * PESO_PAO_KG * 10) / 10) + ' kg/dia)' : null),
         linhaInfo('Faturamento previsto', fmtMoeda(f.faturamento_previsto) + ' / mês'),
