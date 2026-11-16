@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v115-viabilidade-financeira-filas';
-console.info('[Meu Cliente] BUILD v115-viabilidade-financeira-filas');
+window.__MEU_CLIENTE_BUILD__='v116-programacao-manutencao-supervisor';
+console.info('[Meu Cliente] BUILD v116-programacao-manutencao-supervisor');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2285,82 +2285,23 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [aprovProg,setAprovProg]=useState([]);
   const [usuariosProg,setUsuariosProg]=useState([]);
   const [rotaExpandida,setRotaExpandida]=useState(null);
-  const [whatsRota,setWhatsRota]=useState(null);
+  const [enviandoRota,setEnviandoRota]=useState(null);
   const [decisaoProg,setDecisaoProg]=useState(null);
   const [obsProg,setObsProg]=useState('');
   const [authUidProg,setAuthUidProg]=useState(null);
-  // v104 — fila independente do Supervisor.
-  // A aprovação não pode desaparecer se uma consulta auxiliar de rota/cliente/equipamento falhar.
   const [filaProgSupervisor,setFilaProgSupervisor]=useState(null);
-  const [detalhesFilaProg,setDetalhesFilaProg]=useState({rotas:{},demandas:{},refs:{}});
-
-
 
   async function carregarFilaSupervisorDireta(){
     if(etapa!=='supervisor'){
       setFilaProgSupervisor([]);
       return;
     }
-    try{
-      // v105:
-      // - Supervisor real: carrega somente a própria fila.
-      // - Visualização de teste do Admin: carrega a fila pendente de TODOS os supervisores.
-      // A v104 zerava a fila quando ehPreview=true, exatamente o caso mostrado na tela.
-      const supervisorId=profile&&profile.id;
-      let q=sb.from('rota_programacao_aprovacoes')
-        .select('*')
-        .eq('status','pendente')
-        .order('criado_em',{ascending:false});
-
-      if(!ehPreview){
-        if(!supervisorId)throw new Error('Perfil do Supervisor sem ID.');
-        q=q.eq('supervisor_id',supervisorId);
-      }
-
-      const qa=await q;
-      if(qa.error)throw qa.error;
-
-      const fila=(qa.data||[]).filter(Boolean);
-      setFilaProgSupervisor(fila);
-
-      // Detalhes são opcionais. Qualquer falha aqui NÃO remove a pendência.
-      const rotas={}, demandas={}, refs={};
-      const rotaIds=[...new Set(fila.map(a=>a.rota_id).filter(Boolean))];
-      const entregaIds=[...new Set(fila.map(a=>a.entrega_id).filter(Boolean))];
-
-      if(rotaIds.length){
-        const rr=await sb.from('rotas_equipamentos').select('*').in('id',rotaIds);
-        if(!rr.error)(rr.data||[]).forEach(r=>{if(r&&r.id)rotas[r.id]=r;});
-        else console.warn('v104 detalhes rotas:',rr.error);
-      }
-
-      if(entregaIds.length){
-        const re=await sb.from('entregas_equipamentos').select('*').in('id',entregaIds);
-        if(!re.error){
-          (re.data||[]).forEach(d=>{if(d&&d.id)demandas[d.id]=d;});
-          const ds=Object.values(demandas);
-          const cids=[...new Set(ds.map(d=>d.cliente_id).filter(Boolean))];
-          const fids=[...new Set(ds.map(d=>d.ficha_id).filter(Boolean))];
-
-          if(cids.length){
-            const rc=await sb.from('clientes').select('*').in('id',cids);
-            if(!rc.error)(rc.data||[]).forEach(c=>{if(c&&c.id)refs['c:'+c.id]=c;});
-            else console.warn('v104 detalhes clientes:',rc.error);
-          }
-          if(fids.length){
-            const rf=await sb.from('fichas_clientes').select('*').in('id',fids);
-            if(!rf.error)(rf.data||[]).forEach(f=>{if(f&&f.id)refs['f:'+f.id]=f;});
-            else console.warn('v104 detalhes fichas:',rf.error);
-          }
-        }else console.warn('v104 detalhes demandas:',re.error);
-      }
-
-      setDetalhesFilaProg({rotas,demandas,refs});
-    }catch(e){
-      console.error('v104 fila supervisor:',e);
+    const {data,error}=await sb.rpc('mc_listar_programacoes_supervisor');
+    if(error){
       setFilaProgSupervisor([]);
-      toast('Não foi possível carregar a programação do Supervisor: '+(e&&e.message?e.message:String(e)),'error');
+      return toast('Não foi possível carregar a programação do Supervisor: '+error.message,'error');
     }
+    setFilaProgSupervisor(data||[]);
   }
 
   // v66 — funções da aprovação de rotas.
@@ -2444,22 +2385,28 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
 
   function demandaProgPorId(id){return (demandasProg||[]).find(d=>d&&String(d.id)===String(id))||null;}
-  function aprovDemanda(id){return (aprovProg||[]).filter(a=>a&&String(a.entrega_id)===String(id));}
-  function statusAprovDemanda(id){
-    const a=aprovDemanda(id);
-    if(!a.length)return 'sem_supervisor';
+  function aprovDemanda(id,rotaId){
+    return (aprovProg||[]).filter(a=>a&&String(a.entrega_id)===String(id)&&
+      (rotaId==null||String(a.rota_id)===String(rotaId)));
+  }
+  function statusAprovDemanda(id,rotaId){
+    const a=aprovDemanda(id,rotaId);
+    if(!a.length)return 'nao_enviado';
     if(a.some(x=>x.status==='reprovado'))return 'reprovado';
     if(a.every(x=>x.status==='aprovado'))return 'aprovado';
-    return 'pendente';
+    if(a.some(x=>x.status==='pendente'&&x.enviado_em))return 'pendente';
+    return 'nao_enviado';
   }
   function statusAprovRota(id){
-    const a=(aprovProg||[]).filter(x=>x&&String(x.rota_id)===String(id));
-    if(!a.length)return 'sem_supervisor';
-    if(a.some(x=>x.status==='reprovado'))return 'reprovado';
-    if(a.every(x=>x.status==='aprovado'))return 'aprovado';
-    return 'pendente';
+    const status=(itensProg||[]).filter(i=>i&&String(i.rota_id)===String(id))
+      .map(i=>demandaProgPorId(i.entrega_id))
+      .filter(d=>d&&['envio','troca','retirada'].includes(tipoOperacional(d)))
+      .map(d=>statusAprovDemanda(d.id,id));
+    if(status.includes('reprovado'))return 'reprovado';
+    if(status.includes('nao_enviado'))return 'nao_enviado';
+    return status.length&&status.every(st=>st==='aprovado')?'aprovado':'pendente';
   }
-  function labelAprov(st){return st==='aprovado'?'Aprovado':st==='reprovado'?'Reprovado':st==='sem_supervisor'?'Sem supervisor':'Aguardando aprovação';}
+  function labelAprov(st){return st==='aprovado'?'Aprovado':st==='reprovado'?'Reprovado':st==='nao_enviado'?'A enviar para aprovação':'Aguardando aprovação';}
   function badgeAprov(st){return st==='aprovado'?'badge-green':st==='reprovado'?'badge-red':st==='pendente'?'badge-yellow':'badge-gray';}
   function listaEquip(d){
     if(!d)return ['Equipamento não informado'];
@@ -2488,58 +2435,39 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     return '🚚 Programação de rota aguardando sua aprovação\n*'+tituloRota(r)+'*\nData: '+fmtData(r.data_rota)+'\n\nAcesse o sistema para aprovar ou reprovar as demandas sob sua responsabilidade:\n'+linkSistema()+'?rota_aprovacao='+encodeURIComponent(r.id);
   }
   async function enviarRotaWhatsSupervisores(r){
-    // Pré-abre as janelas durante o clique para evitar bloqueador de pop-up.
-    const conhecidos=supervisoresRota(r.id);
-    const janelas=ehCelularWhats()?[]:conhecidos.map(()=>window.open('about:blank','_blank'));
+    if(enviandoRota)return;
+    setEnviandoRota(r.id);
+    const celular=ehCelularWhats();
+    const conhecidos=supervisoresRota(r.id).filter(u=>numeroWhats(u.telefone));
+    const janelas=celular?[]:conhecidos.map(()=>window.open('about:blank','_blank')).filter(Boolean);
+    try{
+      const {data:ids,error}=await sb.rpc('mc_enviar_programacao_manutencao',{p_rota_id:r.id});
+      if(error)throw error;
+      await carregarProgramacoesRota();
+      if(!ids?.length)return toast('A rota já foi enviada e não tem decisões pendentes.','info');
 
-    const {error}=await sb.rpc('enviar_programacao_rota',{p_rota_id:r.id});
-    if(error){
-      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
-      return toast(error.message,'error');
-    }
-
-    // Busca novamente após sincronizar para garantir todos os supervisores.
-    const qa=await sb.from('rota_programacao_aprovacoes')
-      .select('supervisor_id')
-      .eq('rota_id',r.id)
-      .not('enviado_em','is',null);
-    if(qa.error){
-      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
-      return toast(qa.error.message,'error');
-    }
-    const ids=[...new Set((qa.data||[]).map(x=>x.supervisor_id).filter(Boolean))];
-    if(!ids.length){
-      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
-      return toast('Nenhum supervisor foi encontrado para as demandas desta rota.','error');
-    }
-
-    const qu=await sb.from('usuarios').select('id,nome,telefone').in('id',ids);
-    if(qu.error){
-      janelas.forEach(w=>{try{if(w&&!w.closed)w.close();}catch(e){}});
-      return toast(qu.error.message,'error');
-    }
-    const sups=(qu.data||[]).filter(Boolean);
-    const semTelefone=sups.filter(u=>!String(u.telefone||'').replace(/\D/g,''));
-    const comTelefone=sups.filter(u=>String(u.telefone||'').replace(/\D/g,''));
-
-    // No celular, exibe os botões. No desktop, mantém as abas automáticas.
-    if(ehCelularWhats())agendarAvisoWhats(comTelefone,msgRotaWhats(r));
-    while(!ehCelularWhats()&&janelas.length<comTelefone.length)janelas.push(window.open('about:blank','_blank'));
-    while(!ehCelularWhats()&&janelas.length>comTelefone.length){
-      const w=janelas.pop();try{if(w&&!w.closed)w.close();}catch(e){}
-    }
-
-    const msg=msgRotaWhats(r);
-    if(!ehCelularWhats())comTelefone.forEach((sup,i)=>{
-      const ok=abrirWhats(sup.telefone,msg,janelas[i]||null);
-      if(!ok&&janelas[i])try{janelas[i].close();}catch(e){}
-    });
-
-    await carregarProgramacoesRota();
-    if(semTelefone.length){
-      toast('Programação enviada para Pendências. Sem WhatsApp cadastrado: '+semTelefone.map(x=>x.nome||'Supervisor').join(', ')+'.','info');
-    }else{
-      toast(ehCelularWhats()?'Programação enviada. Use os botões de WhatsApp para avisar os supervisores.':'Programação enviada para Pendências dos supervisores e WhatsApp aberto.','success');
+      const {data:usuarios,error:erroUsuarios}=await sb.from('usuarios').select('id,nome,telefone').in('id',ids);
+      if(erroUsuarios)return toast('Programação enviada. Não foi possível consultar os telefones dos supervisores.','info');
+      const porId=new Map((usuarios||[]).map(u=>[String(u.id),u]));
+      const sups=ids.map(id=>porId.get(String(id))||{id,nome:'Supervisor'});
+      const semTelefone=sups.filter(u=>!numeroWhats(u.telefone));
+      const comTelefone=sups.filter(u=>numeroWhats(u.telefone));
+      const msg=msgRotaWhats(r);
+      const avisos=[];
+      comTelefone.forEach(sup=>{
+        const janela=janelas.shift();
+        if(janela&&!janela.closed)abrirWhats(sup.telefone,msg,janela);
+        else avisos.push(sup);
+      });
+      if(avisos.length)agendarAvisoWhats(avisos,msg);
+      const avisosMsg=avisos.length?' Use os botões de WhatsApp para avisar os supervisores.':'';
+      const telefonesMsg=semTelefone.length?' Telefone não disponível para: '+semTelefone.map(u=>u.nome||'Supervisor').join(', ')+'.':'';
+      toast('Programação disponível em Pendências do Supervisor.'+avisosMsg+telefonesMsg,semTelefone.length?'info':'success');
+    }catch(e){
+      toast('Não foi possível enviar a programação: '+e.message,'error');
+    }finally{
+      janelas.forEach(w=>{if(!w.closed)w.close();});
+      setEnviandoRota(null);
     }
   }
   async function decidirProgramacao(aprovacao,status,observacao){
@@ -2568,7 +2496,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     setObsProg('');
 
     if(st==='aprovado'){
-      toast('Programação aprovada. A rota permanece na Manutenção e o contrato foi liberado para impressão.','success');
+      toast('Data da programação aprovada.','success');
     }else{
       toast('Programação reprovada. A rota permanece na Manutenção para revisão.','info');
     }
@@ -2580,18 +2508,15 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 
   function renderPendenciasSupervisorDireto(){
     if(etapa!=='supervisor')return null;
-    const aps=(filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente');
+    const aps=filaProgSupervisor||[];
     if(!aps.length)return null;
 
     return h('div',null,
       h('div',{className:'section-title'},'Programações de entrega / retirada / troca'),
       ...aps.map(a=>{
-        const r=(detalhesFilaProg.rotas||{})[a.rota_id]||null;
-        const d=(detalhesFilaProg.demandas||{})[a.entrega_id]||null;
-        const ref=d
-          ? ((d.cliente_id&&(detalhesFilaProg.refs||{})['c:'+d.cliente_id]) ||
-             (d.ficha_id&&(detalhesFilaProg.refs||{})['f:'+d.ficha_id]) || {})
-          : {};
+        const r=a.rota;
+        const d=a.demanda;
+        const ref=a.cliente||{};
         const cliente=(ref.codigo_totvs?ref.codigo_totvs+' — ':'')+(ref.razao_social||'Cliente');
         const titulo=r?(r.codigo||r.nome||'Rota'):'Programação de rota';
         const data=(r&&r.data_rota)||(d&&d.data_prevista)||null;
@@ -2605,7 +2530,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               ehPreview&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginTop:3}},'Supervisor: '+((sup&&sup.nome)||String(a.supervisor_id||'—').slice(0,8)))),
             h('span',{className:'badge badge-yellow'},'Aguardando aprovação')),
           d&&h('div',{style:{marginBottom:10}},
-            linhaInfo('Tipo',tipoOperacional(d)),
+            linhaInfo('Tipo',labelTipoProgramacao(d)),
             linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||d.equipamento_coleta||'—'),
             linhaInfo('Cidade',d.endereco_cidade||ref.cidade||'—')),
           !d&&h('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},
@@ -2643,13 +2568,13 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             h('div',{className:'rota-cascade-meta'},'Data: '+fmtData(r.data_rota)+' · '+ds.length+' demanda(s)')),
           h('div',{style:{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}},
             h('span',{className:'badge '+badgeAprov(statusAprovRota(r.id))},labelAprov(statusAprovRota(r.id))),
-            !modoSupervisor&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();enviarRotaWhatsSupervisores(r);}},'WhatsApp supervisores'))),
+            !modoSupervisor&&h('button',{className:'btn btn-primary btn-sm',disabled:!!enviandoRota,onClick:e=>{e.stopPropagation();enviarRotaWhatsSupervisores(r);}},String(enviandoRota)===String(r.id)?'Enviando…':'Enviar para aprovação'))),
         aberto&&h('div',null,...porCliente.map((g,idx)=>h('div',{className:'rota-cliente',key:r.id+'_c_'+idx},
           h('div',{className:'rota-cliente-nome'},g.nome),
           ...g.demandas.map(d=>{
-            const aps=aprovDemanda(d.id);
+            const aps=aprovDemanda(d.id,r.id);
             const minha=modoSupervisor?aps.find(a=>String(a.supervisor_id)===String(authUidProg||profile.id)):null;
-            const st=modoSupervisor?(minha?minha.status:'pendente'):statusAprovDemanda(d.id);
+            const st=modoSupervisor?(minha?minha.status:'pendente'):statusAprovDemanda(d.id,r.id);
             return h('div',{key:d.id,style:{marginBottom:12}},
               h('div',{className:'rota-equip-list'},...listaEquip(d).map((eq,i)=>h('div',{className:'rota-equip-item',key:i},eq))),
               h('div',{className:'rota-aprovacao-linha'},
@@ -3046,6 +2971,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
 
   function tipoOperacional(d){return d.tipo_demanda==='entrega'?'envio':(d.tipo_demanda||'envio');}
+  function labelTipoProgramacao(d){return {envio:'Entrega de equipamento',troca:'Troca de equipamento',retirada:'Retirada de equipamento'}[tipoOperacional(d)]||'Equipamento';}
   function labelStatusOp(st){
     return st==='ag_rota'?'Ag. Rota':st==='roteirizada'?'Roteirizado':st==='programada'?'Agendada':st==='concluida'?'Concluído':'Pendente';
   }
