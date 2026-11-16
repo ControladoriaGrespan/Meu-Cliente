@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v122-mapa-equipe-tecnica';
-console.info('[Meu Cliente] BUILD v122-mapa-equipe-tecnica');
+window.__MEU_CLIENTE_BUILD__='v124-corrigir-quantidades-ficha';
+console.info('[Meu Cliente] BUILD v124-corrigir-quantidades-ficha');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1989,7 +1989,71 @@ function baixarPedidoPDF(cliente,pedido,itens,rotaNome,dataPedido,observacoes) {
   pdfRodape(ctx);ctx.doc.save(cod+'_pedido_'+nomePdf(cliente.razao_social)+'_'+String(dataPedido||'').replace(/\D/g,'')+'.pdf');
 }
 
-function DetalheFicha({ ficha, onClose }) {
+function EditorQuantidadesFicha({ficha,onClose,onSalvar}){
+  const toast=useToast();
+  const campos=[['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico'],...EQUIPAMENTOS_VARIANTES];
+  const original=ficha.equipamentos_quantidades||{};
+  const legado=!Object.keys(original).length;
+  const fornoSemDetalhamento=!!ficha.forno_tipo&&!Number(original.forno_gas||0)&&!Number(original.forno_eletrico||0);
+  const [valores,setValores]=useState(()=>{
+    const valores={...original,esteiras_quantidade:ficha.esteiras_quantidade??0,assadeiras_quantidade:ficha.assadeiras_quantidade??0};
+    if(fornoSemDetalhamento)valores.forno_legado=ficha.forno_quantidade||1;
+    if(legado){
+      const normalizar=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const descricoes=[...(ficha.freezer_tipos||[]),ficha.armario_tipo,ficha.camara_climatica].map(normalizar).filter(Boolean);
+      for(const [k,nome] of EQUIPAMENTOS_VARIANTES){
+        const rotulo=normalizar(nome);
+        if(descricoes.some(d=>rotulo===d||rotulo.endsWith(' '+d)||d===rotulo.replace(' esteiras','')||rotulo.endsWith(' '+d+' esteiras')))valores[k]=1;
+      }
+    }
+    return valores;
+  });
+  const [salvando,setSalvando]=useState(false);
+  const quantidadesCampos=fornoSemDetalhamento?[['forno_legado','Forno '+ficha.forno_tipo],...EQUIPAMENTOS_VARIANTES]:campos;
+  async function salvar(){
+    if(salvando)return;
+    const camposNumericos=[...quantidadesCampos.map(([k])=>k),'esteiras_quantidade','assadeiras_quantidade'];
+    if(camposNumericos.some(k=>!/^[0-9]{1,4}$/.test(String(valores[k]??0))))
+      return toast('Use quantidades inteiras entre 0 e 9.999.','error');
+    const anteriores={equipamentos_quantidades:ficha.equipamentos_quantidades??null,
+      forno_tipo:ficha.forno_tipo??null,forno_quantidade:ficha.forno_quantidade??null,forno_esteiras:ficha.forno_esteiras??null,
+      esteiras_quantidade:ficha.esteiras_quantidade??null,assadeiras_quantidade:ficha.assadeiras_quantidade??null};
+    const eq={...original};
+    campos.forEach(([k])=>{eq[k]=Number(valores[k]??0);});
+    const gas=eq.forno_gas,eletrico=eq.forno_eletrico;
+    const fornoLegado=Number(valores.forno_legado??0);
+    const modelos=[...(gas?[eq.forno_gas_esteiras||ficha.forno_esteiras]:[]),...(eletrico?[eq.forno_eletrico_esteiras||ficha.forno_esteiras]:[])];
+    for(const k of ['forno_gas','forno_eletrico'])if(eq[k]&&ficha.forno_esteiras&&!eq[k+'_esteiras'])eq[k+'_esteiras']=ficha.forno_esteiras;
+    const ajustes={equipamentos_quantidades:eq,forno_tipo:fornoLegado?ficha.forno_tipo:gas&&eletrico?'Gás e Elétrico':gas?'Gás':eletrico?'Elétrico':null,
+      forno_quantidade:fornoLegado||gas+eletrico||null,
+      forno_esteiras:fornoLegado?ficha.forno_esteiras: modelos.length&&modelos.every(m=>m===modelos[0])?modelos[0]??null:null,
+      esteiras_quantidade:Number(valores.esteiras_quantidade??0)||null,
+      assadeiras_quantidade:Number(valores.assadeiras_quantidade??0)||null};
+    const atualizada={...ficha,...ajustes};
+    const condicao=ficha.equipamento_condicao_manutencao||ficha.equipamento_condicao;
+    const itens=itensEquipamentosFicha(atualizada,condicao);
+    if(!itens.length)return toast('Mantenha pelo menos um equipamento ou acessório na ficha.','error');
+    setSalvando(true);
+    try{
+      const {data,error}=await sb.rpc('mc_corrigir_quantidades_ficha',{p_ficha:ficha.id,p_anterior:anteriores,p_quantidades:ajustes,
+        p_resumo:resumoEquipamentos({...atualizada,equipamento_condicao:condicao}),p_itens:itens});
+      if(error)throw error;
+      onSalvar(atualizada);
+      toast(data?'Quantidades corrigidas na ficha e na entrega da Manutenção.':'Quantidades corrigidas na ficha.','success');
+    }catch(error){toast(error.message,'error');}
+    finally{setSalvando(false);}
+  }
+  const campo=(k,nome)=>h(Campo,{key:k,label:nome},h(Input,{type:'number',min:0,max:9999,step:1,
+    value:valores[k]??0,disabled:salvando,onChange:e=>setValores({...valores,[k]:e.target.value})}));
+  return h(Modal,{titulo:'Corrigir quantidades',sub:identificacaoFichaCliente(ficha),largo:true,onClose:()=>{if(!salvando)onClose();},acoes:[
+    h('button',{key:'cancelar',className:'btn btn-secondary',disabled:salvando,onClick:onClose},'Cancelar'),
+    h('button',{key:'salvar',className:'btn btn-primary',disabled:salvando,onClick:salvar},salvando?'Salvando…':'Salvar quantidades')
+  ]},
+    h('p',null,'Informe 0 para retirar um item.'),
+    h('div',{className:'form-grid'},[...quantidadesCampos,['esteiras_quantidade','Esteiras'],['assadeiras_quantidade','Assadeiras']].map(([k,n])=>campo(k,n))));
+}
+
+function DetalheFicha({ ficha, onClose, onCorrigirQuantidades }) {
   const toast = useToast();
   const f = ficha;
   const endereco = [f.rua, f.numero, f.bairro, f.cidade, f.estado].filter(Boolean).join(', ');
@@ -2078,6 +2142,7 @@ function DetalheFicha({ ficha, onClose }) {
           linhaInfo('Data análise', fmtData(f.analise_credito_em))),
         h('div', { className: 'section-title' }, 'Equipamentos'),
         linhaInfo('Necessidade', resumoEquipamentos(f)),
+        onCorrigirQuantidades&&f.precisa_equipamento&&h('button',{className:'btn btn-secondary btn-sm',onClick:onCorrigirQuantidades},'Corrigir quantidades'),
         f.observacoes && h('div', { style: { marginTop: 12 } },
           h('div', { className: 'section-title' }, 'Observações'),
           h('div', { style: { fontSize: 13 } }, f.observacoes)))),
@@ -2142,6 +2207,7 @@ function PaginaFichas({ profile }) {
   const [fichas, setFichas] = useState(null);
   const [busca, setBusca] = useState('');
   const [detalhe, setDetalhe] = useState(null);
+  const [corrigindo,setCorrigindo]=useState(false);
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
@@ -2178,7 +2244,10 @@ function PaginaFichas({ profile }) {
   if (fichas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
   return h('div', null,
-    detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+    detalhe&&(corrigindo?h(EditorQuantidadesFicha,{ficha:detalhe,onClose:()=>setCorrigindo(false),
+      onSalvar:f=>{setDetalhe(f);setCorrigindo(false);carregar();}}):
+      h(DetalheFicha,{ficha:detalhe,onClose:()=>setDetalhe(null),
+        onCorrigirQuantidades:profile.papel==='admin'?()=>setCorrigindo(true):undefined})),
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Fichas de Clientes'),
@@ -2949,7 +3018,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     });
     if(error){if(winRef)winRef.close();return toast(error.message,'error');}
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
-      const f=ap.fichas_clientes;
+      const {data:f,error:erroFicha}=await sb.from('fichas_clientes').select('*').eq('id',ap.ficha_id).single();
+      if(erroFicha){
+        if(winRef)winRef.close();
+        setDecidindo(null);setObs('');setCondicaoDiretoria('');carregar();onChanged&&onChanged();
+        return toast('Ficha aprovada, mas não foi possível carregar os equipamentos para gerar a entrega: '+erroFicha.message,'error');
+      }
       const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'envio',status:'pendente',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
       else if(demanda){
