@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v120-visita-tecnica-agenda-localizacao';
-console.info('[Meu Cliente] BUILD v120-visita-tecnica-agenda-localizacao');
+window.__MEU_CLIENTE_BUILD__='v121-cores-agenda-tecnica';
+console.info('[Meu Cliente] BUILD v121-cores-agenda-tecnica');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7720,9 +7720,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                   h('button',{className:'btn btn-secondary btn-sm',style:{textAlign:'left',whiteSpace:'normal'},onClick:()=>setTecnicoAgenda(u.id)},u.nome),
                   agenda.map((lista,i)=>{
                     const minutos=lista.filter(v=>v.status!=='cancelada').reduce((acc,v)=>acc+Number(v.duracao_min||120),0);
-                    const atrasos=lista.some(v=>statusVisita(v)==='atrasada');
+                    const estados=lista.map(statusVisita);
                     const realizados=lista.filter(v=>v.checkin_em).length;
-                    return h('button',{key:dias[i].iso,style:{background:atrasos?paleta.atrasada.bg:lista.length?paleta.agendada.bg:'#f5f6f8',border:'1px solid #e2e5e9',borderRadius:7,minHeight:69,cursor:'pointer',fontSize:12,color:'#263043'},onClick:()=>setTecnicoAgenda(u.id)},
+                    const corDoDia=['atrasada','checkin','concluida','agendada','cancelada'].find(estado=>estados.includes(estado));
+                    return h('button',{key:dias[i].iso,style:{background:paleta[corDoDia]?.bg||'#f5f6f8',border:'1px solid #e2e5e9',borderRadius:7,minHeight:69,cursor:'pointer',fontSize:12,color:'#263043'},onClick:()=>setTecnicoAgenda(u.id)},
                       h('b',null,lista.length+' visita(s)'),h('div',null,'Agenda: '+rotuloAgenda(statusAgenda(u.id)?.status)),horariosAgenda(statusAgenda(u.id)),h('div',null,Math.floor(minutos/60)+'h'+String(minutos%60).padStart(2,'0')+' previstas'),
                       realizados?h('div',null,realizados+' check-in(s)'):null);
                   }));
