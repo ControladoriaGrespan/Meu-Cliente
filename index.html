@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v124-corrigir-quantidades-ficha';
-console.info('[Meu Cliente] BUILD v124-corrigir-quantidades-ficha');
+window.__MEU_CLIENTE_BUILD__='v125-edicao-quantidade-equipamentos';
+console.info('[Meu Cliente] BUILD v125-edicao-quantidade-equipamentos');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1180,6 +1180,11 @@ function PaginaEmissao({ profile, onSaved }) {
   const temVerba = totalVerbas > 0;
   const temTecnico = f.tecnico_panificacao === 'Sim';
   const precisaEquip = f.precisa_equipamento === 'Sim';
+  // Zero numérico indica “Não”. O texto da quantidade permanece editável até salvar.
+  const equipamentoSelecionado = chave => {
+    const quantidade = f.equipamentos_quantidades[chave];
+    return quantidade != null && quantidade !== 0;
+  };
 
   // limpa os dependentes quando o gatilho e desligado
   useEffect(() => { if (!temVerba && f.duracao_verba) set('duracao_verba', ''); }, [temVerba]);
@@ -1187,7 +1192,7 @@ function PaginaEmissao({ profile, onSaved }) {
   useEffect(() => {
     if (!precisaEquip) setF(prev => ({ ...prev, equipamento_condicao: '', forno_tipo: '', forno_quantidade: '',
       forno_esteiras: '', freezer_tipos: [], armario_tipo: '', camara_climatica: '',
-      esteiras_quantidade: '', assadeiras_quantidade: '' }));
+      esteiras_quantidade: '', assadeiras_quantidade: '', equipamentos_quantidades: {} }));
   }, [precisaEquip]);
 
   useEffect(() => {
@@ -1267,8 +1272,12 @@ function PaginaEmissao({ profile, onSaved }) {
     if (precisaEquip && !f.equipamento_condicao) return toast('Informe se o equipamento é Novo ou Usado.', 'error');
     if(Number(f.bonificacao_percentual)<0||Number(f.bonificacao_percentual)>100)return toast('Bonificação deve estar entre 0% e 100%.','error');
     if(Number(f.bonificacao_percentual)>0&&!f.bonificacao_periodicidade)return toast('Informe a periodicidade da bonificação.','error');
-    if(Object.values(f.equipamentos_quantidades||{}).some(n=>!Number.isInteger(Number(n))||Number(n)<0))return toast('Quantidades de equipamentos devem ser inteiros não negativos.','error');
     if(precisaEquip){
+      for(const [ch,nome] of [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico'],...EQUIPAMENTOS_VARIANTES]){
+        const quantidade=Number(f.equipamentos_quantidades[ch]);
+        if(equipamentoSelecionado(ch)&&(!Number.isSafeInteger(quantidade)||quantidade<1))
+          return toast('Informe uma quantidade inteira maior que zero para '+nome+'.','error');
+      }
       for(const [ch,nome] of [['forno_gas','Forno a Gás'],['forno_eletrico','Forno Elétrico']]){
         if(Number(f.equipamentos_quantidades[ch]||0)>0 &&
           !['5','8'].includes(String(f.equipamentos_quantidades[ch+'_esteiras']||'')))
@@ -1454,7 +1463,7 @@ function PaginaEmissao({ profile, onSaved }) {
               padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}},
               h(Campo,{label:nome},
                 h('select',{className:'form-select',
-                  value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',
+                  value:equipamentoSelecionado(ch)?'Sim':'Não',
                   onChange:e=>set('equipamentos_quantidades',{
                     ...f.equipamentos_quantidades,
                     [ch]:e.target.value==='Sim'?1:0,
@@ -1462,13 +1471,13 @@ function PaginaEmissao({ profile, onSaved }) {
                   h('option',{value:'Não'},'Não'),h('option',{value:'Sim'},'Sim'))),
               h(Campo,{label:'Quantidade'},
                 h(Input,{type:'number',min:1,step:1,placeholder:'Quantidade',
-                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  disabled:!equipamentoSelecionado(ch),
                   value:f.equipamentos_quantidades[ch]||'',
                   onChange:e=>set('equipamentos_quantidades',{
                     ...f.equipamentos_quantidades,[ch]:e.target.value})})),
               h(Campo,{label:'Modelo de esteiras'},
                 h('select',{className:'form-select',
-                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  disabled:!equipamentoSelecionado(ch),
                   value:String(f.equipamentos_quantidades[ch+'_esteiras']||''),
                   onChange:e=>set('equipamentos_quantidades',{
                     ...f.equipamentos_quantidades,[ch+'_esteiras']:e.target.value})},
@@ -1484,7 +1493,7 @@ function PaginaEmissao({ profile, onSaved }) {
               h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
                 h(Select,{
                   opcoes:['Sim','Não'],
-                  value:Number(f.equipamentos_quantidades[ch]||0)>0?'Sim':'Não',
+                  value:equipamentoSelecionado(ch)?'Sim':'Não',
                   onChange:e=>set('equipamentos_quantidades',{
                     ...f.equipamentos_quantidades,
                     [ch]:e.target.value==='Sim'?1:0
@@ -1492,7 +1501,7 @@ function PaginaEmissao({ profile, onSaved }) {
                 }),
                 h(Input,{
                   type:'number',min:1,step:1,placeholder:'Quantidade',
-                  disabled:!(Number(f.equipamentos_quantidades[ch]||0)>0),
+                  disabled:!equipamentoSelecionado(ch),
                   value:f.equipamentos_quantidades[ch]||'',
                   onChange:e=>set('equipamentos_quantidades',{
                     ...f.equipamentos_quantidades,[ch]:e.target.value
