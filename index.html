@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v122-mapa-equipe-tecnica';
-console.info('[Meu Cliente] BUILD v122-mapa-equipe-tecnica');
+window.__MEU_CLIENTE_BUILD__='v123-checkin-foto-fachada';
+console.info('[Meu Cliente] BUILD v123-checkin-foto-fachada');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7059,6 +7059,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [salvando,setSalvando]=useState(false);
   const [relato,setRelato]=useState({});
   const [visitaAberta,setVisitaAberta]=useState(null);
+  const [checkinNegado,setCheckinNegado]=useState(null);
+  const [fotoFachada,setFotoFachada]=useState('');
+  const [lendoFachada,setLendoFachada]=useState(false);
+  const [fotoCheckinVisivel,setFotoCheckinVisivel]=useState(null);
   const [fechamento,setFechamento]=useState(null);
   const [fotosFechamento,setFotosFechamento]=useState([]);
   const assinaturaCanvas=React.useRef(null);
@@ -7144,7 +7148,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
   async function localizacaoAtual(){
     if(!navigator.geolocation)throw Error('GPS indisponível.');
-    return new Promise((ok,fail)=>navigator.geolocation.getCurrentPosition(p=>ok({lat:p.coords.latitude,lng:p.coords.longitude,precisao:p.coords.accuracy}),e=>fail(Error(e.code===1?'Localização bloqueada. Nas permissões deste site no navegador ou do aplicativo no celular, altere Localização para Permitir e tente novamente.':'Não foi possível obter a localização. Confira se o GPS está ativo e tente novamente.')),{enableHighAccuracy:true,maximumAge:0,timeout:20000}));
+    return new Promise((ok,fail)=>navigator.geolocation.getCurrentPosition(p=>ok({lat:p.coords.latitude,lng:p.coords.longitude,precisao:p.coords.accuracy}),e=>{
+      const erro=Error(e.code===1?'Localização bloqueada. Nas permissões deste site no navegador ou do aplicativo no celular, altere Localização para Permitir e tente novamente.':'Não foi possível obter a localização. Confira se o GPS está ativo e tente novamente.');
+      erro.permissaoNegada=e.code===1;
+      fail(erro);
+    },{enableHighAccuracy:true,maximumAge:0,timeout:20000}));
   }
   const dataHoraAgenda=valor=>new Date(valor).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'});
   const pedidoPendente=p=>p&&(!p.respondido_em||Date.parse(p.respondido_em)<Date.parse(p.solicitado_em));
@@ -7398,19 +7406,70 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)return toast('Erro ao agendar: '+error.message,'error');
     toast('Visita(s) planejadas. Envie a agenda ao '+(supervisor||adminReal?'Coordenador':'Supervisor Técnico')+' para aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);setRepetirVisitas(false);carregar();
   }
-  async function registrar(v,acao){
-    if(emPreview||v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return toast('Somente o participante pode registrar seu atendimento.','error');
-    if(acao==='checkin'&&v.status!=='agendada')return;
-    if(acao==='checkin'&&v.tipo_atendimento==='treinamento')return toast('O formulário de treinamento ainda não foi implantado. Check-in de treinamento não liberado.','error');
-    if(acao==='checkout'&&v.status!=='em_andamento')return;
-    const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
-    if(acao==='checkout'&&!String(payload.relatorio_qualidade).trim())return toast('Preencha o relatório de qualidade antes do checkout.','error');
+  async function registrarCheckin(v){
+    if(salvando||emPreview||v.tecnico_id!==profile.id||v.status!=='agendada'||
+      !['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return;
+    if(v.tipo_atendimento==='treinamento')return toast('Check-in de treinamento ainda não está liberado.','error');
     setSalvando(true);
-    let gps;try{gps=await localizacaoAtual();}catch(e){setSalvando(false);return toast(e.message,'error');}
-    const {error}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:acao,p_relatorio:acao==='checkout'?(relato[v.id]||''):'',p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
-    setSalvando(false);
-    if(error)return toast('Erro ao registrar: '+error.message,'error');
-    toast(acao==='checkin'?'Check-in registrado.':'Checkout registrado.','success');carregar();
+    try{
+      const gps=await localizacaoAtual();
+      const {error}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:'checkin',p_relatorio:'',
+        p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
+      if(error)throw error;
+      setVisitaAberta(null);setCheckinNegado(null);setFotoFachada('');
+      toast('Check-in registrado com GPS.','success');
+      await carregar();
+    }catch(error){
+      if(error.permissaoNegada&&tecnico){setFotoFachada('');setCheckinNegado(v);}
+      else toast(error.message,'error');
+    }finally{setSalvando(false);}
+  }
+  function fecharFotoFachada(){
+    if(salvando||lendoFachada)return;
+    setCheckinNegado(null);setFotoFachada('');
+  }
+  async function lerFotoFachada(e){
+    const arquivo=e.target.files?.[0];
+    if(!arquivo)return;
+    setFotoFachada('');setLendoFachada(true);
+    const url=URL.createObjectURL(arquivo);
+    try{
+      const img=new Image();
+      img.src=url;
+      await img.decode();
+      if(!img.naturalWidth||!img.naturalHeight)throw Error('Imagem inválida.');
+      const proporcao=Math.min(1,1280/Math.max(img.naturalWidth,img.naturalHeight));
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(img.naturalWidth*proporcao));
+      canvas.height=Math.max(1,Math.round(img.naturalHeight*proporcao));
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      const dados=canvas.toDataURL('image/jpeg',0.8);
+      if(dados.length>2000000)throw Error('A foto ficou muito grande.');
+      setFotoFachada(dados);
+    }catch(error){toast('Não foi possível ler a imagem. Tire outra foto da fachada.','error');}
+    finally{URL.revokeObjectURL(url);setLendoFachada(false);}
+  }
+  async function registrarFotoFachada(){
+    if(salvando||lendoFachada||!fotoFachada||!checkinNegado)return;
+    setSalvando(true);
+    try{
+      const {error}=await sb.rpc('vt_registrar_checkin_com_foto',{p_visita:checkinNegado.id,p_foto:fotoFachada});
+      if(error)throw error;
+      setCheckinNegado(null);setFotoFachada('');setVisitaAberta(null);
+      toast('Check-in registrado com foto da fachada.','success');
+      await carregar();
+    }catch(error){toast('Check-in não registrado: '+error.message,'error');}
+    finally{setSalvando(false);}
+  }
+  async function verFotoCheckin(v){
+    setSalvando(true);
+    try{
+      const {data,error}=await sb.from('vt_fotos_checkin').select('foto_jpeg').eq('visita_id',v.id).single();
+      if(error)throw error;
+      setFotoCheckinVisivel(data.foto_jpeg);
+    }catch(error){toast('Não foi possível carregar a foto: '+error.message,'error');}
+    finally{setSalvando(false);}
   }
   async function salvarFechamento(){
     const v=visitas.find(x=>x.id===fechamento?.visita_id);
@@ -7847,7 +7906,18 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                   b.visita&&h('div',{style:{fontSize:10,marginTop:7,opacity:.75}},'Clique para ver detalhes'))));
             })));
       })()),
-    visitaAberta&&h(Modal,{titulo:'Atendimento técnico',largo:true,onClose:()=>setVisitaAberta(null),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setVisitaAberta(null)},'Fechar')]},
+    checkinNegado&&h(Modal,{titulo:'Foto da fachada para o check-in',onClose:fecharFotoFachada,acoes:[
+      h('button',{key:'cancelar',className:'btn btn-secondary',disabled:salvando||lendoFachada,onClick:fecharFotoFachada},'Cancelar'),
+      h('button',{key:'salvar',className:'btn btn-primary',disabled:salvando||lendoFachada||!fotoFachada,onClick:registrarFotoFachada},salvando?'Salvando…':'Registrar check-in com foto')]},
+      h('p',null,'A permissão de localização está bloqueada. Tire uma foto da fachada do cliente para registrar o check-in.'),
+      h('label',null,'Foto da fachada',h('input',{type:'file',accept:'image/*',capture:'environment',className:'form-input',
+        disabled:salvando||lendoFachada,onChange:lerFotoFachada})),
+      lendoFachada&&h('p',null,'Preparando foto…'),
+      fotoFachada&&h('img',{src:fotoFachada,alt:'Prévia da fachada',style:{maxWidth:'100%',maxHeight:280,marginTop:12}})),
+    fotoCheckinVisivel&&h(Modal,{titulo:'Foto da fachada no check-in',onClose:()=>setFotoCheckinVisivel(null),acoes:
+      h('button',{className:'btn btn-secondary',onClick:()=>setFotoCheckinVisivel(null)},'Fechar')},
+      h('img',{src:fotoCheckinVisivel,alt:'Fachada do cliente',style:{maxWidth:'100%',maxHeight:'65vh'}})),
+    visitaAberta&&!checkinNegado&&!fotoCheckinVisivel&&h(Modal,{titulo:'Atendimento técnico',largo:true,onClose:()=>setVisitaAberta(null),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setVisitaAberta(null)},'Fechar')]},
       h('div',{style:{display:'grid',gap:12}},
         h('h3',null,visitaAberta.clientes?.razao_social||visitaAberta.clientes?.nome_fantasia||'Cliente'),
         h('div',null,'Código TOTVS: '+(visitaAberta.clientes?.codigo_totvs||'—')),
@@ -7857,13 +7927,16 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',null,'Atendimento: '+(visitaAberta.tipo_atendimento==='treinamento'?'Treinamento':'Produção')),
         h('div',null,'Objetivo: '+(visitaAberta.objetivo||'—')),
         h('div',null,'Status: '+(nomes[visitaAberta.status]||visitaAberta.status)),
+        visitaAberta.checkin_com_foto&&h('div',null,
+          linhaInfo('Check-in','Foto da fachada'),
+          h('button',{className:'btn btn-secondary btn-sm',disabled:salvando,onClick:()=>verFotoCheckin(visitaAberta)},'Ver foto da fachada')),
         visitaAberta.cancelado_em&&linhaInfo('Cancelada em',dataHoraAgenda(visitaAberta.cancelado_em)),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
           visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
           lider&&!emPreview&&equipeParticipantes.some(u=>u.id===visitaAberta.tecnico_id)&&h('button',{className:'btn btn-secondary',onClick:()=>copiarVisita(visitaAberta)},'Copiar visita'),
           podeCancelarAtendimento(visitaAberta)&&h('button',{className:'btn btn-danger',disabled:salvando,onClick:()=>cancelarAtendimento(visitaAberta)},'Cancelar atendimento'),
           podeEditarVisita(visitaAberta)&&h('button',{className:'btn btn-primary',onClick:()=>abrirEdicaoVisita(visitaAberta)},'Editar visita'),
-          visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
+          visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:()=>registrarCheckin(visitaAberta)},'Fazer check-in'),
           visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
           visitaAberta.status==='concluida'&&h('button',{className:'btn btn-secondary',onClick:()=>pdfVisita(visitaAberta)},'PDF da visita')))),
     fechamento&&h(Modal,{titulo:'Fechamento do atendimento · GRESPAN',largo:true,onClose:()=>{if(!salvando)setFechamento(null);},acoes:[
