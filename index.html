@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v118-fila-supervisor-programacoes';
-console.info('[Meu Cliente] BUILD v118-fila-supervisor-programacoes');
+window.__MEU_CLIENTE_BUILD__='v119-execucao-motorista-equipamentos';
+console.info('[Meu Cliente] BUILD v119-execucao-motorista-equipamentos');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -3219,6 +3219,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       },
         h('div',{className:'info-grid'},
           linhaInfo('Equipamentos',demandaAberta.equipamento_resumo||demandaAberta.equipamento_entrega||'—'),
+          demandaAberta.ultima_intercorrencia_motorista&&linhaInfo('Motivo da reprogramação',demandaAberta.ultima_intercorrencia_motorista),
           tipoOperacional(demandaAberta)==='troca'&&linhaInfo('Retirar',(demandaAberta.equipamento_coleta||'—')+(demandaAberta.patrimonio_coleta?' · Patrimônio '+demandaAberta.patrimonio_coleta:'')),
           tipoOperacional(demandaAberta)==='troca'&&linhaInfo('Entregar',(demandaAberta.equipamento_entrega||'—')+(demandaAberta.patrimonio_entrega?' · Patrimônio '+demandaAberta.patrimonio_entrega:'')),
           linhaInfo('Endereço',[demandaAberta.endereco_rua,demandaAberta.endereco_numero,demandaAberta.endereco_bairro,demandaAberta.endereco_cidade,demandaAberta.endereco_estado,demandaAberta.endereco_cep].filter(Boolean).join(', ')||'—')),
@@ -3275,7 +3276,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                   },
                     h('div',{style:{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}},
                       h('div',null,h('div',{style:{fontSize:16,fontWeight:700}},nome),
-                        h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):'')),
+                        h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):''),
+                        d.status==='pendente'&&d.ultima_intercorrencia_motorista&&h('span',{className:'badge badge-yellow'},'Reprogramar · Intercorrência do motorista')),
                       h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='roteirizada'?'badge-blue':d.status==='ag_rota'||d.status==='programada'?'badge-yellow':'badge-gray')},labelStatusOp(d.status))),
                     h('div',{className:'info-grid',style:{marginTop:10}},
                       linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||'—'),
@@ -6272,6 +6274,167 @@ function PaginaExecucaoEquipamentos({setor}){
       }))));
 }
 
+const STATUS_PARADA_MOTORISTA={
+  aguardando_aprovacao:'Aguardando aprovação',
+  aguardando_carregamento:'Aguardando carregamento',
+  carregado:'Carregado',
+  em_rota:'Em Rota',
+  entregue:'Entregue',
+  intercorrencia:'Intercorrência'
+};
+
+function PopupParadaMotorista({parada,salvando,onClose,onRegistrar}){
+  const [itens,setItens]=useState({});
+  const [recebedor,setRecebedor]=useState('');
+  const [intercorrencia,setIntercorrencia]=useState(false);
+  const [tipo,setTipo]=useState('');
+  const [motivo,setMotivo]=useState('');
+  const [assinou,setAssinou]=useState(false);
+  const canvas=useRef(null);
+  const ponteiro=useRef(null);
+  const carregar=parada.status==='aguardando_carregamento';
+  const emRota=parada.status==='em_rota';
+  const manifesto=parada.itens||[];
+  function ponto(e){
+    const c=canvas.current,r=c.getBoundingClientRect();
+    return [(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height];
+  }
+  function iniciar(e){
+    if(ponteiro.current!==null||salvando)return;
+    ponteiro.current=e.pointerId;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const ctx=canvas.current.getContext('2d');
+    ctx.beginPath();ctx.moveTo(...ponto(e));ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#1c2733';
+  }
+  function desenhar(e){
+    if(ponteiro.current!==e.pointerId)return;
+    const ctx=canvas.current.getContext('2d');
+    ctx.lineTo(...ponto(e));ctx.stroke();
+    if(!assinou)setAssinou(true);
+  }
+  function terminar(e){if(ponteiro.current===e.pointerId)ponteiro.current=null;}
+  function limpar(){
+    const c=canvas.current;
+    c.getContext('2d').clearRect(0,0,c.width,c.height);
+    setAssinou(false);
+  }
+  function alternarIntercorrencia(){
+    ponteiro.current=null;
+    setAssinou(false);
+    setIntercorrencia(x=>!x);
+  }
+  const descricaoTipo={troca:'Troca de equipamentos',retirada:'Retirada de equipamentos'}[parada.tipo]||'Entrega de equipamentos';
+  return h(Modal,{
+    titulo:[parada.codigo,parada.cliente].filter(Boolean).join(' — '),sub:descricaoTipo,
+    onClose:()=>{if(!salvando)onClose();},
+    acoes:[
+      h('button',{key:'fechar',className:'btn btn-secondary',disabled:salvando,onClick:onClose},'Fechar'),
+      emRota&&!intercorrencia&&h('button',{key:'ocorrencia',className:'btn btn-danger',disabled:salvando,onClick:alternarIntercorrencia},'Intercorrência'),
+      carregar&&h('button',{key:'carregar',className:'btn btn-primary',
+        disabled:salvando||!manifesto.length||manifesto.some(i=>!itens[i.id]),
+        onClick:()=>onRegistrar('carregar',{p_itens:manifesto.map(i=>i.id)})},'Confirmar carregamento'),
+      emRota&&!intercorrencia&&h('button',{key:'entregar',className:'btn btn-primary',
+        disabled:salvando||!recebedor.trim()||!assinou,
+        onClick:()=>onRegistrar('entregar',{p_recebedor:recebedor.trim(),p_assinatura:canvas.current.toDataURL('image/png')})},
+        parada.tipo==='retirada'?'Confirmar retirada':parada.tipo==='troca'?'Confirmar troca':'Registrar entrega'),
+      emRota&&intercorrencia&&h('button',{key:'gravar',className:'btn btn-danger',
+        disabled:salvando||!tipo||!motivo.trim(),
+        onClick:()=>onRegistrar('intercorrencia',{p_tipo:tipo,p_motivo:motivo.trim()})},'Registrar intercorrência')
+    ]
+  },
+    linhaInfo('Endereço',parada.endereco),
+    linhaInfo('Status',STATUS_PARADA_MOTORISTA[parada.status]),
+    parada.recebedor&&linhaInfo('Assinado por',parada.recebedor),
+    parada.motivo&&linhaInfo('Motivo da intercorrência',parada.motivo),
+    h('fieldset',{style:{border:0,padding:0,margin:'16px 0'}},
+      h('legend',{className:'section-title'},carregar?'Confira item a item':'Equipamentos'),
+      manifesto.map(i=>{
+        const texto=(i.movimento==='coletar'?'Retirar no cliente · ':'Carregar · ')+i.descricao+
+          (i.quantidade>1?' ('+i.n+'/'+i.quantidade+')':'')+(i.patrimonio?' · '+i.patrimonio:'');
+        return carregar?h('label',{key:i.id,style:{display:'flex',alignItems:'center',gap:10,minHeight:44}},
+          h('input',{type:'checkbox',checked:!!itens[i.id],disabled:salvando,
+            onChange:e=>setItens(atual=>({...atual,[i.id]:e.target.checked}))}),texto):
+          h('div',{key:i.id,style:{padding:'5px 0'}},texto);
+      })),
+    emRota&&(intercorrencia?h('div',null,
+      h(Campo,{label:'Tipo de intercorrência',obrigatorio:true},h('select',{className:'form-select',value:tipo,onChange:e=>setTipo(e.target.value)},
+        h('option',{value:''},'Selecione'),h('option',{value:'nao_consegui_entregar'},'Não Consegui Entregar'))),
+      h(Campo,{label:'Motivo',obrigatorio:true},h('textarea',{className:'form-input',rows:4,maxLength:2000,value:motivo,onChange:e=>setMotivo(e.target.value)})),
+      h('button',{className:'btn btn-secondary btn-sm',onClick:alternarIntercorrencia,disabled:salvando},'Voltar para assinatura')):
+      h('div',null,
+        h(Campo,{label:'Nome de quem assinou',obrigatorio:true},
+          h(Input,{value:recebedor,maxLength:150,onChange:e=>setRecebedor(e.target.value),disabled:salvando})),
+        h(Campo,{label:'Assinatura do cliente',obrigatorio:true},
+          h('canvas',{ref:canvas,width:640,height:220,role:'img','aria-label':'Área para assinatura do cliente',
+            onPointerDown:iniciar,onPointerMove:desenhar,onPointerUp:terminar,onPointerCancel:terminar,onLostPointerCapture:terminar,
+            style:{width:'100%',height:155,display:'block',touchAction:'none',background:'#fff',border:'1px solid var(--border)',borderRadius:8}})),
+        h('button',{className:'btn btn-secondary btn-sm',disabled:salvando||!assinou,onClick:limpar},'Limpar assinatura'))));
+}
+
+function PaginaRotasMotorista(){
+  const toast=useToast();
+  const [rotas,setRotas]=useState(null);
+  const [erro,setErro]=useState('');
+  const [historico,setHistorico]=useState(false);
+  const [selecionada,setSelecionada]=useState(null);
+  const [salvando,setSalvando]=useState(false);
+  async function carregar(){
+    const {data,error}=await sb.rpc('mc_listar_rotas_motorista');
+    setErro(error?.message||'');
+    if(!error)setRotas(data||[]);
+  }
+  useEffect(()=>{carregar();},[]);
+  async function registrar(rota,acao,campos={}){
+    if(salvando)return;
+    if(acao==='checkout'&&!window.confirm('Você já retornou à empresa e deseja encerrar a rota?'))return;
+    setSalvando(true);
+    try{
+      const {error}=await sb.rpc('mc_registrar_etapa_motorista',{p_rota_id:rota.id,p_acao:acao,...campos});
+      if(error)throw error;
+      setSelecionada(null);
+      if(acao==='checkout')setHistorico(true);
+      toast({carregar:'Carregamento confirmado.',iniciar:'Rota iniciada.',entregar:'Parada registrada com assinatura.',
+        intercorrencia:'Intercorrência registrada. A demanda voltou para reprogramação na Manutenção.',checkout:'Rota encerrada.'}[acao],'success');
+      await carregar();
+    }catch(error){toast(error.message,'error');}
+    finally{setSalvando(false);}
+  }
+  const exibidas=(rotas||[]).filter(r=>!!r.encerrada_em===historico);
+  const rotaModal=rotas?.find(r=>r.id===selecionada?.rotaId);
+  const paradaModal=rotaModal?.paradas.find(p=>p.id===selecionada?.paradaId);
+  return h('div',null,
+    paradaModal&&h(PopupParadaMotorista,{key:paradaModal.id,parada:paradaModal,salvando,onClose:()=>setSelecionada(null),
+      onRegistrar:(acao,campos)=>registrar(rotaModal,acao,{p_entrega_id:paradaModal.id,...campos})}),
+    h('div',{className:'page-head'},h('h2',null,'Minhas rotas'),
+      h('button',{className:'btn btn-secondary',onClick:carregar,disabled:salvando},'Atualizar')),
+    h('div',{style:{display:'flex',gap:8,marginBottom:12}},
+      h('button',{className:'btn '+(!historico?'btn-primary':'btn-secondary'),onClick:()=>setHistorico(false)},'Em aberto'),
+      h('button',{className:'btn '+(historico?'btn-primary':'btn-secondary'),onClick:()=>setHistorico(true)},'Encerradas')),
+    erro&&h('div',{className:'card',role:'alert'},erro),
+    rotas===null&&!erro&&h('div',{className:'card'},'Carregando…'),
+    rotas!==null&&!exibidas.length&&!erro&&h('div',{className:'card'},historico?'Nenhuma rota encerrada.':'Nenhuma rota disponível.'),
+    exibidas.map(rota=>{
+      const resolvida=p=>['entregue','intercorrencia'].includes(p.status);
+      const resolvidas=rota.paradas.filter(resolvida).length;
+      const todasResolvidas=resolvidas===rota.paradas.length;
+      const pronta=rota.paradas.some(p=>p.status==='carregado')&&rota.paradas.every(p=>p.status==='carregado'||resolvida(p));
+      const status=rota.encerrada_em?'Rota Encerrada':rota.inicio_em?'Em Rota':pronta?'Carregado':'Aguardando carregamento';
+      return h('section',{className:'card',key:rota.id},
+        h('div',{className:'section-title'},rota.nome+' · '+fmtData(rota.data_rota)),
+        h('div',{className:'page-sub'},exibirPlaca(rota.placa)+' · '+resolvidas+' de '+rota.paradas.length+' paradas registradas'),
+        h('span',{className:'badge '+(rota.encerrada_em?'badge-green':'badge-blue')},status),
+        rota.paradas.map(p=>h('button',{key:p.id,className:'btn btn-secondary',type:'button',
+          disabled:p.status==='aguardando_aprovacao'||salvando,
+          style:{width:'100%',textAlign:'left',justifyContent:'space-between',whiteSpace:'normal',minHeight:44,marginTop:8},
+          onClick:()=>setSelecionada({rotaId:rota.id,paradaId:p.id})},
+          h('span',null,[p.ordem?p.ordem+'.':'',p.codigo,p.cliente||'Parada'].filter(Boolean).join(' ')),
+          h('span',null,STATUS_PARADA_MOTORISTA[p.status]))),
+        !rota.encerrada_em&&h('div',{style:{marginTop:12}},
+          rota.inicio_em?h('button',{className:'btn btn-primary',disabled:salvando||!todasResolvidas,onClick:()=>registrar(rota,'checkout')},'Checkout na empresa'):
+          h('button',{className:'btn btn-primary',disabled:salvando||!pronta,onClick:()=>registrar(rota,'iniciar')},'Iniciar rota')));
+    }));
+}
+
 function PaginaEntregasEquipamentos({profile}) {
   const toast=useToast();
   const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
@@ -6728,7 +6891,7 @@ function PaginaEntregasEquipamentos({profile}) {
         h('button',{key:'r',className:'btn btn-primary',onClick:()=>baixarRomaneio(rotaAberta)},'Gerar Romaneio'),
         !rotaAberta.concluida_em&&!rotaAberta.setor_responsavel&&h('button',{key:'c',className:'btn btn-success',onClick:()=>concluirRota(rotaAberta)},'Concluir rota'),
         !rotaAberta.concluida_em&&h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
-        !rotaAberta.concluida_em&&!itsAbertos.some(i=>i.entrega.status==='concluida')&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
+        !rotaAberta.concluida_em&&!rotaAberta.motorista_inicio_em&&!itsAbertos.some(i=>i.entrega.status==='concluida')&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
         h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')
       ]
     },
@@ -6778,7 +6941,7 @@ function PaginaEntregasEquipamentos({profile}) {
         h('tbody',null,...rotasValidas.map(r=>h('tr',{key:r.id},
           h('td',null,h('b',null,r.nome||'Rota')),
           h('td',null,fmtData(r.data_rota)),
-          h('td',null,h('span',{className:'badge '+(r.concluida_em?'badge-green':'badge-blue')},r.concluida_em?'Concluída':'Roteirizada')),
+          h('td',null,h('span',{className:'badge '+(r.concluida_em?'badge-green':'badge-blue')},r.concluida_em?(r.motorista_checkout_por?'Rota Encerrada':'Concluída'):r.motorista_inicio_em?'Em Rota':'Roteirizada')),
           h('td',null,nomeCaminhaoDaRota(r),nomeRotaComercial(r)&&h('div',{className:'page-sub'},nomeRotaComercial(r))),
           h('td',null,itensDaRota(r.id).length),
           h('td',null,h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
@@ -6788,7 +6951,7 @@ function PaginaEntregasEquipamentos({profile}) {
               h('button',{className:'btn btn-secondary btn-sm',disabled:!!rotaEnviando||criandoRota,onClick:()=>enviarProgramacaoRota(r.id)},
                 rotaEnviando===r.id?'Enviando…':'Enviar para aprovação'),
             !r.concluida_em&&!r.setor_responsavel&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirRota(r)},'Concluir rota'),
-            !r.concluida_em&&!itensDaRota(r.id).some(i=>i.entrega.status==='concluida')&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
+            !r.concluida_em&&!r.motorista_inicio_em&&!itensDaRota(r.id).some(i=>i.entrega.status==='concluida')&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
 
   return h('div',null,
     modalDemanda,
@@ -10449,7 +10612,7 @@ function App() {
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
   else if (paginaAtual === 'cadastro_caminhoes') conteudo=h(PaginaCadastroCaminhoes);
-  else if (paginaAtual === 'motorista_rotas') conteudo=h(PaginaExecucaoEquipamentos,{setor:'manutencao'});
+  else if (paginaAtual === 'motorista_rotas') conteudo=h(PaginaRotasMotorista);
   else if (paginaAtual === 'logistica_equipamentos') conteudo=h(PaginaExecucaoEquipamentos,{setor:'logistica'});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'visitas_tecnicas') conteudo = h(PaginaVisitasTecnicas, { profile, visao });
