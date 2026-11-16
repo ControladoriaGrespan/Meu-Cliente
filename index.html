@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v127-fornos-por-modelo';
-console.info('[Meu Cliente] BUILD v127-fornos-por-modelo');
+window.__MEU_CLIENTE_BUILD__='v128-checkout-fotos-otimizadas';
+console.info('[Meu Cliente] BUILD v128-checkout-fotos-otimizadas');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7556,7 +7556,39 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(error)return toast('Erro ao registrar: '+error.message,'error');
     toast(acao==='checkin'?'Check-in registrado.':'Checkout registrado.','success');carregar();
   }
+  async function prepararFotosCheckout(fotos){
+    const imagens=[];
+    for(const foto of fotos){
+      const imagem=new Image();
+      imagem.src=foto.dados;
+      try{await imagem.decode();}
+      catch{throw Error('Não foi possível abrir a foto '+foto.nome+'. Remova esse anexo e selecione a imagem novamente.');}
+      const canvas=document.createElement('canvas');
+      const proporcao=Math.min(1,1280/Math.max(imagem.naturalWidth,imagem.naturalHeight));
+      canvas.width=Math.max(1,Math.round(imagem.naturalWidth*proporcao));
+      canvas.height=Math.max(1,Math.round(imagem.naturalHeight*proporcao));
+      const contexto=canvas.getContext('2d',{alpha:false});
+      contexto.fillStyle='#fff';
+      contexto.fillRect(0,0,canvas.width,canvas.height);
+      contexto.drawImage(imagem,0,0,canvas.width,canvas.height);
+      let dados=canvas.toDataURL('image/jpeg',0.78);
+      if(dados.length>350000)dados=canvas.toDataURL('image/jpeg',0.60);
+      if(dados.length>350000){
+        canvas.width=Math.max(1,Math.round(canvas.width*0.65));
+        canvas.height=Math.max(1,Math.round(canvas.height*0.65));
+        contexto.fillStyle='#fff';
+        contexto.fillRect(0,0,canvas.width,canvas.height);
+        contexto.drawImage(imagem,0,0,canvas.width,canvas.height);
+        dados=canvas.toDataURL('image/jpeg',0.58);
+      }
+      if(!dados.startsWith('data:image/jpeg;base64,')||dados.length>350000)
+        throw Error('Não foi possível reduzir a foto '+foto.nome+'. Selecione uma versão menor.');
+      imagens.push({nome:foto.nome,dados});
+    }
+    return imagens;
+  }
   async function salvarFechamento(){
+    if(salvando)return;
     const v=visitas.find(x=>x.id===fechamento?.visita_id);
     if(!v||v.status!=='em_andamento')return toast('Visita não está em andamento.','error');
     if(emPreview||v.tecnico_id!==profile.id)return toast('Somente o participante pode concluir a visita.','error');
@@ -7567,13 +7599,19 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setSalvando(true);
     try{
       const gps=await localizacaoAtual();
-      const relatorio={...fechamento,assinatura,imagens:fotosFechamento,concluido_em:new Date().toISOString()};
+      const imagens=await prepararFotosCheckout(fotosFechamento);
+      const relatorio={...fechamento,assinatura,imagens,concluido_em:new Date().toISOString()};
       const {error:salvarErro}=await sb.from('vt_relatorios').upsert({visita_id:v.id,tecnico_id:profile.id,conteudo:relatorio},{onConflict:'visita_id'});
-      if(salvarErro)throw salvarErro;
+      if(salvarErro)throw Error('Falha ao gravar o relatório: '+salvarErro.message);
       const {error:checkoutErro}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:'checkout',p_relatorio:fechamento.relato_execucao,p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
-      if(checkoutErro)throw checkoutErro;
+      if(checkoutErro){
+        // A resposta pode falhar depois do commit. Confira antes de orientar nova tentativa.
+        const {data:atual}=await sb.from('visitas_tecnicas').select('status,checkout_em').eq('id',v.id).maybeSingle();
+        if(atual?.status!=='concluida'||!atual.checkout_em)
+          throw Error('O relatório foi salvo, mas o check-out não foi confirmado: '+checkoutErro.message);
+      }
       toast('Relatório assinado e check-out registrado.','success');setFechamento(null);setFotosFechamento([]);carregar();
-    }catch(e){toast('Não foi possível concluir: '+e.message,'error');}
+    }catch(e){toast('Não foi possível concluir. '+e.message+' O formulário continua aberto para nova tentativa.','error');}
     finally{setSalvando(false);}
   }
   const visiveis=visitas.filter(v=>{
