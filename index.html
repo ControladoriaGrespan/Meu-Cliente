@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v121-cores-agenda-tecnica';
-console.info('[Meu Cliente] BUILD v121-cores-agenda-tecnica');
+window.__MEU_CLIENTE_BUILD__='v122-mapa-equipe-tecnica';
+console.info('[Meu Cliente] BUILD v122-mapa-equipe-tecnica');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7083,7 +7083,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [alertaAgenda,setAlertaAgenda]=useState('');
   const [posicoes,setPosicoes]=useState([]);
   const [verMapa,setVerMapa]=useState(false);
-  const [tecnicoMapa,setTecnicoMapa]=useState('');
+  const mapaEquipeRef=useRef(null);
+  const mapaEquipe=useRef(null);
+  const marcadoresEquipe=useRef(new Map());
+  const [carregandoMapa,setCarregandoMapa]=useState(false);
+  const [erroMapa,setErroMapa]=useState('');
   const [tecnicoAgenda,setTecnicoAgenda]=useState('');
   const [agora,setAgora]=useState(Date.now());
   const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
@@ -7182,20 +7186,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     }catch(error){setErroGPS(error.message);}
     finally{setOcupadoGPS(false);}
   }
-  async function consultarPosicoes(){
-    const {data,error}=await sb.from('visitas_tecnicas').select('tecnico_id,checkin_em,checkout_em,checkin_latitude,checkin_longitude,checkout_latitude,checkout_longitude').order('data_visita',{ascending:false}).limit(1000);
-    if(error)return toast(error.message,'error');
-    const ultimas={};
-    (data||[]).forEach(v=>{
-      const fim=v.checkout_em&&v.checkout_latitude!=null;
-      const inicio=v.checkin_em&&v.checkin_latitude!=null;
-      if(!fim&&!inicio)return;
-      const ponto={tecnico_id:v.tecnico_id,lat:fim?v.checkout_latitude:v.checkin_latitude,lng:fim?v.checkout_longitude:v.checkin_longitude,quando:fim?v.checkout_em:v.checkin_em,tipo:fim?'Checkout':'Check-in'};
-      if(!ultimas[v.tecnico_id]||ponto.quando>ultimas[v.tecnico_id].quando)ultimas[v.tecnico_id]=ponto;
-    });
-    setPosicoes(Object.values(ultimas));
-  }
-
   const inicioSemana=React.useMemo(()=>{
     const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7)+semana*7);return d;
   },[semana]);
@@ -7215,6 +7205,79 @@ function PaginaVisitasTecnicas({ profile, visao }) {
        duplosLider.some(d=>d.ativo&&d.tecnico_id===u.id&&usuarios.some(l=>l.id===d.lider_id&&l.supervisor_id===profile.id))))):false));
   const tecnicosFiltro=[...tecnicos,...usuarios.filter(u=>u.ativo!==false&&(adminReal?['supervisor_tec_panificacao','lider_tec_panificacao'].includes(u.papel):((lider&&u.id===profile.id)||(supervisor&&(u.id===profile.id||u.papel==='lider_tec_panificacao'&&u.supervisor_id===profile.id)))))].filter(u=>(!filtroSupervisor||usuarios.some(l=>l.id===u.supervisor_id&&l.supervisor_id===filtroSupervisor))&&(!filtroLider||u.supervisor_id===filtroLider));
   const usuariosPorId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
+  const equipeMapa=(lider||supervisor||adminReal
+    ? equipeParticipantes.filter(u=>u.id!==profile.id&&['lider_tec_panificacao','tec_panificacao'].includes(u.papel))
+    : usuarios.filter(u=>u.ativo!==false&&['lider_tec_panificacao','tec_panificacao'].includes(u.papel)&&posicoes.some(p=>p.tecnico_id===u.id)))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const idsMapa=(lider||supervisor||adminReal?equipeMapa:usuarios.filter(u=>u.ativo!==false&&['lider_tec_panificacao','tec_panificacao'].includes(u.papel)))
+    .map(u=>u.id).sort().join(',');
+  useEffect(()=>{
+    if(!verMapa)return;
+    let vigente=true;
+    async function consultar(){
+      setCarregandoMapa(true);setErroMapa('');setPosicoes([]);
+      const ids=idsMapa?idsMapa.split(','):[];
+      const itens=[];
+      try{
+        for(let i=0;i<ids.length&&vigente;i+=8){
+          const lote=await Promise.all(ids.slice(i,i+8).map(async id=>{
+            const [entrada,saida]=await Promise.all(['checkin','checkout'].map(async etapa=>{
+              const {data,error}=await sb.from('visitas_tecnicas')
+                .select(etapa+'_em,'+etapa+'_latitude,'+etapa+'_longitude')
+                .eq('tecnico_id',id).not(etapa+'_em','is',null).not(etapa+'_latitude','is',null).not(etapa+'_longitude','is',null)
+                .order(etapa+'_em',{ascending:false}).limit(1).maybeSingle();
+              if(error)throw error;
+              return data&&{tecnico_id:id,lat:data[etapa+'_latitude'],lng:data[etapa+'_longitude'],
+                quando:data[etapa+'_em'],tipo:etapa==='checkin'?'Check-in':'Checkout'};
+            }));
+            return [entrada,saida].filter(Boolean).sort((a,b)=>Date.parse(b.quando)-Date.parse(a.quando))[0];
+          }));
+          itens.push(...lote.filter(Boolean));
+        }
+        if(vigente)setPosicoes(itens);
+      }catch(error){if(vigente)setErroMapa(error.message);}
+      finally{if(vigente)setCarregandoMapa(false);}
+    }
+    consultar();
+    return ()=>{vigente=false;};
+  },[verMapa,idsMapa,profile.id]);
+
+  const pontosPorPessoa=new Map();
+  for(const p of [...posicoes,...pedidosGPS.filter(p=>p.respondido_em&&p.latitude!=null&&p.longitude!=null).map(p=>({
+    tecnico_id:p.tecnico_id,lat:p.latitude,lng:p.longitude,quando:p.respondido_em,tipo:'Localização compartilhada'
+  }))]){
+    if(Date.parse(p.quando)>Date.parse(pontosPorPessoa.get(p.tecnico_id)?.quando||0)||!pontosPorPessoa.has(p.tecnico_id))
+      pontosPorPessoa.set(p.tecnico_id,p);
+  }
+  const pontosMapa=equipeMapa.map(u=>({...pontosPorPessoa.get(u.id),id:u.id,nome:u.nome,papel:u.papel})).filter(p=>p.lat!=null&&p.lng!=null);
+  const chavePontosMapa=JSON.stringify(pontosMapa);
+  useEffect(()=>{
+    if(!verMapa||!mapaEquipeRef.current||!window.L||chavePontosMapa==='[]')return;
+    const pontos=JSON.parse(chavePontosMapa), L=window.L;
+    const mapa=L.map(mapaEquipeRef.current);
+    mapaEquipe.current=mapa;
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors',crossOrigin:true}).addTo(mapa);
+    const grupos=new Map();
+    for(const p of pontos){
+      const chave=p.lat+','+p.lng;
+      if(!grupos.has(chave))grupos.set(chave,[]);
+      grupos.get(chave).push(p);
+    }
+    for(const grupo of grupos.values()){
+      const popup=document.createElement('div');
+      for(const p of grupo){
+        const nome=document.createElement('strong'), detalhe=document.createElement('div');
+        nome.textContent=p.nome;
+        detalhe.textContent=(p.papel==='lider_tec_panificacao'?'Líder':'Técnico')+' · '+p.tipo+' · '+dataHoraAgenda(p.quando);
+        popup.append(nome,detalhe);
+      }
+      const {lat,lng}=grupo[0];
+      const marcador=L.marker([lat,lng],{title:grupo.map(p=>p.nome).join(', ')}).addTo(mapa).bindPopup(popup);
+      grupo.forEach(p=>marcadoresEquipe.current.set(p.id,marcador));
+    }
+    mapa.fitBounds(pontos.map(p=>[p.lat,p.lng]),{padding:[30,30],maxZoom:15});
+    return ()=>{mapa.remove();mapaEquipe.current=null;marcadoresEquipe.current.clear();};
+  },[verMapa,chavePontosMapa]);
   const clientePorId=Object.fromEntries(clientes.map(c=>[c.id,c]));
   useEffect(()=>{if(autorizado)carregar();},[semana]);
   useEffect(()=>{const timer=setInterval(()=>setAgora(Date.now()),60000);return()=>clearInterval(timer);},[]);
@@ -7648,7 +7711,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     emPreview&&h('div',{className:'card',style:{marginBottom:14,border:'1px solid #c7d2fe',background:'#eef2ff',fontSize:13}},
       'Prévia do perfil: '+(ROLE_LABELS[papelVisao]||papelVisao)+'. Funções e telas exibidas conforme o perfil selecionado; os dados permanecem vinculados ao administrador e nenhuma ação de gravação é permitida.'),
     !tecnico&&h('div',{className:'card',style:{marginBottom:14}},
-      h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setVerMapa(v=>!v);consultarPosicoes();}},verMapa?'Ocultar mapa':'Mapa: última localização dos técnicos'),
+      h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setVerMapa(v=>!v)},verMapa?'Ocultar mapa':'Mapa: última localização da equipe'),
       verMapa&&h('div',{style:{marginTop:12}},
         podePedirGPS&&h('div',{style:{marginBottom:16}},
           h(Campo,{label:'Técnico'},h('select',{className:'form-select',style:{maxWidth:320},value:tecnicoGPS,onChange:e=>setTecnicoGPS(e.target.value)},
@@ -7662,25 +7725,26 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               h('a',{target:'_blank',rel:'noopener noreferrer',
                 href:'https://www.openstreetmap.org/?mlat='+p.latitude+'&mlon='+p.longitude+'#map=15/'+p.latitude+'/'+p.longitude},'Abrir no mapa ↗'))))),
 
-        (()=>{const ponto=posicoes.find(x=>x.tecnico_id===tecnicoMapa)||posicoes.find(x=>!supervisor||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id);
-          if(!ponto)return h('p',null,'Nenhuma localização disponível.');
-          const lat=Number(ponto.lat),lng=Number(ponto.lng),delta=0.012;
-          const url='https://www.openstreetmap.org/export/embed.html?bbox='+[lng-delta,lat-delta,lng+delta,lat+delta].join('%2C')+'&layer=mapnik&marker='+lat+'%2C'+lng;
-          return h('div',null,
-            h('select',{className:'form-select',style:{maxWidth:320,marginBottom:12},value:ponto.tecnico_id,onChange:e=>setTecnicoMapa(e.target.value)},
-              posicoes.filter(x=>!supervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===profile.id).filter(x=>!lider||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id).map(x=>h('option',{key:x.tecnico_id,value:x.tecnico_id},usuariosPorId[x.tecnico_id]?.nome||'Técnico'))),
-            h('iframe',{title:'Última localização do técnico',src:url,style:{width:'100%',height:340,border:'1px solid var(--border)',borderRadius:8},loading:'lazy'}));
-        })(),
-        h('p',null,'Localizações dos últimos check-ins/checkouts. Não é rastreamento em tempo real.'),
-        posicoes.filter(x=>!supervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===profile.id).filter(x=>!lider||usuariosPorId[x.tecnico_id]?.supervisor_id===profile.id)
-          .filter(x=>!filtroSupervisor||usuariosPorId[usuariosPorId[x.tecnico_id]?.supervisor_id]?.supervisor_id===filtroSupervisor)
-          .filter(x=>!filtroLider||usuariosPorId[x.tecnico_id]?.supervisor_id===filtroLider)
-          .filter(x=>!filtroTecnico||x.tecnico_id===filtroTecnico)
-          .map(x=>h('div',{key:x.tecnico_id,style:{padding:9,borderBottom:'1px solid var(--border)'}},
-            h('b',null,usuariosPorId[x.tecnico_id]?.nome||'Técnico'),
-            h('span',{style:{marginLeft:10}},x.tipo+' · '+new Date(x.quando).toLocaleString('pt-BR')),
-            h('a',{style:{marginLeft:12},target:'_blank',rel:'noopener noreferrer',
-              href:'https://www.openstreetmap.org/?mlat='+x.lat+'&mlon='+x.lng+'#map=15/'+x.lat+'/'+x.lng},'Abrir no mapa ↗'))))),
+        carregandoMapa&&h('p',null,'Carregando localizações…'),
+        erroMapa&&h('p',{role:'alert'},'Não foi possível carregar as localizações: '+erroMapa),
+        !carregandoMapa&&!erroMapa&&!pontosMapa.length&&h('p',null,'Nenhuma localização disponível.'),
+        pontosMapa.length>0&&(window.L
+          ? h('div',{ref:mapaEquipeRef,'aria-label':'Mapa da equipe técnica',style:{height:380,border:'1px solid var(--border)',borderRadius:8}})
+          : h('p',{role:'alert'},'Mapa indisponível. Use os links de localização abaixo.')),
+        h('p',null,'Última localização de check-in, checkout ou compartilhamento da equipe.'),
+        equipeMapa.map(u=>{
+          const ponto=pontosPorPessoa.get(u.id);
+          return h('div',{key:u.id,style:{padding:9,borderBottom:'1px solid var(--border)',display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}},
+            h('b',null,u.nome),
+            h('span',null,u.papel==='lider_tec_panificacao'?'Líder':'Técnico'),
+            ponto?h(React.Fragment,null,h('span',null,ponto.tipo+' · '+dataHoraAgenda(ponto.quando)),
+              window.L&&h('button',{className:'btn btn-secondary btn-sm',onClick:()=>{
+                const marcador=marcadoresEquipe.current.get(u.id);
+                if(marcador&&mapaEquipe.current){mapaEquipe.current.setView(marcador.getLatLng(),15);marcador.openPopup();}
+              }},'Localizar no mapa'),
+              h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://www.openstreetmap.org/?mlat='+ponto.lat+'&mlon='+ponto.lng+'#map=15/'+ponto.lat+'/'+ponto.lng},'Abrir no mapa ↗'))
+              : h('span',null,'Sem localização registrada'));
+        }))),
     h('div',{className:'card',style:{overflowX:'auto',padding:12}},
       carregando?h('div',null,'Carregando agenda...'):
       (()=> {
