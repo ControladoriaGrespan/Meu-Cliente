@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v116-programacao-manutencao-supervisor';
-console.info('[Meu Cliente] BUILD v116-programacao-manutencao-supervisor');
+window.__MEU_CLIENTE_BUILD__='v117-frota-motoristas-manutencao';
+console.info('[Meu Cliente] BUILD v117-frota-motoristas-manutencao');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -558,11 +558,11 @@ const DIAS_MES = 26;        // dias de venda considerados no mes
 const ROLE_LABELS = {
   vendedor: 'Vendedor', supervisor: 'Supervisor', coordenador: 'Coordenador',
   analise_credito: 'Análise de Crédito', financeiro: 'Financeiro',
-  manutencao: 'Manutenção', adm_vendas: 'Adm. de Vendas',
+  manutencao: 'Manutenção', motorista_manutencao: 'Motorista (Manutenção)', adm_vendas: 'Adm. de Vendas',
   gestao_adm_vendas: 'Gestão de Adm. de Vendas', tecnico: 'Técnico de Manutenção', supervisor_tec_panificacao: 'Supervisor Tec Panificação', lider_tec_panificacao: 'Líder Tec Panificação', tec_panificacao: 'Tec Panificação',
   diretoria: 'Diretoria', admin: 'Administrador'
 };
-const PAPEIS = ['vendedor','supervisor','coordenador','analise_credito','financeiro','manutencao','adm_vendas','gestao_adm_vendas','tecnico','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao','diretoria','admin'];
+const PAPEIS = ['vendedor','supervisor','coordenador','analise_credito','financeiro','manutencao','motorista_manutencao','adm_vendas','gestao_adm_vendas','tecnico','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao','diretoria','admin'];
 const ETAPAS = [
   { key: 'supervisor', label: 'Supervisor', ordem: 1 },
   { key: 'coordenador', label: 'Coordenador', ordem: 2 },
@@ -634,12 +634,14 @@ const MODULOS = {
   administracao_vendas: { label:'Administração de Vendas', icon:'◫', descricao:'Pedidos por rota, clientes, solicitações e pendências operacionais.' },
   financeiro: { label:'Financeiro', icon:'R$', descricao:'Análise de crédito, aprovações financeiras, pendências e fichas.' },
   manutencao: { label:'Manutenção', icon:'⚒', descricao:'Fila de solicitações de manutenção e equipamentos.' },
+  motorista_manutencao: {label:'Motorista (Manutenção)',icon:'⌖',descricao:'Rotas e paradas do caminhão vinculado ao motorista.'},
   logistica: {label:'Logística',icon:'⌖',descricao:'Triagem das fichas e vinculação de clientes às rotas comerciais.'},
   visita_tecnica: { label:'Visita Técnica', icon:'▦', descricao:'Agenda semanal, visitas aos clientes, check-in, checkout e controle de qualidade.' },
   administracao: { label:'Administração', icon:'⚙', descricao:'Usuários, hierarquia comercial, módulos, carteiras e importações.' }
 };
 function menuForModulo(modulo, papel) {
-  if (modulo === 'logistica') return [{id:'logistica_fichas',label:'Fichas e Rotas',icon:'⌖'}];
+  if (modulo === 'logistica') return [{id:'logistica_fichas',label:'Fichas e Rotas',icon:'⌖'},{id:'logistica_equipamentos',label:'Entregas de Equipamentos',icon:'▤'}];
+  if (modulo === 'motorista_manutencao') return [{id:'motorista_rotas',label:'Minhas Rotas',icon:'⌖'}];
   if (modulo === 'visita_tecnica') return [{id:'visitas_tecnicas',label:'Agenda Técnica',icon:'▦'},{id:'relatorios_visitas',label:'Relatórios',icon:'▤'}];
   if (modulo === 'vendas') {
     const itens=[
@@ -654,7 +656,7 @@ function menuForModulo(modulo, papel) {
     {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
     {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
   if(modulo==='financeiro') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'analise_viabilidade',label:'Análise de Viabilidade',icon:'▥'},{id:'fichas',label:'Fichas',icon:'≡'}];
-  if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'entregas_equipamentos',label:'Entregas e Rotas',icon:'⌖'}];
+  if(modulo==='manutencao') return [{id:'pendencias',label:'Pendências',icon:'⚑'},{id:'entregas_equipamentos',label:'Entregas e Rotas',icon:'⌖'},{id:'cadastro_caminhoes',label:'Cadastro',icon:'▤'}];
   if(modulo==='administracao') return [
     {id:'dashboard_admin',label:'Dashboard',icon:'◳'},
     ...(papel==='admin'?[{id:'gamificacao',label:'Gamificação Comercial',icon:'★'}]:[]),
@@ -674,6 +676,8 @@ function modulosPadrao(papel){
   if(['adm_vendas','gestao_adm_vendas'].includes(papel)) return papel==='gestao_adm_vendas'?['administracao_vendas','visita_tecnica']:['administracao_vendas'];
   if(['analise_credito','financeiro'].includes(papel)) return ['financeiro'];
   if(papel==='manutencao') return ['manutencao'];
+  if(papel==='motorista_manutencao') return ['motorista_manutencao'];
+  if(papel==='logistica') return ['logistica'];
   return [];
 }
 function menuFor(papel) {
@@ -5355,7 +5359,7 @@ function solicitarSenhaAdministrador(nomeUsuario) {
 // =====================================================================
 // PAGINA: ADMINISTRACAO
 // =====================================================================
-const NOVO_VAZIO = { nome: '', email: '', senha: '', telefone: '', codigo_vendedor: '', papel: 'vendedor', supervisor_id: '', coordenador_id: '' };
+const NOVO_VAZIO = { nome: '', email: '', senha: '', telefone: '', codigo_vendedor: '', papel: 'vendedor', supervisor_id: '', coordenador_id: '', caminhao_equipamentos_id: '' };
 
 
 function exportarRelatorioXlsx(nome, colunas, registros){
@@ -5809,6 +5813,8 @@ function PaginaRelatoriosVisitas({profile,visao}){
 
 function PaginaAdmin({ profile }) {
   const toast = useToast();
+  const [caminhoes,setCaminhoes]=useState([]);
+  const [erroCaminhoes,setErroCaminhoes]=useState('');
   const [usuarios, setUsuarios] = useState(null);
   const [novo, setNovo] = useState(NOVO_VAZIO);
   const [criando, setCriando] = useState(false);
@@ -5820,8 +5826,13 @@ function PaginaAdmin({ profile }) {
 
   useEffect(() => { carregar(); }, []);
   async function carregar() {
-    const { data } = await sb.from('usuarios').select('*').order('papel').order('nome');
-    setUsuarios(data || []);
+    const [u,c]=await Promise.all([
+      sb.from('usuarios').select('*').order('papel').order('nome'),
+      sb.from('caminhoes_equipamentos').select('*').order('placa')
+    ]);
+    if(u.error)toast(u.error.message,'error');
+    setCaminhoes(c.data||[]);setErroCaminhoes(c.error?.message||'');
+    setUsuarios(u.data || []);
     setEdicoes({});
   }
 
@@ -5836,13 +5847,27 @@ function PaginaAdmin({ profile }) {
     return e && campo in e ? e[campo] : (u[campo] === null ? '' : u[campo]);
   }
 
+  function validarCaminhaoMotorista(caminhaoId,usuarioId,ativo){
+    if(erroCaminhoes)return 'Não foi possível consultar as placas: '+erroCaminhoes;
+    const caminhao=caminhoes.find(c=>c.id===caminhaoId&&c.propriedade==='manutencao'&&(c.ativo||!ativo));
+    if(!caminhao)return 'Selecione a placa de um caminhão da Manutenção.';
+    if(ativo&&usuarios.some(u=>u.id!==usuarioId&&u.papel==='motorista_manutencao'&&u.ativo!==false&&u.caminhao_equipamentos_id===caminhaoId))
+      return 'Essa placa já está vinculada a um motorista ativo.';
+    return '';
+  }
+
   async function salvarUsuario(u) {
     const e = edicoes[u.id];
     if (!e) return;
-    const supEscolhido=valorDe(u,'supervisor_id');
     const papelEscolhido=valorDe(u,'papel');
+    const supEscolhido=papelEscolhido==='motorista_manutencao'?'':valorDe(u,'supervisor_id');
     const papelSuperiorEsperado=papelEscolhido==='tec_panificacao'?'lider_tec_panificacao':papelEscolhido==='lider_tec_panificacao'?'supervisor_tec_panificacao':papelEscolhido==='vendedor'?'supervisor':null;
-    const coordEscolhido=valorDe(u,'coordenador_id');
+    const coordEscolhido=papelEscolhido==='motorista_manutencao'?'':valorDe(u,'coordenador_id');
+    const caminhaoId=papelEscolhido==='motorista_manutencao'?valorDe(u,'caminhao_equipamentos_id'):null;
+    if(papelEscolhido==='motorista_manutencao'){
+      const erro=validarCaminhaoMotorista(caminhaoId,u.id,valorDe(u,'ativo')!==false);
+      if(erro)return toast(erro,'error');
+    }
     if(supEscolhido && (!supervisores.some(x=>x.id===supEscolhido) || (papelSuperiorEsperado && !supervisores.some(x=>x.id===supEscolhido&&x.papel===papelSuperiorEsperado))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
     if(coordEscolhido && !coordenadores.some(x=>x.id===coordEscolhido))
@@ -5854,8 +5879,9 @@ function PaginaAdmin({ profile }) {
       papel: valorDe(u, 'papel'),
       telefone: valorDe(u, 'telefone') || null,
       codigo_vendedor: valorDe(u, 'codigo_vendedor') || null,
-      supervisor_id: valorDe(u, 'supervisor_id') || null,
-      coordenador_id: valorDe(u, 'coordenador_id') || null,
+      supervisor_id: supEscolhido || null,
+      coordenador_id: coordEscolhido || null,
+      ...(papelEscolhido==='motorista_manutencao'||u.caminhao_equipamentos_id?{caminhao_equipamentos_id:caminhaoId}:{}),
       exigir_troca_senha: !!valorDe(u, 'exigir_troca_senha'),
       ativo: valorDe(u, 'ativo'),
     }).eq('id', u.id);
@@ -5897,6 +5923,10 @@ function PaginaAdmin({ profile }) {
   async function criarUsuario() {
     if (!novo.nome.trim() || !novo.email.trim() || !novo.senha) return toast('Nome, e-mail e senha são obrigatórios.', 'error');
     if (novo.senha.length < 6) return toast('A senha precisa ter ao menos 6 caracteres.', 'error');
+    if(novo.papel==='motorista_manutencao'){
+      const erro=validarCaminhaoMotorista(novo.caminhao_equipamentos_id,null,true);
+      if(erro)return toast(erro,'error');
+    }
     if(novo.supervisor_id && !supervisores.some(x=>x.id===novo.supervisor_id&&(!['vendedor','lider_tec_panificacao','tec_panificacao'].includes(novo.papel)||x.papel===(novo.papel==='vendedor'?'supervisor':novo.papel==='lider_tec_panificacao'?'supervisor_tec_panificacao':'lider_tec_panificacao'))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
     if(novo.coordenador_id && !coordenadores.some(x=>x.id===novo.coordenador_id))
@@ -5908,7 +5938,9 @@ function PaginaAdmin({ profile }) {
     const { error } = await sb.from('usuarios').insert({
       id: auth.user.id, nome: novo.nome.trim(), email: novo.email.trim(),
       telefone: novo.telefone || null, codigo_vendedor: novo.codigo_vendedor || null, papel: novo.papel,
-      supervisor_id: novo.supervisor_id || null, coordenador_id: novo.coordenador_id || null,
+      supervisor_id: novo.papel==='motorista_manutencao'?null:novo.supervisor_id || null,
+      coordenador_id: novo.papel==='motorista_manutencao'?null:novo.coordenador_id || null,
+      ...(novo.papel==='motorista_manutencao'?{caminhao_equipamentos_id:novo.caminhao_equipamentos_id}:{}),
     });
     setCriando(false);
     if (error) return toast('Login criado, mas o perfil falhou: ' + error.message, 'error');
@@ -5942,8 +5974,10 @@ function PaginaAdmin({ profile }) {
         h(Campo, { label: 'Telefone (WhatsApp)' }, h(Input, { value: novo.telefone, inputMode: 'numeric', placeholder: '+55 (14) 99999-9999', onChange: e => setNovo({ ...novo, telefone: mascaraTelefoneIntl(e.target.value) }) })),
         h(Campo, { label: 'Código do vendedor' }, h(Input, { value: novo.codigo_vendedor, placeholder: 'Ex.: 0012', onChange: e => setNovo({ ...novo, codigo_vendedor: e.target.value }) })),
         h(Campo, { label: 'Papel', obrigatorio: true },
-          h('select', { className: 'form-select', value: novo.papel, onChange: e => setNovo({ ...novo, papel: e.target.value }) },
+          h('select', { className: 'form-select', value: novo.papel, onChange: e => setNovo({ ...novo, papel: e.target.value, supervisor_id:'', coordenador_id:'', caminhao_equipamentos_id:'' }) },
             PAPEIS.map(p => h('option', { key: p, value: p }, ROLE_LABELS[p])))),
+        novo.papel==='motorista_manutencao'&&h(Campo,{label:'Placa do veículo',obrigatorio:true},
+          selecionarPlaca(caminhoes,novo.caminhao_equipamentos_id,id=>setNovo({...novo,caminhao_equipamentos_id:id}))),
         ['vendedor','lider_tec_panificacao','tec_panificacao'].includes(novo.papel) && h(Campo, { label: novo.papel==='tec_panificacao'?'Líder Tec Panificação':novo.papel==='lider_tec_panificacao'?'Supervisor Tec Panificação':'Supervisor responsável' },
           h('select', { className: 'form-select', value: novo.supervisor_id, onChange: e => setNovo({ ...novo, supervisor_id: e.target.value }) },
             h('option', { value: '' }, 'Selecione...'),
@@ -5985,7 +6019,7 @@ function PaginaAdmin({ profile }) {
       h('div', { className: 'table-wrap' },
         h('table', null,
           h('thead', null, h('tr', null,
-            ['Nome','Papel','Cód. Vendedor','Telefone','Superior imediato','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
+            ['Nome','Papel','Cód. Vendedor','Telefone','Placa do veículo','Superior imediato','Coordenador','Exigir troca senha','Ativo',''].map(c => h('th', { key: c }, c)))),
           h('tbody', null,
             usuariosFiltrados.map(u => {
               const alterado = !!edicoes[u.id];
@@ -6008,6 +6042,7 @@ function PaginaAdmin({ profile }) {
                 h('td', null,
                   h('input', { className: 'form-input sm', style: { minWidth: 150 }, value: valorDe(u, 'telefone'), placeholder: '+55 (14) ...', inputMode: 'numeric',
                     onChange: e => editar(u.id, 'telefone', mascaraTelefoneIntl(e.target.value)) })),
+                h('td',null,valorDe(u,'papel')==='motorista_manutencao'?selecionarPlaca(caminhoes,valorDe(u,'caminhao_equipamentos_id'),id=>editar(u.id,'caminhao_equipamentos_id',id)):'—'),
                 h('td', null,
                   h('select', { className: 'form-select sm', style: { minWidth: 120 }, value: valorDe(u, 'supervisor_id'), onChange: e => editar(u.id, 'supervisor_id', e.target.value) },
                     h('option', { value: '' }, '—'),
@@ -6114,10 +6149,138 @@ function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
             onChange: e => setObs(e.target.value) })))));
 }
 
+const PROPRIEDADES_CAMINHAO={manutencao:'Manutenção',logistica:'Logística'};
+function exibirPlaca(placa){
+  return placa ? String(placa).replace(/^(.{3})(.{4})$/,'$1-$2') : '';
+}
+function rotuloCaminhao(caminhao){
+  return [caminhao.nome,exibirPlaca(caminhao.placa)===caminhao.nome?'':exibirPlaca(caminhao.placa),
+    PROPRIEDADES_CAMINHAO[caminhao.propriedade]].filter(Boolean).join(' · ');
+}
+function selecionarPlaca(caminhoes,valor,onChange){
+  return h('select',{className:'form-select',value:valor||'',onChange:e=>onChange(e.target.value),'aria-label':'Placa do veículo'},
+    h('option',{value:''},'Selecione a placa'),
+    caminhoes.filter(c=>c.propriedade==='manutencao'&&(c.ativo||c.id===valor)).map(c=>
+      h('option',{key:c.id,value:c.id},exibirPlaca(c.placa)+' · '+c.nome+(c.ativo?'':' (inativo)'))));
+}
+function PaginaCadastroCaminhoes(){
+  const toast=useToast();
+  const inicial={nome:'',placa:'',propriedade:'manutencao',ativo:true};
+  const [lista,setLista]=useState(null);
+  const [form,setForm]=useState(inicial);
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState('');
+  async function carregar(){
+    const {data,error}=await sb.from('caminhoes_equipamentos').select('*').order('nome');
+    setErro(error?.message||'');
+    setLista(data||[]);
+  }
+  useEffect(()=>{carregar();},[]);
+  async function salvar(e){
+    e.preventDefault();
+    if(salvando)return;
+    const nome=form.nome.trim();
+    const placa=(form.placa||'').replace(/[^a-z0-9]/gi,'').toUpperCase();
+    if(!nome)return toast('Informe o nome do caminhão.','error');
+    if((placa||form.propriedade==='manutencao')&&!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(placa))
+      return toast('Informe uma placa válida. Ex.: SXJ-9588 ou ABC-1D23.','error');
+    setSalvando(true);
+    try{
+      const campos={nome,placa:placa||null,ativo:form.ativo};
+      const {error}=form.id
+        ? await sb.from('caminhoes_equipamentos').update(campos).eq('id',form.id)
+        : await sb.from('caminhoes_equipamentos').insert({...campos,propriedade:form.propriedade});
+      if(error)throw error;
+      setForm(inicial);
+      toast('Caminhão salvo.','success');
+      await carregar();
+    }catch(error){toast(error.code==='23505'?'Já existe um caminhão com essa placa.':error.message,'error');}
+    finally{setSalvando(false);}
+  }
+  return h('div',null,
+    h('div',{className:'page-head'},h('h2',null,'Cadastro de caminhões')),
+    erro&&h('div',{className:'card',role:'alert'},erro),
+    h('form',{className:'card',onSubmit:salvar},
+      h('div',{className:'form-grid'},
+        h(Campo,{label:'Nome do caminhão',obrigatorio:true},h(Input,{required:true,value:form.nome,placeholder:'SXJ-9588 ou Entrega Pão',onChange:e=>setForm({...form,nome:e.target.value})})),
+        h(Campo,{label:'Propriedade',obrigatorio:true},h('select',{className:'form-select',value:form.propriedade,disabled:!!form.id,onChange:e=>setForm({...form,propriedade:e.target.value})},
+          Object.entries(PROPRIEDADES_CAMINHAO).map(([k,v])=>h('option',{key:k,value:k},v)))),
+        h(Campo,{label:'Placa',obrigatorio:form.propriedade==='manutencao'},h(Input,{value:form.placa||'',required:form.propriedade==='manutencao',maxLength:8,placeholder:'SXJ-9588',onChange:e=>setForm({...form,placa:e.target.value.toUpperCase()})})),
+        form.id&&h('label',null,h('input',{type:'checkbox',checked:form.ativo,onChange:e=>setForm({...form,ativo:e.target.checked})}),' Ativo')),
+      h('div',{style:{display:'flex',gap:8,marginTop:12}},
+        h('button',{className:'btn btn-primary',type:'submit',disabled:salvando||!!erro},salvando?'Salvando…':form.id?'Salvar alterações':'Cadastrar caminhão'),
+        form.id&&h('button',{className:'btn btn-secondary',type:'button',onClick:()=>setForm(inicial)},'Cancelar'))),
+    h('div',{className:'card'},
+      lista===null?'Carregando…':lista.length===0?'Nenhum caminhão cadastrado.':
+      h('div',{className:'table-wrap'},h('table',null,
+        h('thead',null,h('tr',null,['Nome','Propriedade','Placa','Status',''].map((t,i)=>h('th',{key:i},t)))),
+        h('tbody',null,lista.map(c=>h('tr',{key:c.id},
+          h('td',null,c.nome),h('td',null,PROPRIEDADES_CAMINHAO[c.propriedade]),h('td',null,exibirPlaca(c.placa)||'—'),
+          h('td',null,c.ativo?'Ativo':'Inativo'),
+          h('td',null,h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setForm(c)},'Editar')))))))));
+}
+function PaginaExecucaoEquipamentos({setor}){
+  const toast=useToast();
+  const [rotas,setRotas]=useState(null);
+  const [erro,setErro]=useState('');
+  const [salvando,setSalvando]=useState(null);
+  const [historico,setHistorico]=useState(false);
+  async function carregar(){
+    const {data,error}=await sb.rpc('mc_listar_execucao_frota',{p_setor:setor});
+    setErro(error?.message||'');
+    setRotas(data||[]);
+  }
+  useEffect(()=>{carregar();},[setor]);
+  async function concluir(rota,parada){
+    if(salvando||!window.confirm('Confirmar a conclusão desta parada?'))return;
+    setSalvando(parada.id);
+    try{
+      const {error}=await sb.rpc('mc_concluir_parada_frota',{p_rota_id:rota.id,p_entrega_id:parada.id});
+      if(error)throw error;
+      toast('Parada concluída.','success');
+      await carregar();
+    }catch(error){toast(error.message,'error');}
+    finally{setSalvando(null);}
+  }
+  const exibidas=(rotas||[]).filter(r=>!!r.concluida_em===historico);
+  return h('div',null,
+    h('div',{className:'page-head'},
+      h('h2',null,setor==='logistica'?'Entregas de equipamentos':'Minhas rotas'),
+      h('button',{className:'btn btn-secondary',onClick:carregar},'Atualizar')),
+    h('div',{style:{display:'flex',gap:8,marginBottom:12}},
+      h('button',{className:'btn '+(!historico?'btn-primary':'btn-secondary'),onClick:()=>setHistorico(false)},'Em aberto'),
+      h('button',{className:'btn '+(historico?'btn-primary':'btn-secondary'),onClick:()=>setHistorico(true)},'Concluídas')),
+    erro?h('div',{className:'card',role:'alert'},erro):
+    rotas===null?h('div',{className:'card'},'Carregando…'):
+    exibidas.length===0?h('div',{className:'card'},historico?'Nenhuma rota concluída.':'Nenhuma rota disponível.'):
+    exibidas.map(rota=>h('section',{className:'card',key:rota.id},
+      h('div',{className:'section-title'},rota.nome+' · '+fmtData(rota.data_rota)),
+      h('div',{className:'page-sub'},[rota.caminhao,exibirPlaca(rota.placa),rota.rota_comercial].filter(Boolean).join(' · ')),
+      rota.paradas.map(parada=>{
+        const tipo={troca:'Troca',retirada:'Retirada'}[parada.tipo]||'Entrega';
+        const feita=parada.status==='concluida';
+        return h('div',{key:parada.id,style:{padding:'12px 0',borderTop:'1px solid var(--border)',marginTop:8}},
+          h('div',{style:{fontWeight:700}},[parada.ordem?parada.ordem+'.':null,parada.codigo,parada.cliente||'Cliente'].filter(Boolean).join(' ')+' · '+tipo),
+          h('div',null,parada.endereco),
+          parada.coleta&&linhaInfo('Retirar',[parada.coleta,parada.patrimonio_coleta].filter(Boolean).join(' · ')),
+          parada.entrega&&linhaInfo('Entregar',[parada.entrega,parada.patrimonio_entrega].filter(Boolean).join(' · ')),
+          !parada.coleta&&!parada.entrega&&parada.equipamento&&linhaInfo('Equipamentos',parada.equipamento),
+          feita?h('span',{className:'badge badge-green'},'Concluída'):
+          parada.aprovada?h('button',{className:'btn btn-success btn-sm',disabled:!!salvando,onClick:()=>concluir(rota,parada)},salvando===parada.id?'Concluindo…':'Concluir '+tipo.toLowerCase()):
+          h('span',{className:'badge badge-yellow'},'Data pendente de aprovação'));
+      }))));
+}
+
 function PaginaEntregasEquipamentos({profile}) {
   const toast=useToast();
   const [entregas,setEntregas]=useState(null),[rotas,setRotas]=useState([]),[itensRota,setItensRota]=useState([]);
   const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
+  const [caminhoes,setCaminhoes]=useState([]),[rotasComerciais,setRotasComerciais]=useState([]),[erroFrota,setErroFrota]=useState('');
+  const [caminhaoId,setCaminhaoId]=useState(''),[rotaComercialId,setRotaComercialId]=useState('');
+  const caminhaoSelecionado=caminhoes.find(c=>c.id===caminhaoId&&c.ativo);
+  const requerRotaComercial=caminhaoSelecionado?.propriedade==='logistica';
+  const nomeCaminhaoDaRota=r=>{const c=caminhoes.find(c=>c.id===r.caminhao_equipamentos_id);return c?rotuloCaminhao(c):'—';};
+  const nomeRotaComercial=r=>rotasComerciais.find(c=>c.id===r.rota_comercial_id)?.nome;
   const [fCidade,setFCidade]=useState(''),[fCliente,setFCliente]=useState(''),[fStatus,setFStatus]=useState('');
   const [aberta,setAberta]=useState(null),[detalheDemanda,setDetalheDemanda]=useState(null),[dataProgramacao,setDataProgramacao]=useState(''),[comodatoItens,setComodatoItens]=useState([]),[comodatoRegistro,setComodatoRegistro]=useState(null),[salvandoComodato,setSalvandoComodato]=useState(false),[criandoRota,setCriandoRota]=useState(false),[erro,setErro]=useState('');
   const mapMontagemRef=useRef(null),mapRotaRef=useRef(null);
@@ -6129,11 +6292,15 @@ function PaginaEntregasEquipamentos({profile}) {
   async function carregar(){
     setErro('');
     try{
-      const [re,rr,ri]=await Promise.all([
-        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','troca','retirada']).order('created_at',{ascending:false}),
+      const [re,rr,ri,caminhoesResp,comerciaisResp]=await Promise.all([
+        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','entrega','troca','retirada']).order('created_at',{ascending:false}),
         sb.from('rotas_equipamentos').select('*').order('data_rota',{ascending:false}),
-        sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem')
+        sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem'),
+        sb.from('caminhoes_equipamentos').select('*').order('nome'),
+        sb.rpc('mc_rotas_comerciais_frota')
       ]);
+      setCaminhoes(caminhoesResp.data||[]);setRotasComerciais(comerciaisResp.data||[]);
+      setErroFrota(caminhoesResp.error?.message||comerciaisResp.error?.message||'');
       if(re.error)throw re.error;if(rr.error)throw rr.error;if(ri.error)throw ri.error;
       const base=(re.data||[]).filter(Boolean),fids=[...new Set(base.map(x=>x&&x.ficha_id).filter(Boolean))],cids=[...new Set(base.map(x=>x&&x.cliente_id).filter(Boolean))];
       const [ff,cc]=await Promise.all([
@@ -6259,6 +6426,8 @@ function PaginaEntregasEquipamentos({profile}) {
   async function criar(){
     if(criandoRota)return;
     if(!dataRota)return toast('Informe a data da rota.','error');
+    if(!caminhaoSelecionado)return toast('Selecione o caminhão.','error');
+    if(requerRotaComercial&&!rotaComercialId)return toast('Selecione a rota comercial.','error');
 
     const ids=[...new Set((selecionadas||[]).filter(Boolean).map(String))];
     if(!ids.length)return toast('Selecione as solicitações que farão parte da rota.','error');
@@ -6282,25 +6451,23 @@ function PaginaEntregasEquipamentos({profile}) {
 
       // A criação inteira é feita no PostgreSQL em uma única transação.
       // O banco deduplica os IDs antes do INSERT e usa ON CONFLICT DO NOTHING.
-      const {data,error}=await sb.rpc('criar_rota_equipamentos_segura',{
+      const {data,error}=await sb.rpc('mc_criar_rota_equipamentos_frota',{
         p_nome:nomeFinal,
         p_data_rota:dataRota,
-        p_entrega_ids:idsFinal
+        p_entrega_ids:idsFinal,
+        p_caminhao_id:caminhaoId,
+        p_rota_comercial_id:requerRotaComercial?rotaComercialId:null
       });
       if(error)throw error;
 
       const resultado=Array.isArray(data)?data[0]:data;
       const qtd=resultado&&resultado.quantidade!=null?Number(resultado.quantidade):idsFinal.length;
-      setSelecionadas([]);setDataRota('');setNomeRota('');
+      setSelecionadas([]);setDataRota('');setNomeRota('');setCaminhaoId('');setRotaComercialId('');
       toast('Rota criada com '+qtd+' demanda(s).','success');
       await carregar();
     }catch(err){
       const msg=err&&err.message?err.message:String(err);
-      if(msg.includes('criar_rota_equipamentos_segura')||msg.includes('Could not find the function')){
-        toast('Execute primeiro a Migração 61 no Supabase.','error');
-      }else{
-        toast('Não foi possível criar a rota: '+msg,'error');
-      }
+      toast('Não foi possível criar a rota: '+msg,'error');
       await carregar();
     }finally{
       setCriandoRota(false);
@@ -6316,6 +6483,7 @@ function PaginaEntregasEquipamentos({profile}) {
   async function desmontarRota(r){
     if(!r||!r.id)return;
     const its=itensDaRota(r.id),ids=its.map(x=>x.entrega_id).filter(Boolean);
+    if(its.some(i=>i.entrega.status==='concluida'))return toast('Esta rota já tem uma parada concluída.','error');
     if(!window.confirm('Desmontar esta rota? As demandas roteirizadas voltarão para Ag. Rota e poderão ser usadas em uma nova rota.'))return;
     const {error:di}=await sb.from('rota_equipamento_itens').delete().eq('rota_id',r.id);
     if(di)return toast(di.message,'error');
@@ -6529,13 +6697,13 @@ function PaginaEntregasEquipamentos({profile}) {
     const itsAbertos=itensDaRota(rotaAberta.id);
     modalRota=h(Modal,{
       titulo:rotaAberta.nome||'Rota',
-      sub:'Data: '+fmtData(rotaAberta.data_rota),
+      sub:[fmtData(rotaAberta.data_rota),nomeCaminhaoDaRota(rotaAberta),nomeRotaComercial(rotaAberta)].filter(Boolean).join(' · '),
       largo:true,onClose:()=>setAberta(null),
       acoes:[
         h('button',{key:'r',className:'btn btn-primary',onClick:()=>baixarRomaneio(rotaAberta)},'Gerar Romaneio'),
-        !rotaAberta.concluida_em&&h('button',{key:'c',className:'btn btn-success',onClick:()=>concluirRota(rotaAberta)},'Concluir rota'),
+        !rotaAberta.concluida_em&&!rotaAberta.setor_responsavel&&h('button',{key:'c',className:'btn btn-success',onClick:()=>concluirRota(rotaAberta)},'Concluir rota'),
         !rotaAberta.concluida_em&&h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
-        !rotaAberta.concluida_em&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
+        !rotaAberta.concluida_em&&!itsAbertos.some(i=>i.entrega.status==='concluida')&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
         h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')
       ]
     },
@@ -6581,24 +6749,25 @@ function PaginaEntregasEquipamentos({profile}) {
   const tabelaRotas=rotasValidas.length===0
     ? h(Empty,{icon:'⌖',texto:'Nenhuma rota criada.'})
     : h('div',{className:'table-wrap'},h('table',null,
-        h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Status'),h('th',null,'Entregas'),h('th',null,''))),
+        h('thead',null,h('tr',null,h('th',null,'Rota'),h('th',null,'Data'),h('th',null,'Status'),h('th',null,'Caminhão'),h('th',null,'Entregas'),h('th',null,''))),
         h('tbody',null,...rotasValidas.map(r=>h('tr',{key:r.id},
           h('td',null,h('b',null,r.nome||'Rota')),
           h('td',null,fmtData(r.data_rota)),
           h('td',null,h('span',{className:'badge '+(r.concluida_em?'badge-green':'badge-blue')},r.concluida_em?'Concluída':'Roteirizada')),
+          h('td',null,nomeCaminhaoDaRota(r),nomeRotaComercial(r)&&h('div',{className:'page-sub'},nomeRotaComercial(r))),
           h('td',null,itensDaRota(r.id).length),
           h('td',null,h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'),
             h('button',{className:'btn btn-primary btn-sm',onClick:()=>baixarRomaneio(r)},'Romaneio'),
-            !r.concluida_em&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirRota(r)},'Concluir rota'),
-            !r.concluida_em&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
+            !r.concluida_em&&!r.setor_responsavel&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirRota(r)},'Concluir rota'),
+            !r.concluida_em&&!itensDaRota(r.id).some(i=>i.entrega.status==='concluida')&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
 
   return h('div',null,
     modalDemanda,
     modalRota,
     h('div',{className:'page-head'},h('div',null,
       h('div',{className:'page-title'},'Entregas e Rotas'),
-      h('div',{className:'page-sub'},'Fila operacional: Ag. Rota → Roteirizado → Concluído. A conclusão da rota encerra todas as demandas vinculadas.'))),
+      h('div',{className:'page-sub'},'Fila operacional: Ag. Rota → Roteirizado → Concluído.'))),
     erro&&h('div',{className:'card',style:{borderColor:'#ef4444',background:'#fff7f7'}},h('b',null,'Erro ao carregar: '),erro),
 
     h('div',{className:'card'},
@@ -6624,10 +6793,17 @@ function PaginaEntregasEquipamentos({profile}) {
           h('button',{className:'btn btn-secondary btn-sm',disabled:!selecionadasValidas.length,onClick:()=>setSelecionadas([])},'Limpar'))),
       h('div',{id:'mapa-montagem-equip',style:{height:400,border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:12}}),
       listaMontagem,
+      erroFrota&&h('div',{className:'page-sub',role:'alert'},'Cadastro de frota indisponível: '+erroFrota),
       h('div',{className:'form-grid',style:{marginTop:14}},
         h(Campo,{label:'Nome da rota'},h(Input,{value:nomeRota,placeholder:'Ex.: Entregas Marília - Manhã',onChange:e=>setNomeRota(e.target.value)})),
-        h(Campo,{label:'Data da rota',obrigatorio:true},h(Input,{type:'date',value:dataRota,onChange:e=>setDataRota(e.target.value)}))),
-      h('button',{className:'btn btn-primary',disabled:criandoRota||!selecionadasValidas.length||!dataRota,onClick:criar},criandoRota?'Criando rota...':'Criar rota com '+selecionadasValidas.length+' demanda(s)')),
+        h(Campo,{label:'Data da rota',obrigatorio:true},h(Input,{type:'date',value:dataRota,onChange:e=>setDataRota(e.target.value)})),
+        h(Campo,{label:'Caminhão',obrigatorio:true},h('select',{className:'form-select',value:caminhaoId,onChange:e=>{setCaminhaoId(e.target.value);setRotaComercialId('');}},
+          h('option',{value:''},'Selecione o caminhão'),
+          caminhoes.filter(c=>c.ativo).map(c=>h('option',{key:c.id,value:c.id},rotuloCaminhao(c))))),
+        requerRotaComercial&&h(Campo,{label:'Rota comercial (Adm. de Vendas)',obrigatorio:true},h('select',{className:'form-select',value:rotaComercialId,onChange:e=>setRotaComercialId(e.target.value)},
+          h('option',{value:''},'Selecione a rota comercial'),
+          rotasComerciais.filter(r=>r.ativo!==false).map(r=>h('option',{key:r.id,value:r.id},[r.nome,DIAS[r.dia_semana]].filter(Boolean).join(' · ')))))),
+      h('button',{className:'btn btn-primary',disabled:criandoRota||!selecionadasValidas.length||!dataRota||!caminhaoSelecionado||!!erroFrota||(requerRotaComercial&&!rotaComercialId),onClick:criar},criandoRota?'Criando rota...':'Criar rota com '+selecionadasValidas.length+' demanda(s)')),
 
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Rotas criadas'),
@@ -10145,7 +10321,8 @@ function App() {
     // Perfis autorizados ao módulo técnico mantêm acesso mesmo com liberações legadas já gravadas.
     const obrigatorios=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(perfil.papel)?['visita_tecnica']:[];
     const base=perfil.papel==='admin'?Object.keys(MODULOS):(ms.length?ms:modulosPadrao(perfil.papel));
-    setModulosUsuario([...new Set([...base,...obrigatorios])]);
+    setModulosUsuario(perfil.papel==='motorista_manutencao'?['motorista_manutencao']:
+      [...new Set([...base,...obrigatorios])].filter(m=>m!=='motorista_manutencao'||perfil.papel==='admin'));
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
   }
@@ -10178,7 +10355,7 @@ function App() {
 
   async function atualizarContador() {
     const etapa = visao === 'admin' ? 'supervisor' : visao;
-    if (visao === 'vendedor') { setContador(0); return; }
+    if (['vendedor','motorista_manutencao'].includes(visao)) { setContador(0); return; }
 
     let q = sb.from('ficha_aprovacoes').select('id', { count: 'exact', head: true })
       .eq('etapa', etapa).eq('status', 'pendente');
@@ -10243,6 +10420,9 @@ function App() {
   else if (paginaAtual === 'logistica_fichas') conteudo=h(PaginaLogisticaFichas,{profile});
   else if (paginaAtual === 'pedidos') conteudo = h(PaginaPedidos, { profile });
   else if (paginaAtual === 'entregas_equipamentos') conteudo=h(PaginaEntregasEquipamentos,{profile});
+  else if (paginaAtual === 'cadastro_caminhoes') conteudo=h(PaginaCadastroCaminhoes);
+  else if (paginaAtual === 'motorista_rotas') conteudo=h(PaginaExecucaoEquipamentos,{setor:'manutencao'});
+  else if (paginaAtual === 'logistica_equipamentos') conteudo=h(PaginaExecucaoEquipamentos,{setor:'logistica'});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'visitas_tecnicas') conteudo = h(PaginaVisitasTecnicas, { profile, visao });
   else if (paginaAtual === 'relatorios_visitas') conteudo = h(PaginaRelatoriosVisitas,{profile,visao});
