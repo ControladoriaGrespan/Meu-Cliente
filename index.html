@@ -2072,7 +2072,7 @@ function EditorQuantidadesFicha({ficha,onClose,onSalvar}){
     h('div',{className:'form-grid'},[...quantidadesCampos,['esteiras_quantidade','Esteiras'],['assadeiras_quantidade','Assadeiras']].map(([k,n])=>campo(k,n))));
 }
 
-function DetalheFicha({ ficha, onClose, onCorrigirQuantidades }) {
+function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSalvo }) {
   const toast = useToast();
   const f = ficha;
   const endereco = [f.rua, f.numero, f.bairro, f.cidade, f.estado].filter(Boolean).join(', ');
@@ -2081,6 +2081,26 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades }) {
   const [enviandoDocs, setEnviandoDocs] = useState(false);
   const [arquivosDocs, setArquivosDocs] = useState([]);
   const [tipoDoc, setTipoDoc] = useState('outro');
+  const [prazoEditado,setPrazoEditado]=useState(null);
+  const [salvandoPrazo,setSalvandoPrazo]=useState(false);
+  async function salvarPrazoContrato(e){
+    e.preventDefault();
+    if(salvandoPrazo||!onPrazoContratoSalvo)return;
+    const prazo=Number(prazoEditado);
+    if(!/^\d+$/.test(prazoEditado)||prazo<1||prazo>2147483647)
+      return toast('Informe o prazo do contrato em meses inteiros positivos.','error');
+    setSalvandoPrazo(true);
+    try{
+      const {error}=await sb.rpc('mc_editar_prazo_contrato_ficha',{
+        p_ficha:f.id,p_prazo_meses:prazo,p_prazo_anterior:f.contrato_prazo_meses??null
+      });
+      if(error)throw error;
+      onPrazoContratoSalvo(prazo);
+      setPrazoEditado(null);
+      toast('Prazo do contrato salvo.','success');
+    }catch(error){toast(error.message,'error');}
+    finally{setSalvandoPrazo(false);}
+  }
   useEffect(() => { let ativo=true;
     (async()=>{const {data,error}=await sb.from('ficha_documentos')
       .select('id,nome_arquivo,caminho_storage,tipo_mime,tamanho_bytes,tipo_documento,origem_documento,docusign_envelope_id,assinado_em')
@@ -2142,6 +2162,16 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades }) {
         h('div', { className: 'section-title' }, 'Negociação Comercial'),
         linhaInfo('Contrato',f.contrato?'Sim':'Não'),
         f.contrato&&f.contrato_prazo_meses!=null&&linhaInfo('Prazo do contrato',f.contrato_prazo_meses+(f.contrato_prazo_meses===1?' mês':' meses')),
+        f.contrato&&onPrazoContratoSalvo&&(prazoEditado===null
+          ?h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setPrazoEditado(String(f.contrato_prazo_meses??''))},
+            f.contrato_prazo_meses==null?'Preencher prazo do contrato':'Editar prazo do contrato')
+          :h('form',{onSubmit:salvarPrazoContrato,style:{margin:'8px 0'}},
+            h(Campo,{label:'Prazo do contrato (meses)',obrigatorio:true},
+              h(Input,{type:'number',min:1,max:2147483647,step:1,required:true,autoFocus:true,
+                'aria-label':'Prazo do contrato (meses)',value:prazoEditado,disabled:salvandoPrazo,onChange:e=>setPrazoEditado(e.target.value)})),
+            h('div',{style:{display:'flex',gap:8}},
+              h('button',{type:'submit',className:'btn btn-primary btn-sm',disabled:salvandoPrazo},salvandoPrazo?'Salvando…':'Salvar prazo'),
+              h('button',{type:'button',className:'btn btn-secondary btn-sm',disabled:salvandoPrazo,onClick:()=>setPrazoEditado(null)},'Cancelar')))),
         linhaInfo('Preço Kg', fmtMoeda(f.preco_kg)),
         linhaInfo('Consumo previsto', f.consumo_previsto ? fmtNum(f.consumo_previsto) + ' pães/dia  (' + fmtNum(Math.round(f.consumo_previsto * PESO_PAO_KG * 10) / 10) + ' kg/dia)' : null),
         linhaInfo('Faturamento previsto', fmtMoeda(f.faturamento_previsto) + ' / mês'),
@@ -2267,7 +2297,12 @@ function PaginaFichas({ profile }) {
     detalhe&&(corrigindo?h(EditorQuantidadesFicha,{ficha:detalhe,onClose:()=>setCorrigindo(false),
       onSalvar:f=>{setDetalhe(f);setCorrigindo(false);carregar();}}):
       h(DetalheFicha,{ficha:detalhe,onClose:()=>setDetalhe(null),
-        onCorrigirQuantidades:profile.papel==='admin'?()=>setCorrigindo(true):undefined})),
+        onCorrigirQuantidades:profile.papel==='admin'?()=>setCorrigindo(true):undefined,
+        onPrazoContratoSalvo:profile.papel==='admin'?prazo=>{
+          const atualizar=f=>f?.id===detalhe.id?{...f,contrato_prazo_meses:prazo}:f;
+          setDetalhe(atualizar);
+          setFichas(lista=>lista.map(atualizar));
+        }:undefined})),
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Fichas de Clientes'),
