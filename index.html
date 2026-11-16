@@ -2231,8 +2231,11 @@ function PopupOrigemAprovacao({ origem, onClose }) {
       tipo==='solicitacao' && linhaInfo('Tipo',sol.tipo),
       tipo==='solicitacao' && linhaInfo('Solicitante',sol.usuarios && sol.usuarios.nome),
       tipo==='solicitacao' && linhaInfo('Data',sol.created_at ? fmtData(sol.created_at) : null),
-      tipo==='solicitacao' && linhaInfo('Equipamento',sol.equipamento),
-      tipo==='solicitacao' && linhaInfo('Patrimônio',sol.patrimonio),
+      tipo==='solicitacao' && (sol.solicitacao_equipamentos?.length
+        ? sol.solicitacao_equipamentos.map((item,i)=>h(React.Fragment,{key:i},
+            linhaInfo(rotuloMovimentoEquipamento(item,sol.tipo),
+              item.equipamento+' × '+fmtNum(item.quantidade)+(item.patrimonio?' · Patrimônio '+item.patrimonio:''))))
+        : h(React.Fragment,null,linhaInfo('Equipamento',sol.equipamento),linhaInfo('Patrimônio',sol.patrimonio))),
       tipo==='solicitacao' && linhaInfo('Produto',sol.produtos ? [sol.produtos.codigo,sol.produtos.descricao].filter(Boolean).join(' — ') : null),
       tipo==='solicitacao' && linhaInfo('Quantidade',sol.quantidade),
       tipo==='solicitacao' && linhaInfo('Bonificação',sol.modalidade_bonificacao),
@@ -2271,6 +2274,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const etapa = visao;
   const [pendSolic, setPendSolic] = useState(null);
   const [demandasManut,setDemandasManut]=useState(null);
+  const [erroFilaManut,setErroFilaManut]=useState('');
   const [subManut,setSubManut]=useState('envio');
   const [subStatusManut,setSubStatusManut]=useState('pendente');
   const [demandaAberta,setDemandaAberta]=useState(null);
@@ -2688,7 +2692,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   async function carregar() {
     setPendentes(null);
     setPendSolic(null);
-    if(etapa==='manutencao')setDemandasManut(null);
+    if(etapa==='manutencao'){setDemandasManut(null);setErroFilaManut('');}
 
     try{
       // MANUTENÇÃO: carrega sua fila de forma independente.
@@ -2703,10 +2707,31 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
             .eq('etapa','manutencao').eq('status','pendente')
             .order('criado_em',{ascending:true});
         }catch(e){
-          console.error('Pendências - solicitações manutenção:',e);
+          rs.error=e;
         }
-        if(rs&&rs.error)console.error('Pendências - solicitações manutenção:',rs.error);
-        setPendSolic((rs&&rs.data)||[]);
+        if(rs.error)setErroFilaManut('Não foi possível carregar as aprovações: '+rs.error.message);
+        const fila=(rs.data||[]).filter(ap=>ehPreview||!ap.responsavel_id||ap.responsavel_id===profile.id);
+        const trocas=fila.filter(ap=>ap.solicitacoes?.tipo==='troca');
+        const itensTrocas=new Map();
+        if(trocas.length){
+          try{
+            for(let i=0;i<trocas.length;i+=100){
+              const ids=trocas.slice(i,i+100).map(ap=>ap.solicitacao_id);
+              const {data,error}=await sb.from('solicitacao_equipamentos')
+                .select('solicitacao_id,movimento,equipamento,quantidade,patrimonio').in('solicitacao_id',ids);
+              if(error)throw error;
+              (data||[]).forEach(item=>{
+                if(!itensTrocas.has(item.solicitacao_id))itensTrocas.set(item.solicitacao_id,[]);
+                itensTrocas.get(item.solicitacao_id).push(item);
+              });
+            }
+          }catch(e){
+            setErroFilaManut('Não foi possível carregar todos os itens das trocas: '+e.message);
+          }
+        }
+        setPendSolic(fila.map(ap=>itensTrocas.has(ap.solicitacao_id)
+          ? {...ap,solicitacoes:{...ap.solicitacoes,solicitacao_equipamentos:itensTrocas.get(ap.solicitacao_id)}}
+          : ap));
 
         let rd={data:[],error:null};
         try{
@@ -3245,6 +3270,11 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     ? (filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente').length
     : 0;
   const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
+  const aprovacoesManut = etapa==='manutencao'
+    ? pendSolic.filter(ap=>ap.solicitacoes?.tipo===subManut&&
+        !['aprovada','reprovada','concluida','vinculada'].includes(ap.solicitacoes.status_fluxo))
+    : [];
+  const detalhesManutIndisponiveis = etapa==='manutencao'&&pendSolic.some(ap=>!ap.solicitacoes);
 
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
@@ -3283,23 +3313,32 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           onClick:()=>setSubStatusManut(k)
         },l))),
 
-      subManut==='retirada' && !(demandasManut||[]).some(d=>tipoOperacional(d)==='retirada')
+      (erroFilaManut||detalhesManutIndisponiveis)&&h('div',{className:'card',role:'alert'},
+        h('div',null,erroFilaManut||'Há aprovações pendentes cujos detalhes não puderam ser carregados.'),
+        h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:carregar},'Atualizar pendências')),
+
+      subManut==='retirada' && !aprovacoesManut.length && !(demandasManut||[]).some(d=>tipoOperacional(d)==='retirada')
         ? h('div',{className:'card'},h(Empty,{icon:'↩',texto:'Nenhuma retirada. O workflow de solicitação será configurado depois.'}))
         : h('div',null,
-            subManut==='manutencao' && subStatusManut==='pendente' &&
-              pendSolic.filter(ap=>ap.solicitacoes&&ap.solicitacoes.tipo==='manutencao').map(ap=>{
+            subStatusManut==='pendente'&&aprovacoesManut.length>0&&h('div',null,
+              h('div',{className:'section-title'},'Solicitações aguardando aprovação da Manutenção'),
+              aprovacoesManut.map(ap=>{
                 const sol=ap.solicitacoes,cli=sol.clientes||{};
-                return h('div',{className:'card',key:'apr_'+ap.id,style:{cursor:'pointer'},onClick:()=>setOrigemAprovacao({tipo:'solicitacao',dados:sol})},
+                return h('div',{className:'card',key:'apr_'+ap.id},
                   h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
-                  linhaInfo('Equipamento',sol.equipamento||'—'),linhaInfo('Problema / detalhes',sol.descricao||'—'),
-                  h('div',{style:{display:'flex',gap:8,marginTop:10},onClick:e=>e.stopPropagation()},
+                  h('div',{className:'page-sub'},codigoAuditoria(sol,prefixoSolicitacao(sol))),
+                  linhaInfo('Equipamento',sol.equipamento||'—'),
+                  linhaInfo('Justificativa',sol.justificativa),
+                  linhaInfo('Detalhes',sol.descricao),
+                  h('div',{style:{display:'flex',gap:8,marginTop:10,flexWrap:'wrap'}},
+                    h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setOrigemAprovacao({tipo:'solicitacao',dados:sol})},'Ver solicitação'),
                     h('button',{className:'btn btn-success btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'aprovado'})},'✓ Aprovar'),
                     h('button',{className:'btn btn-danger btn-sm',onClick:()=>setDecidindo({solAp:ap,status:'reprovado'})},'✗ Reprovar')));
-              }),
+              })),
             subManut!=='manutencao'&&subStatusManut==='roteirizada'
               ? renderRotasCascata(false)
               : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).length===0
-              ? h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda neste status.'}))
+              ? (subStatusManut==='pendente'&&aprovacoesManut.length?null:h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda neste status.'})))
               : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).map(d=>{
                   const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
                   return h('div',{
