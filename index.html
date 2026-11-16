@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v117-frota-motoristas-manutencao';
-console.info('[Meu Cliente] BUILD v117-frota-motoristas-manutencao');
+window.__MEU_CLIENTE_BUILD__='v118-fila-supervisor-programacoes';
+console.info('[Meu Cliente] BUILD v118-fila-supervisor-programacoes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2294,17 +2294,16 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [obsProg,setObsProg]=useState('');
   const [authUidProg,setAuthUidProg]=useState(null);
   const [filaProgSupervisor,setFilaProgSupervisor]=useState(null);
+  const [erroFilaProgSupervisor,setErroFilaProgSupervisor]=useState('');
 
   async function carregarFilaSupervisorDireta(){
     if(etapa!=='supervisor'){
       setFilaProgSupervisor([]);
+      setErroFilaProgSupervisor('');
       return;
     }
     const {data,error}=await sb.rpc('mc_listar_programacoes_supervisor');
-    if(error){
-      setFilaProgSupervisor([]);
-      return toast('Não foi possível carregar a programação do Supervisor: '+error.message,'error');
-    }
+    setErroFilaProgSupervisor(error?.message||'');
     setFilaProgSupervisor(data||[]);
   }
 
@@ -2988,7 +2987,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }).eq('id',d.id).eq('status','pendente');
     if(error)return toast(error.message,'error');
     setDemandaAberta(null);setDataLiberacao('');setSubStatusManut('ag_rota');
-    toast('Demanda liberada para roteirização.','success');carregar();
+    toast('Demanda liberada. Monte a rota em Entregas e Rotas para enviar a data ao Supervisor.','success');carregar();
   }
   async function concluirDemanda(d){
     const obs=window.prompt('Observação da conclusão (opcional):','');
@@ -3196,9 +3195,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
 
   if (pendentes === null || pendSolic === null || (etapa==='manutencao'&&demandasManut===null) || (etapa==='supervisor'&&filaProgSupervisor===null)) return h('div', { className: 'empty-state' }, 'Carregando...');
-  const totalProgSupervisor = etapa==='supervisor'
-    ? (filaProgSupervisor||[]).filter(a=>a&&a.status==='pendente').length
-    : 0;
+  const totalProgSupervisor = etapa==='supervisor' ? (filaProgSupervisor||[]).length : 0;
   const totalPend = pendentes.length + pendSolic.length + totalProgSupervisor;
   const aprovacoesManut = etapa==='manutencao'
     ? pendSolic.filter(ap=>ap.solicitacoes?.tipo===subManut&&
@@ -3396,9 +3393,13 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               sol.categoria==='bonificacao'&&ap.etapa!=='diretoria'?'✗ Parecer desfavorável':'✗ Reprovar')));
       })),
 
+    etapa==='supervisor' && erroFilaProgSupervisor && h('div',{className:'card',role:'alert'},
+      h('div',null,'Não foi possível consultar as programações de entrega, troca e retirada. '+erroFilaProgSupervisor),
+      h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:carregarFilaSupervisorDireta},'Tentar novamente')),
+
     etapa==='supervisor' && totalProgSupervisor>0 && renderPendenciasSupervisorDireto(),
 
-    etapa!=='manutencao' && totalPend === 0
+    etapa!=='manutencao' && totalPend === 0 && !(etapa==='supervisor'&&erroFilaProgSupervisor)
       ? h('div', { className: 'card' }, h(Empty, { icon: '\u2713', texto: 'Nenhuma pendência na sua fila.' }))
       : pendentes.length > 0 && h('div', null,
         h('div', { className: 'section-title' }, 'Fichas de cadastro'),
@@ -6277,6 +6278,7 @@ function PaginaEntregasEquipamentos({profile}) {
   const [selecionadas,setSelecionadas]=useState([]),[dataRota,setDataRota]=useState(''),[nomeRota,setNomeRota]=useState('');
   const [caminhoes,setCaminhoes]=useState([]),[rotasComerciais,setRotasComerciais]=useState([]),[erroFrota,setErroFrota]=useState('');
   const [caminhaoId,setCaminhaoId]=useState(''),[rotaComercialId,setRotaComercialId]=useState('');
+  const [rotaEnviando,setRotaEnviando]=useState(null);
   const caminhaoSelecionado=caminhoes.find(c=>c.id===caminhaoId&&c.ativo);
   const requerRotaComercial=caminhaoSelecionado?.propriedade==='logistica';
   const nomeCaminhaoDaRota=r=>{const c=caminhoes.find(c=>c.id===r.caminhao_equipamentos_id);return c?rotuloCaminhao(c):'—';};
@@ -6463,7 +6465,7 @@ function PaginaEntregasEquipamentos({profile}) {
       const resultado=Array.isArray(data)?data[0]:data;
       const qtd=resultado&&resultado.quantidade!=null?Number(resultado.quantidade):idsFinal.length;
       setSelecionadas([]);setDataRota('');setNomeRota('');setCaminhaoId('');setRotaComercialId('');
-      toast('Rota criada com '+qtd+' demanda(s).','success');
+      await enviarProgramacaoRota(resultado?.rota_id,true,qtd);
       await carregar();
     }catch(err){
       const msg=err&&err.message?err.message:String(err);
@@ -6473,6 +6475,29 @@ function PaginaEntregasEquipamentos({profile}) {
       setCriandoRota(false);
     }
   }
+  async function enviarProgramacaoRota(rotaId,recemCriada=false,quantidade=0){
+    if(!rotaId){
+      toast('Rota criada. Abra a lista de rotas para enviar a programação ao Supervisor.','info');
+      return;
+    }
+    setRotaEnviando(rotaId);
+    try{
+      const {data,error}=await sb.rpc('mc_enviar_programacao_manutencao',{p_rota_id:rotaId});
+      if(error)throw error;
+      if(data?.length){
+        const prefixo=recemCriada?'Rota criada com '+quantidade+' demanda(s). ':'';
+        toast(prefixo+'Programação enviada para aprovação do Supervisor.','success');
+      }else{
+        toast('A rota já foi enviada e não tem decisões pendentes.','info');
+      }
+    }catch(error){
+      const prefixo=recemCriada?'A rota foi criada, mas a programação não foi enviada. ':'Não foi possível enviar a programação. ';
+      toast(prefixo+error.message,'error');
+    }finally{
+      setRotaEnviando(null);
+    }
+  }
+
   async function melhorarRota(r){
     if(!r||!r.id)return;
     let its=itensDaRota(r.id),xs=(await Promise.all(its.filter(i=>i&&i.entrega).map(async i=>{const g=await geo(i.entrega);return g?{...g,_item:i.id}:null;}))).filter(Boolean);if(!xs.length)return toast('A rota não possui demandas válidas para otimizar.','error');xs=otimiza(xs);
@@ -6759,6 +6784,9 @@ function PaginaEntregasEquipamentos({profile}) {
           h('td',null,h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'),
             h('button',{className:'btn btn-primary btn-sm',onClick:()=>baixarRomaneio(r)},'Romaneio'),
+            !r.concluida_em&&itensDaRota(r.id).some(i=>i.entrega.status==='roteirizada')&&
+              h('button',{className:'btn btn-secondary btn-sm',disabled:!!rotaEnviando||criandoRota,onClick:()=>enviarProgramacaoRota(r.id)},
+                rotaEnviando===r.id?'Enviando…':'Enviar para aprovação'),
             !r.concluida_em&&!r.setor_responsavel&&h('button',{className:'btn btn-success btn-sm',onClick:()=>concluirRota(r)},'Concluir rota'),
             !r.concluida_em&&!itensDaRota(r.id).some(i=>i.entrega.status==='concluida')&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>desmontarRota(r)},'Desmontar rota'))))))));
 
