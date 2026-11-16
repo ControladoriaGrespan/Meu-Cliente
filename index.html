@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v129-status-atendimentos';
-console.info('[Meu Cliente] BUILD v129-status-atendimentos');
+window.__MEU_CLIENTE_BUILD__='v130-checkin-checkout-administrativo';
+console.info('[Meu Cliente] BUILD v130-checkin-checkout-administrativo');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7587,6 +7587,21 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     }
     return imagens;
   }
+  function podeRegistrarAdministrativo(v){
+    return !emPreview&&(adminReal||(supervisor&&v.supervisor_id===profile.id));
+  }
+  async function registrarAdministrativo(v,acao){
+    if(salvando||!podeRegistrarAdministrativo(v))return;
+    setSalvando(true);
+    try{
+      const {error}=await sb.rpc('vt_registrar_atendimento_administrativo',{p_visita:v.id,p_acao:acao});
+      if(error)throw error;
+      setVisitaAberta(null);
+      toast(acao==='checkin'?'Check-in administrativo registrado.':'Checkout administrativo registrado.','success');
+      await carregar();
+    }catch(error){toast(error.message,'error');}
+    finally{setSalvando(false);}
+  }
   async function salvarFechamento(){
     if(salvando)return;
     const v=visitas.find(x=>x.id===fechamento?.visita_id);
@@ -8051,11 +8066,19 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('div',null,'Atendimento: '+(visitaAberta.tipo_atendimento==='treinamento'?'Treinamento':'Produção')),
         h('div',null,'Objetivo: '+(visitaAberta.objetivo||'—')),
         h('div',null,'Status: '+rotulosVisita(visitaAberta).map(estado=>nomes[estado]).join(' · ')),
+        visitaAberta.checkin_administrativo_por&&linhaInfo('Check-in administrativo',
+          [dataHoraAgenda(visitaAberta.checkin_em),usuariosPorId[visitaAberta.checkin_administrativo_por]?.nome].filter(Boolean).join(' · ')),
+        visitaAberta.checkout_administrativo_por&&linhaInfo('Checkout administrativo',
+          [dataHoraAgenda(visitaAberta.checkout_em),usuariosPorId[visitaAberta.checkout_administrativo_por]?.nome].filter(Boolean).join(' · ')),
         visitaAberta.cancelado_em&&linhaInfo('Cancelada em',dataHoraAgenda(visitaAberta.cancelado_em)),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
           visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
           lider&&!emPreview&&equipeParticipantes.some(u=>u.id===visitaAberta.tecnico_id)&&h('button',{className:'btn btn-secondary',onClick:()=>copiarVisita(visitaAberta)},'Copiar visita'),
           podeCancelarAtendimento(visitaAberta)&&h('button',{className:'btn btn-danger',disabled:salvando,onClick:()=>cancelarAtendimento(visitaAberta)},'Cancelar atendimento'),
+          podeRegistrarAdministrativo(visitaAberta)&&visitaAberta.status==='agendada'&&h('button',{
+            className:'btn btn-secondary',disabled:salvando,onClick:()=>registrarAdministrativo(visitaAberta,'checkin')},'Check-in administrativo'),
+          podeRegistrarAdministrativo(visitaAberta)&&visitaAberta.status==='em_andamento'&&h('button',{
+            className:'btn btn-secondary',disabled:salvando,onClick:()=>registrarAdministrativo(visitaAberta,'checkout')},'Checkout administrativo'),
           podeEditarVisita(visitaAberta)&&h('button',{className:'btn btn-primary',onClick:()=>abrirEdicaoVisita(visitaAberta)},'Editar visita'),
           visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
           visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
