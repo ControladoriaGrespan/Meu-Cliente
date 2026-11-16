@@ -7926,7 +7926,10 @@ function PaginaPedidos({ profile }) {
   // causando ReferenceError e tela branca ao selecionar o cliente.
   const [bonificacoesAbertas, setBonificacoesAbertas] = useState([]);
   const [diagnosticoBonificacoes,setDiagnosticoBonificacoes] = useState(null);
-  const [bonificacoesVinculadas, setBonificacoesVinculadas] = useState([]);
+  const [quantidadesBonificacao,setQuantidadesBonificacao] = useState({});
+  const [historicoBonificacoes,setHistoricoBonificacoes] = useState([]);
+  const [carregandoCliente,setCarregandoCliente] = useState(false);
+  const podeApropriarBonificacao=['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
   const [amostrasAbertas, setAmostrasAbertas] = useState([]);
   const [amostrasVinculadas, setAmostrasVinculadas] = useState([]);
   const [itens, setItens] = useState([]);
@@ -8054,7 +8057,7 @@ function PaginaPedidos({ profile }) {
     setErroHistoricoTotvs(historico.error?.message||'');
     setLancando({ rota, data: dataStr, clientesRota: cls });
     } catch (err) { console.error('Erro ao abrir lançamento:', err); toast('Erro ao carregar rota: ' + err.message, 'error'); }
-    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]);setDiagnosticoBonificacoes(null); setBonificacoesVinculadas([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
+    setClienteAtivo(null); setPedidoAnterior(null); setBonificacoesAbertas([]);setDiagnosticoBonificacoes(null); setQuantidadesBonificacao({});setHistoricoBonificacoes([]); setAmostrasAbertas([]); setAmostrasVinculadas([]); setItens([]); setObsPedido('');
   }
 
   function statusCliente(clienteId) { return acompanhamentoMap[clienteId] || 'sem_contato'; }
@@ -8118,7 +8121,19 @@ function PaginaPedidos({ profile }) {
     await carregarBonificacoesComerciais(clienteAtivo.id,pedidoEditandoId);
   }
 
+  async function carregarBonificacoesSolicitadas(clienteId){
+    if(!podeApropriarBonificacao)return;
+    const {data,error}=await sb.rpc('mc_bonificacoes_cliente_pv',{p_cliente_id:clienteId});
+    setBonificacoesAbertas(data?.abertas||[]);
+    setHistoricoBonificacoes(data?.historico||[]);
+    setDiagnosticoBonificacoes(error?.message||null);
+  }
+
   async function selecionarCliente(cli) {
+    if(carregandoCliente||salvando)return;
+    setCarregandoCliente(true);
+    setBonificacoesAbertas([]);setHistoricoBonificacoes([]);
+    setQuantidadesBonificacao({});setDiagnosticoBonificacoes(null);
     try {
     setAcordosBonifPedido([]);setApropriacoesPedido([]);setValorIntroducaoPedido('');setModoIntroducaoPedido('Produto');
     await carregarBonificacoesComerciais(cli.id,null);
@@ -8133,101 +8148,7 @@ function PaginaPedidos({ profile }) {
       (tpItens || []).forEach(tp => { mapaTabelaPreco[tp.produto_id] = Number(tp.preco_unitario); });
       setTabelaPrecoCliente(mapaTabelaPreco);
     }
-    // Administração de Vendas: usa a consulta autenticada que já funciona em
-    // Solicitações. SELECT direto pode retornar zero linhas por RLS sem erro.
-    setDiagnosticoBonificacoes(null);
-    const admPedido=['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel);
-    let candidatos=[],erroBons=null,erroAprovacoes=null;
-    if(admPedido){
-      const resposta=await sb.rpc('mc_listar_solicitacoes_adm_vendas');
-      if(resposta.error){
-        erroBons=resposta.error;
-      }else if(!Array.isArray(resposta.data)){
-        erroBons={message:'A consulta administrativa não retornou uma lista válida.'};
-      }else{
-        candidatos=resposta.data.filter(b=>b.categoria==='bonificacao'&&
-          String(b.cliente_id)===String(cli.id));
-      }
-    }else{
-      const resposta=await sb.from('solicitacoes')
-        .select('*').eq('cliente_id',cli.id).eq('categoria','bonificacao')
-        .order('created_at',{ascending:true});
-      erroBons=resposta.error;
-      candidatos=resposta.data||[];
-      if(!erroBons&&candidatos.length){
-        const aprovResp=await sb.from('solicitacao_aprovacoes')
-          .select('solicitacao_id,etapa,status').in('solicitacao_id',candidatos.map(b=>b.id));
-        erroAprovacoes=aprovResp.error;
-        const map={};
-        (aprovResp.data||[]).forEach(ap=>(map[ap.solicitacao_id]??=[]).push(ap));
-        candidatos=candidatos.map(b=>({...b,solicitacao_aprovacoes:map[b.id]||[]}));
-      }
-    }
-    if(erroBons||erroAprovacoes){
-      const erro=erroBons||erroAprovacoes;
-      console.error('Falha ao consultar bonificações para pedidos',erro);
-      setDiagnosticoBonificacoes({erro:erro.message||String(erro),
-        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id});
-      setBonificacoesAbertas([]);
-    }else{
-      const idsBons=candidatos.map(b=>b.id).filter(Boolean);
-      const mapaItens={};
-      let erroItensBons=null;
-      for(let i=0;i<idsBons.length;i+=120){
-        const ri=await sb.from('solicitacao_bonificacao_itens')
-          .select('solicitacao_id,produto_id,quantidade,ordem,produtos(codigo,descricao)')
-          .in('solicitacao_id',idsBons.slice(i,i+120)).order('ordem');
-        if(ri.error){erroItensBons=ri.error;break;}
-        (ri.data||[]).forEach(it=>(mapaItens[it.solicitacao_id]??=[]).push(it));
-      }
-      if(erroItensBons){
-        const faltaMigracao=['42P01','PGRST205','PGRST204'].includes(String(erroItensBons.code||''));
-        console.warn('Não foi possível carregar itens das bonificações para o pedido:',erroItensBons);
-        if(!faltaMigracao){
-          setDiagnosticoBonificacoes({erro:'Itens de bonificações indisponíveis: '+erroItensBons.message,clienteId:cli.id});
-          setBonificacoesAbertas([]);
-          setBonificacoesVinculadas([]);
-          return;
-        }
-        // Antes da v111, solicitações antigas continuam utilizando o produto legado.
-      }
-      const detalhes=candidatos.map(b=>({
-        solicitacao_bonificacao_itens:mapaItens[b.id]||[],
-        ...b,
-        solicitacao_aprovacoes:b.solicitacao_aprovacoes||[],
-        produtos:b.produtos||(produtos||[]).find(p=>p.id===b.produto_id)||null
-      }));
-      const aprovadas=detalhes.filter(b=>{
-        const aps=b.solicitacao_aprovacoes;
-        return b.status_fluxo==='aprovada'&&!b.pedido_id&&aps.length>0&&
-          aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))&&
-          aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')&&
-          aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
-      });
-      setBonificacoesAbertas(aprovadas);
-      const bloqueadas=detalhes.filter(b=>!aprovadas.some(x=>x.id===b.id)).map(b=>{
-        const aps=b.solicitacao_aprovacoes;
-        const abertas=aps.filter(a=>['pendente','aguardando'].includes(a.status));
-        const veto=aps.some(a=>a.etapa==='diretoria'&&a.status==='reprovado');
-        return {
-          id:b.id,codigo:b.codigo||codigoAuditoria(b,'BON'),
-          motivo:b.pedido_id?'Já vinculada ao pedido':
-            veto?'Vetada pela Diretoria':
-            b.status_fluxo==='aberta'?'Em aprovação'+(abertas.length?' — próxima etapa: '+abertas[0].etapa:''):
-            b.status_fluxo==='reprovada'?'Reprovada / encerrada':
-            b.status_fluxo==='concluida'||b.status_fluxo==='vinculada'?'Realização registrada':
-            aps.length?'Verificar pareceres: '+aps.map(a=>a.etapa+': '+a.status).join(' | '):
-            'Etapas indisponíveis para esta solicitação',
-          id:b.id
-        };
-      });
-      setDiagnosticoBonificacoes({
-        clienteCodigo:cli.codigo_totvs||'',clienteId:cli.id,
-        bloqueadas,total:detalhes.length,aprovadas:aprovadas.length,
-        semSolicitacoes:detalhes.length===0
-      });
-    }
-    setBonificacoesVinculadas([]);
+    await carregarBonificacoesSolicitadas(cli.id);
 
     const { data: amos } = await sb.from('solicitacoes')
       .select('*, produtos(codigo, descricao), solicitacao_aprovacoes(status)')
@@ -8255,12 +8176,13 @@ function PaginaPedidos({ profile }) {
     }));
     setPrecosHistoricosCliente(precosHistoricos);
     // verifica se ja existe pedido para este cliente NESTA data
-    const { data: pedidoHoje } = await sb.from('pedidos')
+    const { data: pedidoHoje, error: erroPedidoHoje } = await sb.from('pedidos')
       .select('*, pedido_itens(*, produtos(codigo, descricao, unidade, peso_kg))')
-      .eq('cliente_id', cli.id).eq('data_pedido', lancando.data)
+      .eq('cliente_id', cli.id).eq('rota_id', lancando.rota.id).eq('data_pedido', lancando.data)
       .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
-    if (pedidoHoje && pedidoHoje.pedido_itens && pedidoHoje.pedido_itens.length > 0) {
+    if(erroPedidoHoje)throw erroPedidoHoje;
+    if (pedidoHoje) {
       // editar pedido existente
       setPedidoEditandoId(pedidoHoje.id);
       setPedidoEditandoCodigo(pedidoHoje.codigo || null);
@@ -8293,8 +8215,8 @@ function PaginaPedidos({ profile }) {
         const peloCodigo=Number(precosPorCodigo[codigo]);
         return peloCodigo>0?peloCodigo:'';
       };
-      setItens(pedidoHoje.pedido_itens.map(it=>({
-        item_id:it.id,produto_id:it.produto_id,
+      setItens((pedidoHoje.pedido_itens||[]).map(it=>({
+        item_id:it.id,produto_id:it.produto_id,solicitacao_bonificacao_id:it.solicitacao_bonificacao_id,
         codigo:it.produtos?.codigo,descricao:it.produtos?.descricao,unidade:it.produtos?.unidade,
         quantidade:it.quantidade,valor_unitario:obterPreco(it),
         tipo_item:it.tipo_item||'venda',numero_nf:it.numero_nf||1,
@@ -8310,7 +8232,7 @@ function PaginaPedidos({ profile }) {
         .order('data_pedido', { ascending: false }).limit(1).maybeSingle();
       setPedidoAnterior(ultPedido);
       if (ultPedido && ultPedido.pedido_itens) {
-        setItens(ultPedido.pedido_itens.map(it=>{
+        setItens(ultPedido.pedido_itens.filter(it=>!it.solicitacao_bonificacao_id).map(it=>{
           const precoAnterior=Number(it.valor_unitario);
           const precoTabela=Number(mapaTabelaPreco[it.produto_id]);
           const precoHistorico=Number(precosHistoricos[it.produto_id]);
@@ -8329,15 +8251,27 @@ function PaginaPedidos({ profile }) {
     } catch (err) {
       console.error('Erro ao selecionar cliente no pedido:', err);
       toast('Erro ao carregar cliente no pedido: ' + (err && err.message ? err.message : String(err)), 'error');
-    }
+    } finally {setCarregandoCliente(false);}
   }
 
   function addItem() { setItens([...itens, { produto_id: '', codigo: '', descricao: '', unidade: '', quantidade: '', valor_unitario: '', tipo_item: 'venda',numero_nf:1,codigo_operacao:operacaoPedido }]); }
-  function removeItem(idx) { setItens(itens.filter((_, i) => i !== idx)); }
+  function removeItem(idx) {
+    const removido=itens[idx];
+    if(removido.solicitacao_bonificacao_id&&removido.item_id)return;
+    const restantes=itens.filter((_,i)=>i!==idx).map(it=>({...it}));
+    if(removido.compraOrigem){
+      // A remoção antes de salvar devolve os pacotes à compra de origem.
+      const origem=restantes.find(i=>i.compraChave===removido.compraOrigem);
+      if(origem)origem.quantidade=(Math.round(Number(origem.quantidade||0)*1000)+Math.round(Number(removido.quantidade)*1000))/1000;
+      else restantes.push({...removido.compraAnterior,quantidade:removido.quantidade});
+    }
+    setItens(restantes);
+    setTesItens({});
+  }
   function setItem(idx, campo, valor) {
     setTesItens({});
     setItens(itens.map((it, i) => {
-      if (i !== idx) return it;
+      if (i !== idx || (it.solicitacao_bonificacao_id&&campo!=='numero_nf')) return it;
       const novo = { ...it, [campo]: valor };
       if(campo==='tipo_item'){
         novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
@@ -8366,33 +8300,36 @@ function PaginaPedidos({ profile }) {
   }
 
   function vincularBonificacao(sol) {
-    if(bonificacoesVinculadas.some(b=>b.id===sol.id))return;
-    const aps=sol.solicitacao_aprovacoes||[];
-    if(sol.status_fluxo!=='aprovada'||
-       !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))||
-       !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')||
-       !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status)))
-      return toast('Bonificação bloqueada: falta aprovação final da Diretoria.','error');
-    const todos=Array.isArray(sol.solicitacao_bonificacao_itens)&&sol.solicitacao_bonificacao_itens.length
-      ? sol.solicitacao_bonificacao_itens : [{produto_id:sol.produto_id,quantidade:sol.quantidade}];
-    if(!todos.length||todos.some(it=>!it.produto_id||!Number.isFinite(Number(it.quantidade))||Number(it.quantidade)<=0)||
-       new Set(todos.map(it=>String(it.produto_id))).size!==todos.length)
-      return toast('Itens da bonificação incompletos ou duplicados.','error');
-    const copia=itens.map(it=>({...it}));
-    for(const bon of todos){
-      const qtd=Number(bon.quantidade);
-      const idx=copia.findIndex(it=>String(it.produto_id)===String(bon.produto_id)&&(it.tipo_item||'venda')!=='bonificacao');
-      if(idx>=0){
-        const compra=Number(copia[idx].quantidade||0);
-        if(qtd>compra)return toast('A bonificação de '+fmtNum(qtd)+' excede a compra de '+fmtNum(compra)+' para um dos produtos.','error');
-        copia[idx].quantidade=compra-qtd;
-      }
-      const prod=produtos.find(p=>String(p.id)===String(bon.produto_id));
-      copia.push({produto_id:bon.produto_id,codigo:prod?.codigo,descricao:prod?.descricao,unidade:prod?.unidade,
-        quantidade:qtd,valor_unitario:0,tipo_item:'bonificacao',solicitacao_bonificacao_id:sol.id,numero_nf:1,codigo_operacao:'04'});
+    if(salvando||carregandoCliente||operacaoPedido!=='01')return;
+    if(itens.some(it=>it.solicitacao_bonificacao_id===sol.id&&!it.item_id))return;
+    const escolhidos=sol.itens.map(item=>({...item,
+      qtd:Number(quantidadesBonificacao[sol.id]?.[item.produto_id]||0)}));
+    if(escolhidos.some(i=>!Number.isFinite(i.qtd)||i.qtd<0||i.qtd>Number(i.saldo)||
+      Math.round(i.qtd*1000)/1000!==i.qtd)||!escolhidos.some(i=>i.qtd>0)){
+      return toast('Informe uma quantidade positiva de até três casas decimais, dentro do saldo aprovado por produto.','error');
     }
+    const copia=itens.map(it=>({...it}));
+    for(const bon of escolhidos.filter(i=>i.qtd>0)){
+      const idx=sol.modalidade==='desconto'?copia.findIndex(it=>it.produto_id===bon.produto_id&&
+        (it.tipo_item||'venda')==='venda'&&it.codigo_operacao==='01'&&Number(it.quantidade)>0):-1;
+      const compra=idx>=0?copia[idx]:null;
+      if(sol.modalidade==='desconto'&&(!compra||bon.qtd>Number(compra.quantidade)))
+        return toast('Para descontar '+fmtNum(bon.qtd)+' '+(bon.unidade||'un.')+' do produto '+bon.codigo+
+          ', informe essa quantidade na linha de venda do produto.','error');
+      const item={produto_id:bon.produto_id,codigo:bon.codigo,descricao:bon.descricao,unidade:bon.unidade,
+        quantidade:bon.qtd,valor_unitario:0,tipo_item:'bonificacao',solicitacao_bonificacao_id:sol.id,
+        numero_nf:compra?.numero_nf||1,codigo_operacao:'04'};
+      if(compra){
+        compra.compraChave=compra.compraChave||crypto.randomUUID();
+        item.compraOrigem=compra.compraChave;
+        item.compraAnterior={...compra};
+        compra.quantidade=(Math.round(Number(compra.quantidade)*1000)-Math.round(bon.qtd*1000))/1000;
+        if(compra.quantidade===0)copia.splice(idx,1);
+      }
+      copia.push(item);
+    }
+    setTesItens({});
     setItens(copia);
-    setBonificacoesVinculadas(prev=>[...prev,sol]);
   }
 
   function vincularAmostra(sol) {
@@ -8401,7 +8338,7 @@ function PaginaPedidos({ profile }) {
   }
 
   async function salvarPedido() {
-    if(salvando)return;
+    if(salvando||carregandoCliente)return;
     if(pedidoEditandoId&&apropriacoesPedido.some(x=>x.pedido_id===pedidoEditandoId&&!x.estornado_em))return toast('Este pedido já possui bonificação apropriada. Solicite estorno gerencial antes de editar seus itens.','error');
     const preenchidos=itens.filter(it=>it.produto_id);
     if(!preenchidos.length)return toast('Adicione pelo menos um produto ao pedido.','error');
@@ -8421,32 +8358,6 @@ function PaginaPedidos({ profile }) {
     if(Array.from({length:totalNfs},(_,i)=>i+1).some(n=>!validos.some(it=>Number(it.numero_nf||1)===n)))
       return toast('Cada NF deve conter pelo menos um item.','error');
 
-    // Revalida com a mesma fonte autorizada utilizada na consulta do pedido.
-    // Em Administração de Vendas, RLS pode esconder aprovações no SELECT direto.
-    if(bonificacoesVinculadas.length){
-      const ids=bonificacoesVinculadas.map(b=>String(b.id));
-      let conferidas=[],erroConf=null;
-      if(['adm_vendas','gestao_adm_vendas','admin'].includes(profile.papel)){
-        const res=await sb.rpc('mc_listar_solicitacoes_adm_vendas');
-        erroConf=res.error;
-        if(!erroConf)conferidas=(res.data||[]).filter(b=>ids.includes(String(b.id)));
-      }else{
-        const res=await sb.from('solicitacoes')
-          .select('id,cliente_id,pedido_id,status_fluxo,solicitacao_aprovacoes(etapa,status)')
-          .in('id',ids);
-        erroConf=res.error;
-        conferidas=res.data||[];
-      }
-      if(erroConf)return toast('Não foi possível conferir as bonificações: '+erroConf.message,'error');
-      if(conferidas.length!==ids.length||conferidas.some(b=>{
-        const aps=b.solicitacao_aprovacoes||[];
-        return String(b.cliente_id)!==String(clienteAtivo.id)||b.status_fluxo!=='aprovada'||
-          !!b.pedido_id||
-          !aps.some(a=>a.etapa==='financeiro'&&['aprovado','reprovado'].includes(a.status))||
-          !aps.some(a=>a.etapa==='diretoria'&&a.status==='aprovado')||
-          !aps.every(a=>['aprovado','reprovado','nao_aplica'].includes(a.status));
-      }))return toast('Bonificação não liberada: confira o parecer Financeiro e a aprovação final da Diretoria.','error');
-    }
     setSalvando(true);
     let pedidoId=pedidoEditandoId;
     const payload=validos.map(it=>({
@@ -8457,89 +8368,89 @@ function PaginaPedidos({ profile }) {
       numero_nf:Number(it.numero_nf||1),
       codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido)
     }));
+    const temBonificacaoSolicitada=validos.some(it=>it.solicitacao_bonificacao_id);
     try{
-      if(pedidoId){
-        // Preserva os itens antigos até que os substitutos tenham sido gravados.
-        const anteriores=await sb.from('pedido_itens').select('id').eq('pedido_id',pedidoId);
-        if(anteriores.error)throw new Error('Não foi possível conferir os itens existentes: '+anteriores.error.message);
-        const idsAntigos=(anteriores.data||[]).map(it=>it.id);
-        const inseridos=await sb.from('pedido_itens')
-          .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
-        if(inseridos.error)throw new Error('Novos itens não gravados; itens anteriores preservados: '+inseridos.error.message);
-        if((inseridos.data||[]).length!==payload.length)
-          throw new Error('A gravação retornou menos itens que o previsto. Verifique o pedido antes de tentar novamente.');
-        if(idsAntigos.length){
-          const excluidos=await sb.from('pedido_itens').delete().in('id',idsAntigos).select('id');
-          if(excluidos.error||(excluidos.data||[]).length!==idsAntigos.length)
-            throw new Error('Itens novos inseridos, mas não foi possível retirar todos os antigos. Confira o pedido antes de repetir a operação.');
-        }
-        const cabecalho=await sb.from('pedidos').update({
-          observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs
-        }).eq('id',pedidoId).select('id').maybeSingle();
-        if(cabecalho.error||!cabecalho.data)throw new Error('Itens gravados, mas o cabeçalho não foi confirmado: '+(cabecalho.error?.message||'pedido não localizado'));
+      if(temBonificacaoSolicitada){
+        const resultado=await sb.rpc('mc_salvar_pedido_bonificacao_pv',{
+          p_pedido_id:pedidoId,p_cliente_id:clienteAtivo.id,p_rota_id:lancando.rota.id,p_data:lancando.data,
+          p_observacoes:obsPedido.trim()||null,p_operacao:operacaoPedido,p_total_nfs:totalNfs,
+          p_itens:payload.map((it,i)=>({...it,solicitacao_bonificacao_id:validos[i].solicitacao_bonificacao_id||null,
+            item_id:validos[i].solicitacao_bonificacao_id?validos[i].item_id||null:null}))
+        });
+        if(resultado.error)throw resultado.error;
+        const salvo=resultado.data;
+        pedidoId=salvo.id;
+        setPedidoEditandoId(pedidoId);setPedidoEditandoCodigo(salvo.codigo||null);
+        setItens(salvo.pedido_itens.map(it=>({...it,item_id:it.id,codigo:it.produtos?.codigo,
+          descricao:it.produtos?.descricao,unidade:it.produtos?.unidade})));
+        setQuantidadesBonificacao({});
+        setPedidoConfirmado({codigo:salvo.codigo||pedidoId,quantidade:salvo.pedido_itens.length,
+          total:payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0),quando:new Date().toLocaleString('pt-BR')});
+        await carregarBonificacoesSolicitadas(clienteAtivo.id);
+        await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
+        toast('Pedido salvo e apropriação registrada.','success');
       }else{
-        const novo=await sb.from('pedidos').insert({
-          cliente_id:clienteAtivo.id,rota_id:lancando.rota.id,criado_por:profile.id,
-          data_pedido:lancando.data,observacoes:obsPedido.trim()||null,
-          numero_nf:1,codigo_operacao:operacaoPedido,total_nfs:totalNfs
-        }).select('id,codigo').single();
-        if(novo.error||!novo.data)throw new Error('Não foi possível criar o pedido: '+(novo.error?.message||'resposta vazia'));
-        pedidoId=novo.data.id;
-        const inserir=await sb.from('pedido_itens')
-          .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
-        if(inserir.error||(inserir.data||[]).length!==payload.length)
-          throw new Error('Pedido '+(novo.data.codigo||pedidoId)+' criado, mas os itens não foram confirmados: '+(inserir.error?.message||'quantidade divergente'));
-        setPedidoEditandoCodigo(novo.data.codigo||null);
+        if(pedidoId){
+          // Preserva os itens antigos até que os substitutos tenham sido gravados.
+          const anteriores=await sb.from('pedido_itens').select('id').eq('pedido_id',pedidoId);
+          if(anteriores.error)throw new Error('Não foi possível conferir os itens existentes: '+anteriores.error.message);
+          const idsAntigos=(anteriores.data||[]).map(it=>it.id);
+          const inseridos=await sb.from('pedido_itens')
+            .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
+          if(inseridos.error)throw new Error('Novos itens não gravados; itens anteriores preservados: '+inseridos.error.message);
+          if((inseridos.data||[]).length!==payload.length)
+            throw new Error('A gravação retornou menos itens que o previsto. Verifique o pedido antes de tentar novamente.');
+          if(idsAntigos.length){
+            const excluidos=await sb.from('pedido_itens').delete().in('id',idsAntigos).select('id');
+            if(excluidos.error||(excluidos.data||[]).length!==idsAntigos.length)
+              throw new Error('Itens novos inseridos, mas não foi possível retirar todos os antigos. Confira o pedido antes de repetir a operação.');
+          }
+          const cabecalho=await sb.from('pedidos').update({
+            observacoes:obsPedido.trim()||null,codigo_operacao:operacaoPedido,total_nfs:totalNfs
+          }).eq('id',pedidoId).select('id').maybeSingle();
+          if(cabecalho.error||!cabecalho.data)throw new Error('Itens gravados, mas o cabeçalho não foi confirmado: '+(cabecalho.error?.message||'pedido não localizado'));
+        }else{
+          const novo=await sb.from('pedidos').insert({
+            cliente_id:clienteAtivo.id,rota_id:lancando.rota.id,criado_por:profile.id,
+            data_pedido:lancando.data,observacoes:obsPedido.trim()||null,
+            numero_nf:1,codigo_operacao:operacaoPedido,total_nfs:totalNfs
+          }).select('id,codigo').single();
+          if(novo.error||!novo.data)throw new Error('Não foi possível criar o pedido: '+(novo.error?.message||'resposta vazia'));
+          pedidoId=novo.data.id;
+          const inserir=await sb.from('pedido_itens')
+            .insert(payload.map(it=>({...it,pedido_id:pedidoId}))).select('id');
+          if(inserir.error||(inserir.data||[]).length!==payload.length)
+            throw new Error('Pedido '+(novo.data.codigo||pedidoId)+' criado, mas os itens não foram confirmados: '+(inserir.error?.message||'quantidade divergente'));
+          setPedidoEditandoCodigo(novo.data.codigo||null);
+        }
+        // Só informa sucesso após consultar novamente o que está persistido.
+        const confere=await sb.from('pedidos').select('id,codigo,total_nfs,codigo_operacao,pedido_itens(id,produto_id,quantidade,valor_unitario,tipo_item,numero_nf,codigo_operacao)')
+          .eq('id',pedidoId).maybeSingle();
+        if(confere.error||!confere.data)throw new Error('Não foi possível confirmar a gravação no banco: '+(confere.error?.message||'pedido não encontrado'));
+        const gravados=confere.data.pedido_itens||[];
+        if(gravados.length!==payload.length||
+          Number(confere.data.total_nfs)!==totalNfs||
+          payload.some(it=>!gravados.some(g=>String(g.produto_id)===String(it.produto_id)&&
+            Number(g.quantidade)===Number(it.quantidade)&&
+            Math.abs(Number(g.valor_unitario)-Number(it.valor_unitario))<0.0001&&
+            Number(g.numero_nf)===it.numero_nf&&g.codigo_operacao===it.codigo_operacao)))
+          throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
+        const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
+        setPedidoEditandoId(pedidoId);
+        await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
+        setPedidoConfirmado({codigo:confere.data.codigo||pedidoId,quantidade:gravados.length,total,quando:new Date().toLocaleString('pt-BR')});
+        // Recarrega os dados persistidos em vez de navegar para o próximo cliente.
+        setItens(gravados.map(g=>{
+          const anterior=validos.find(it=>String(it.produto_id)===String(g.produto_id)&&Number(it.numero_nf||1)===Number(g.numero_nf));
+          return {...(anterior||{}),item_id:g.id,produto_id:g.produto_id,quantidade:g.quantidade,valor_unitario:g.valor_unitario,tipo_item:g.tipo_item,numero_nf:g.numero_nf,codigo_operacao:g.codigo_operacao};
+        }));
+        toast((confere.data.codigo||pedidoId)+' · '+clienteAtivo.razao_social+' — pedido confirmado no banco · '+fmtMoeda(total),'success');
       }
-      // Só informa sucesso após consultar novamente o que está persistido.
-      const confere=await sb.from('pedidos').select('id,codigo,total_nfs,codigo_operacao,pedido_itens(id,produto_id,quantidade,valor_unitario,tipo_item,numero_nf,codigo_operacao)')
-        .eq('id',pedidoId).maybeSingle();
-      if(confere.error||!confere.data)throw new Error('Não foi possível confirmar a gravação no banco: '+(confere.error?.message||'pedido não encontrado'));
-      const gravados=confere.data.pedido_itens||[];
-      if(gravados.length!==payload.length||
-        Number(confere.data.total_nfs)!==totalNfs||
-        payload.some(it=>!gravados.some(g=>String(g.produto_id)===String(it.produto_id)&&
-          Number(g.quantidade)===Number(it.quantidade)&&
-          Math.abs(Number(g.valor_unitario)-Number(it.valor_unitario))<0.0001&&
-          Number(g.numero_nf)===it.numero_nf&&g.codigo_operacao===it.codigo_operacao)))
-        throw new Error('Os dados gravados não conferem com o pedido informado. Confira no banco antes de repetir o salvamento.');
-      const total=payload.reduce((v,it)=>v+it.quantidade*it.valor_unitario,0);
-      setPedidoEditandoId(pedidoId);
-      await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
-      setPedidoConfirmado({codigo:confere.data.codigo||pedidoId,quantidade:gravados.length,total,quando:new Date().toLocaleString('pt-BR')});
-      // Recarrega os dados persistidos em vez de navegar para o próximo cliente.
-      setItens(gravados.map(g=>{
-        const anterior=validos.find(it=>String(it.produto_id)===String(g.produto_id)&&Number(it.numero_nf||1)===Number(g.numero_nf));
-        return {...(anterior||{}),item_id:g.id,produto_id:g.produto_id,quantidade:g.quantidade,valor_unitario:g.valor_unitario,tipo_item:g.tipo_item,numero_nf:g.numero_nf,codigo_operacao:g.codigo_operacao};
-      }));
-      toast((confere.data.codigo||pedidoId)+' · '+clienteAtivo.razao_social+' — pedido confirmado no banco · '+fmtMoeda(total),'success');
     }catch(err){
       console.error('Falha ao salvar/confirmar pedido:',err);
       toast('Pedido não confirmado: '+(err?.message||String(err)),'error');
       return;
     }finally{setSalvando(false);}
-
-    if (bonificacoesVinculadas.length) {
-      // Um único comando seguro cria vínculo + conclusão na mesma transação.
-      // O UPDATE direto em solicitacoes podia retornar zero linhas silenciosamente
-      // quando a Administração de Vendas tinha RLS de somente leitura.
-      for (const b of bonificacoesVinculadas) {
-        const conclusao=await sb.rpc('mc_vincular_concluir_bonificacao',{
-          p_solicitacao_id:b.id,p_pedido_id:pedidoId
-        });
-        if(conclusao.error||conclusao.data?.situacao!=='concluida'){
-          const msg=conclusao.error?.message||'Confirmação de conclusão não retornada pelo banco';
-          toast('Pedido confirmado, mas a bonificação '+(b.codigo||b.id)+
-            ' ainda não foi concluída: '+msg+
-            '. Verifique a migração v105 no Supabase antes de tentar novamente.','error');
-          await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
-          return;
-        }
-      }
-      setBonificacoesVinculadas([]);
-      await carregarBonificacoesComerciais(clienteAtivo.id,pedidoId);
-      toast('Bonificação vinculada ao pedido e concluída com sucesso.','success');
-    }
 
     if (amostrasVinculadas.length) {
       for (const a of amostrasVinculadas) {
@@ -8791,7 +8702,7 @@ function PaginaPedidos({ profile }) {
           h('button',{className:'btn btn-primary',disabled:exportandoTotvs||!previaTotvs||previaTotvs.erros.length>0||!previaTotvs.linhas.length||!cls.length||cls.some(c=>statusCliente(c.id)!=='pedido_fechado'),
             title:'É necessário conferir e validar a prévia antes de exportar. O sistema valida novamente ao gerar.',
             onClick:()=>exportarCsvTotvs(false)},exportandoTotvs?'Conferindo TES...':'↓ Exportar TOTVS CSV'),
-          h('button', { className: 'btn btn-secondary', onClick: voltarCalendario }, '← Voltar ao calendário'))),
+          h('button', { className: 'btn btn-secondary', disabled:salvando||carregandoCliente, onClick: voltarCalendario }, '← Voltar ao calendário'))),
 
       h('div',{className:'card',style:{marginBottom:14}},
         h('div',{className:'section-title'},'Histórico de Exportações TOTVS'),
@@ -8857,6 +8768,7 @@ function PaginaPedidos({ profile }) {
 
         // area de lancamento
         h('div', { style: { flex: 1, minWidth: 0 } },
+          carregandoCliente?h('div',{className:'card'},'Carregando pedido...'):
           !clienteAtivo
             ? h('div', { className: 'card' }, h(Empty, { icon: '\u2190', texto: 'Selecione um cliente na lista.' }))
             : h('div', null,
@@ -8883,41 +8795,44 @@ function PaginaPedidos({ profile }) {
                       h('select', { className: 'form-select', style: { width: 70, padding: '4px 8px' }, value: totalNfs, onChange:e=>{const n=Number(e.target.value);setTotalNfs(n);setItens(prev=>prev.map(it=>({...it,numero_nf:Math.min(Number(it.numero_nf||1),n)})));} },
                         [1,2,3,4,5].map(n => h('option', { key: n, value: n }, n)))),
                     h('span',{className:'badge badge-blue'},'Distribua os itens entre '+totalNfs+' NF(s)'),
-                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']].map(([op,nome])=>h('option',{key:op,value:op},nome)))),
+                     h('label',null,'Operação padrão ',h('select',{className:'form-select',value:operacaoPedido,disabled:itens.some(it=>it.solicitacao_bonificacao_id),onChange:e=>{const op=e.target.value;setOperacaoPedido(op);setItens(prev=>prev.map(it=>({...it,codigo_operacao:it.tipo_item==='bonificacao'?'04':op})));}},...[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']].map(([op,nome])=>h('option',{key:op,value:op},nome)))),
                     Object.keys(tabelaPrecoCliente).length > 0 && h('span', { className: 'badge badge-green', title: 'Preços preenchidos automaticamente pela tabela vinculada' }, '\uD83D\uDCB2 Tabela de preço ativa'))),
 
-                diagnosticoBonificacoes && (diagnosticoBonificacoes.erro ||
-                  diagnosticoBonificacoes.semSolicitacoes ||
-                  (diagnosticoBonificacoes.bloqueadas||[]).length>0) &&
-                  h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--warning)'}},
-                    h('div',{className:'section-title'},'Conferência das bonificações do cliente'),
-                    diagnosticoBonificacoes.erro
-                      ? h('div',{style:{fontSize:13,color:'var(--danger)'}},
-                          'Não foi possível consultar as bonificações: '+diagnosticoBonificacoes.erro)
-                      : diagnosticoBonificacoes.semSolicitacoes
-                        ? h('div',{style:{fontSize:12}},'Não há solicitações de bonificação cadastradas para este cliente nesta consulta.')
-                        : (diagnosticoBonificacoes.bloqueadas||[]).map(b=>
-                            h('div',{key:b.id,style:{fontSize:12,padding:'6px 0'}},
-                              h('strong',null,b.codigo+' — não disponível para pedido: '),
-                              b.motivo)),
-                    h('div',{style:{fontSize:11,color:'var(--text-muted)',marginTop:5}},
-                      'Cliente '+diagnosticoBonificacoes.clienteCodigo+
-                      ' · Consulte a solicitação nas aprovações. A vinculação exige parecer do Financeiro e aprovação final da Diretoria.')),
-                bonificacoesAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--warning)' } },
-                  h('div', { className: 'section-title' }, 'Bonificações aprovadas em aberto'),
-                  bonificacoesAbertas.map(b => {
-                    const vinc = bonificacoesVinculadas.some(x => x.id === b.id);
-                    return h('div', { key: b.id, style: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' } },
-                      h('div', { style: { fontSize: 12 } },
-                        h('div', { style:{fontWeight:700, color:'var(--grespan-red)', marginBottom:3} }, codigoAuditoria(b, 'BON')),
-                        ...((b.solicitacao_bonificacao_itens?.length
-                          ? b.solicitacao_bonificacao_itens : [{produtos:b.produtos,quantidade:b.quantidade}])
-                          .map((it,i)=>h('div',{key:'item_'+i},
-                            h('strong',null,it.produtos?.codigo||'Produto'),' · '+(it.produtos?.descricao||'')+' · '+fmtNum(it.quantidade||0)+' un.'))),
-                        h('div', { style: { color: 'var(--text-muted)', marginTop: 2 } }, b.modalidade_bonificacao === 'desconto' ? 'Aplicar como desconto do pedido' : 'Adicionar ao pedido como bonificação')),
-                      h('button', { className: vinc ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm', disabled: vinc, onClick: () => vincularBonificacao(b) }, vinc ? 'Vinculada' : 'Vincular'));
+                diagnosticoBonificacoes&&h('div',{className:'card',role:'alert'},
+                  'Não foi possível consultar o saldo das bonificações. '+diagnosticoBonificacoes),
+                operacaoPedido==='01'&&bonificacoesAbertas.length>0&&h('div',{className:'card'},
+                  h('div',{className:'section-title'},'Bonificações com saldo'),
+                  ...bonificacoesAbertas.map(b=>{
+                    const vinculada=itens.some(it=>it.solicitacao_bonificacao_id===b.id&&!it.item_id);
+                    return h('div',{key:b.id,style:{borderBottom:'1px solid var(--border)',padding:'10px 0'}},
+                      h('strong',null,b.codigo),
+                      h('div',{className:'page-sub'},b.modalidade==='desconto'?'Descontar da quantidade de venda':'Acrescentar ao pedido'),
+                      ...b.itens.map(it=>h('div',{key:it.produto_id,style:{display:'flex',flexWrap:'wrap',
+                        alignItems:'center',gap:12,margin:'10px 0'}},
+                        h('div',{style:{flex:'1 1 240px'}},
+                          h('b',null,it.codigo+' — '+it.descricao),
+                          h('div',{className:'page-sub'},'Aprovado '+fmtNum(it.aprovada)+' '+(it.unidade||'un.')+
+                            ' · Saldo '+fmtNum(it.saldo)+' '+(it.unidade||'un.'))),
+                        h('label',{style:{fontSize:12}},'Quantidade neste PV',
+                          h('input',{className:'form-input sm',type:'number',min:0,max:it.saldo,step:'0.001',
+                            inputMode:'decimal',style:{width:140},
+                            'aria-label':'Quantidade neste PV — '+b.codigo+' · '+it.codigo,
+                            value:quantidadesBonificacao[b.id]?.[it.produto_id]??'',
+                            disabled:vinculada||salvando||Number(it.saldo)<=0,
+                            onChange:e=>{const valor=e.target.value;setQuantidadesBonificacao(prev=>({...prev,
+                              [b.id]:{...prev[b.id],[it.produto_id]:valor}}));}})))),
+                      h('button',{className:'btn btn-secondary btn-sm',disabled:vinculada||salvando,
+                        onClick:()=>vincularBonificacao(b)},vinculada?'Incluída neste PV':'Incluir no PV'));
                   })),
-
+                historicoBonificacoes.length>0&&h('details',{className:'card'},
+                  h('summary',{style:{cursor:'pointer',fontWeight:700}},'Histórico de apropriações por PV'),
+                  h('div',{className:'table-wrap'},h('table',null,
+                    h('thead',null,h('tr',null,...['PV','Data','Bonificação','Produto','Quantidade'].map(c=>h('th',{key:c},c)))),
+                    h('tbody',null,...historicoBonificacoes.map((a,i)=>h('tr',{key:i},
+                      h('td',null,a.pedido_codigo||a.pedido_id),
+                      h('td',null,a.data_pedido?new Date(a.data_pedido+'T12:00:00').toLocaleDateString('pt-BR'):'—'),
+                      h('td',null,a.bonificacao),h('td',null,a.produto),
+                      h('td',null,fmtNum(a.quantidade)+' '+(a.unidade||'un.')))))))),
                 amostrasAbertas.length > 0 && h('div', { className: 'card', style: { marginBottom: 12, borderColor: 'var(--accent)' } },
                   h('div', { className: 'section-title' }, 'Amostras aprovadas em aberto'),
                   amostrasAbertas.map(a => {
@@ -9020,7 +8935,7 @@ function PaginaPedidos({ profile }) {
                           const vt = (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0);
                           return h('tr', { key: i },
                             h('td', null, h(SearchSelect, {
-                              value: it.produto_id, placeholder: 'Buscar produto...',
+                              value: it.produto_id, placeholder: 'Buscar produto...', disabled:!!it.solicitacao_bonificacao_id,
                               onChange: v => setItem(i, 'produto_id', v),
                               items: produtos.map(pr => ({
                                 value: pr.id,
@@ -9029,11 +8944,15 @@ function PaginaPedidos({ profile }) {
                                 code: pr.codigo
                               }))
                             })),
-                            h('td', null, h('select', { className: 'form-select', style: { minWidth: 115 }, value: it.tipo_item || 'venda', onChange: e => {
+                            h('td', null, h('select', { className: 'form-select', style: { minWidth: 115 }, value: it.tipo_item || 'venda', disabled:!!it.solicitacao_bonificacao_id, onChange: e => {
                               const tipo=e.target.value;setItem(i,'tipo_item',tipo);
                             } }, h('option', { value: 'venda' }, 'Compra'), h('option', { value: 'bonificacao' }, 'Bonificação'))),
                             h('td',{style:{fontSize:12,color:'var(--text-muted)'}},
                                it.descricao||'—',
+                               it.solicitacao_bonificacao_id&&h('div',null,
+                                 (bonificacoesAbertas.find(b=>b.id===it.solicitacao_bonificacao_id)?.codigo||
+                                   historicoBonificacoes.find(a=>a.solicitacao_id===it.solicitacao_bonificacao_id)?.bonificacao||'Bonificação da solicitação')+
+                                 ' · '+(it.unidade||'un.')),
                                it.produto_id&&historicoPedidos.length>0&&
                                  !historicoPedidos.some(p=>(p.pedido_itens||[]).some(x=>x.produto_id===it.produto_id&&(x.tipo_item||'venda')!=='bonificacao'))&&
                                  h('div',{style:{color:'var(--warning)',fontWeight:600,marginTop:4}},
@@ -9041,12 +8960,12 @@ function PaginaPedidos({ profile }) {
                             h('td',null,h('select',{className:'form-select',style:{minWidth:92,width:92},value:it.numero_nf||1,onChange:e=>setItem(i,'numero_nf',Number(e.target.value))},...Array.from({length:totalNfs},(_,n)=>h('option',{key:n+1,value:n+1},'NF '+(n+1))))),
                             h('td',null,h('select',{className:'form-select',value:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido),disabled:it.tipo_item==='bonificacao',onChange:e=>setItem(i,'codigo_operacao',e.target.value)},...((it.tipo_item==='bonificacao'?[['04','04 · Bonificação']]:[['01','01 · Venda'],['02','02 · Amostra grátis'],['03','03 · Troca']]).map(([op,nome])=>h('option',{key:op,value:op},nome))))),
                             h('td',null,h('span',{className:'badge '+(tesItens[i]&&tesItens[i]!=='Pendente'?'badge-green':'badge-yellow')},tesItens[i]||'Consultar')),
-                            h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0,
-                              value: it.quantidade, onChange: e => setItem(i, 'quantidade', e.target.value) })),
+                            h('td', null, h('input', { className: 'form-input sm', style: { width: 70 }, type: 'number', min: 0, step:'any',
+                              value: it.quantidade, disabled:!!it.solicitacao_bonificacao_id, onChange: e => setItem(i, 'quantidade', e.target.value) })),
                             h('td', null, h('input', { className: 'form-input sm', style: { width: 110, minWidth:110 }, type: 'number', step: '0.01', min: 0, placeholder:'Informe preço',
                               value: (it.tipo_item || 'venda') === 'bonificacao' ? 0 : (it.valor_unitario??''), disabled: (it.tipo_item || 'venda') === 'bonificacao', onChange: e => setItem(i, 'valor_unitario', e.target.value) })),
                             h('td', { className: 'mono strong' }, vt > 0 ? fmtMoeda(vt) : '—'),
-                            h('td', null, h('button', { className: 'btn btn-danger btn-sm', onClick: () => removeItem(i) }, '\u2717')));
+                            h('td', null, h('button', { className: 'btn btn-danger btn-sm', disabled:!!(it.solicitacao_bonificacao_id&&it.item_id), onClick: () => removeItem(i) }, '\u2717')));
                         }),
                         h('tr', null,
                           h('td', { colSpan: 8, style: { textAlign: 'right', fontWeight: 600 } }, 'Total'),
