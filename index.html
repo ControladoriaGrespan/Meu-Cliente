@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v131-reutilizar-horario-cancelado';
-console.info('[Meu Cliente] BUILD v131-reutilizar-horario-cancelado');
+window.__MEU_CLIENTE_BUILD__='v133-ficha-reenvio-anexos';
+console.info('[Meu Cliente] BUILD v133-ficha-reenvio-anexos');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2091,10 +2091,15 @@ function EditorQuantidadesFicha({ficha,onClose,onSalvar}){
     h('div',{className:'form-grid'},[...quantidadesCampos,['esteiras_quantidade','Esteiras'],['assadeiras_quantidade','Assadeiras']].map(([k,n])=>campo(k,n))));
 }
 
-function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSalvo }) {
+function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSalvo, usuarioId, onReenviada }) {
   const toast = useToast();
   const f = ficha;
   const endereco = [f.rua, f.numero, f.bairro, f.cidade, f.estado].filter(Boolean).join(', ');
+  const podeAnexar=!!usuarioId&&usuarioId===f.vendedor_id;
+  const recusa=(f.ficha_aprovacoes||[]).find(a=>a.status==='reprovado');
+  const rotuloEtapa=etapa=>ETAPAS.find(e=>e.key===etapa)?.label||etapa;
+  const [reenvios,setReenvios]=useState([]);
+  const [erroDocs,setErroDocs]=useState(false);
   const [documentos, setDocumentos] = useState([]);
   const [carregandoDocs, setCarregandoDocs] = useState(true);
   const [enviandoDocs, setEnviandoDocs] = useState(false);
@@ -2121,47 +2126,89 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
     finally{setSalvandoPrazo(false);}
   }
   useEffect(() => { let ativo=true;
-    (async()=>{const {data,error}=await sb.from('ficha_documentos')
-      .select('id,nome_arquivo,caminho_storage,tipo_mime,tamanho_bytes,tipo_documento,origem_documento,docusign_envelope_id,assinado_em')
-      .eq('ficha_id',f.id).order('id',{ascending:false});
-      if(ativo){setDocumentos(data||[]);setCarregandoDocs(false);if(error)toast('Não foi possível carregar os anexos: '+error.message,'error');}
-    })();
+    sb.from('ficha_documentos').select('*').eq('ficha_id',f.id).order('criado_em',{ascending:false})
+      .then(({data,error})=>{
+        if(!ativo)return;
+        setDocumentos(data||[]);
+        setCarregandoDocs(false);
+        setErroDocs(!!error);
+        if(error)toast('Não foi possível carregar os anexos: '+error.message,'error');
+      });
+    sb.from('ficha_reenvios').select('id,etapa,motivo_recusa,recusado_em,reenviado_em')
+      .eq('ficha_id',f.id).order('reenviado_em',{ascending:false})
+      .then(({data,error})=>{if(ativo&&!error)setReenvios(data||[]);});
     return ()=>{ativo=false;};
   },[f.id]);
   async function visualizarDocumento(doc){
-    const {data,error}=await sb.storage.from('fichas-documentos').createSignedUrl(doc.caminho_storage,120);
-    if(error||!data?.signedUrl){toast('Não foi possível abrir o documento: '+(error?.message||'acesso negado'),'error');return;}
-    window.open(data.signedUrl,'_blank','noopener,noreferrer');
-  }
-  async function enviarDocumentosFicha(){
-    if(!arquivosDocs.length||enviandoDocs)return;
-    setEnviandoDocs(true);
-    let falhas=0,novos=[];
-    const {data:authData,error:authError}=await sb.auth.getUser();
-    const usuarioId=authData?.user?.id;
-    if(authError||!usuarioId){setEnviandoDocs(false);toast('Faça login novamente para anexar documentos.','error');return;}
-    for(const arquivo of arquivosDocs){
-      const seguro=arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-      const caminho=f.id+'/'+crypto.randomUUID()+'-'+seguro;
-      const upload=await sb.storage.from('fichas-documentos').upload(caminho,arquivo,{upsert:false,contentType:arquivo.type||'application/octet-stream'});
-      if(upload.error){falhas++;console.error('Upload de documento',upload.error);continue;}
-      const registro={ficha_id:f.id,nome_arquivo:arquivo.name,caminho_storage:caminho,tipo_mime:arquivo.type||null,tamanho_bytes:arquivo.size,enviado_por:usuarioId,tipo_documento:tipoDoc,origem_documento:'manual'};
-      const {data,error}=await sb.from('ficha_documentos').insert(registro).select('id,nome_arquivo,caminho_storage,tipo_mime,tamanho_bytes,tipo_documento,origem_documento,docusign_envelope_id,assinado_em').single();
-      if(error){falhas++;console.error('Registro de documento',error);await sb.storage.from('fichas-documentos').remove([caminho]);}
-      else novos.push(data);
+    const aba=window.open('','_blank');
+    if(aba)aba.opener=null;
+    try{
+      const {data,error}=await sb.storage.from('fichas-documentos').createSignedUrl(
+        doc.caminho_storage,120,aba?undefined:{download:doc.nome_arquivo}
+      );
+      if(error||!data?.signedUrl)throw Error(error?.message||'acesso negado');
+      if(aba&&!aba.closed)aba.location.replace(data.signedUrl);
+      else{
+        const link=document.createElement('a');
+        link.href=data.signedUrl;
+        link.rel='noreferrer';
+        link.click();
+      }
+    }catch(error){
+      if(aba)aba.close();
+      toast('Não foi possível abrir o documento: '+error.message,'error');
     }
-    setDocumentos(anteriores=>[...novos,...anteriores]);
-    setArquivosDocs([]);
-    setEnviandoDocs(false);
-    if(novos.length)toast(novos.length+' documento(s) anexado(s) com sucesso.','success');
-    if(falhas)toast(falhas+' arquivo(s) não puderam ser anexados. Verifique permissões e migração SQL.','error');
+  }
+  async function enviarDocumentosFicha(reenviar=false){
+    if(!podeAnexar||enviandoDocs||(!reenviar&&!arquivosDocs.length))return;
+    setEnviandoDocs(true);
+    const novos=[],falhas=[];
+    try{
+      const bucket=sb.storage.from('fichas-documentos');
+      for(const arquivo of arquivosDocs){
+        try{
+          const seguro=arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+          const caminho=f.id+'/'+crypto.randomUUID()+'-'+seguro;
+          const upload=await bucket.upload(caminho,arquivo,{upsert:false,contentType:arquivo.type||'application/octet-stream'});
+          if(upload.error)throw upload.error;
+          const registro={ficha_id:f.id,nome_arquivo:arquivo.name,caminho_storage:caminho,tipo_mime:arquivo.type||null,tamanho_bytes:arquivo.size,enviado_por:usuarioId,tipo_documento:tipoDoc,origem_documento:'manual'};
+          const {data,error}=await sb.from('ficha_documentos').insert(registro).select('*').single();
+          if(error){
+            await bucket.remove([caminho]);
+            throw error;
+          }
+          novos.push(data);
+        }catch(error){
+          console.error('Anexo da ficha:',error);
+          falhas.push(arquivo);
+        }
+      }
+      setDocumentos(anteriores=>[...novos,...anteriores]);
+      setArquivosDocs(falhas);
+      if(falhas.length){
+        toast(falhas.length+' arquivo(s) não puderam ser anexados. Os arquivos com erro continuam selecionados.','error');
+        return;
+      }
+      if(reenviar){
+        const {data:etapa,error}=await sb.rpc('mc_reenviar_ficha_com_documentos',{
+          p_ficha:f.id,p_aprovacao:recusa.id,p_recusado_em:recusa.decidido_em??null
+        });
+        if(error)throw error;
+        toast('Ficha reenviada para aprovação · '+rotuloEtapa(etapa)+'.','success');
+        onReenviada();
+      }else{
+        toast(novos.length+' documento(s) anexado(s) com sucesso.','success');
+      }
+    }catch(error){
+      toast((novos.length?'Anexos salvos. ':'')+'Não foi possível reenviar: '+error.message,'error');
+    }finally{setEnviandoDocs(false);}
   }
   return h(Modal, {
-    titulo: identificacaoFichaCliente(f), sub: codigoAuditoria(f, 'FIC') + (f.cnpj_cpf ? ' · ' + f.cnpj_cpf : ''), largo: true, onClose,
+    titulo: identificacaoFichaCliente(f), sub: codigoAuditoria(f, 'FIC') + (f.cnpj_cpf ? ' · ' + f.cnpj_cpf : ''), largo:true,onClose:()=>{if(!enviandoDocs)onClose();},
     acoes: [
       h('button', { key:'pdf', className:'btn btn-secondary', onClick: () => baixarFichaPDF(f) }, '↓ Baixar Ficha'),
       fichaAprovadaDiretoria(f) && (f.contrato || Number(f.verbas_acordo||0)>0 || Number(f.bonificacao_percentual||0)>0) && h('button',{key:'contrato',className:'btn btn-primary',onClick:()=>solicitarAssinaturaContrato(f)},f.contrato?'Gerar minuta — Contrato SIM':'Gerar minuta — Acordo NÃO'),
-      h('button', { key:'fechar', className: 'btn btn-secondary', onClick: onClose }, 'Fechar')
+      h('button', { key:'fechar', className: 'btn btn-secondary', disabled:enviandoDocs, onClick: onClose }, 'Fechar')
     ].filter(Boolean)
   },
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 } },
@@ -2217,9 +2264,12 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
           h('div', { style: { fontSize: 13 } }, f.observacoes)))),
     h('div',{style:{marginTop:20}},
       h('div',{className:'section-title'},'Documentos Anexados'),
-      h('div',{className:'page-sub',style:{marginBottom:10}},'Consulte e acrescente arquivos a esta ficha. Contratos e acordos assinados ficam identificados para futura integração DocuSign.'),
+      recusa&&podeAnexar&&onReenviada&&h('div',{className:'card',style:{marginBottom:12}},
+        h('strong',null,'Ficha recusada · '+rotuloEtapa(recusa.etapa)),
+        linhaInfo('Motivo',recusa.observacao||'Sem observação registrada'),
+        h('div',{className:'page-sub'},'Adicione o documento solicitado e reenvie a ficha para esta etapa.')),
       carregandoDocs ? h('div',{className:'page-sub'},'Carregando anexos...') :
-      documentos.length===0 ? h('div',{className:'page-sub'},'Nenhum documento anexado.') :
+      erroDocs ? h('div',{className:'page-sub'},'A lista de anexos não pôde ser carregada.') : documentos.length===0 ? h('div',{className:'page-sub'},'Nenhum documento anexado.') :
       h('div',{style:{display:'flex',flexDirection:'column',gap:7,marginBottom:14}},
         documentos.map(d=>h('div',{key:d.id,style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,border:'1px solid var(--border)',borderRadius:7,padding:'9px 12px'}},
           h('div',{style:{minWidth:0,overflowWrap:'anywhere'}},
@@ -2228,13 +2278,13 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
           h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>visualizarDocumento(d)},'Visualizar / baixar')
         ))
       ),
-      h('div',{className:'form-grid',style:{alignItems:'end'}},
+      podeAnexar&&h('div',{className:'form-grid',style:{alignItems:'end'}},
         h(Campo,{label:'Tipo de documento'},
-          h('select',{className:'form-input',value:tipoDoc,onChange:e=>setTipoDoc(e.target.value)},
+          h('select',{className:'form-input',value:tipoDoc,disabled:enviandoDocs,onChange:e=>setTipoDoc(e.target.value)},
             h('option',{value:'outro'},'Documento geral'),
             h('option',{value:'contrato_assinado'},'Contrato / acordo assinado'))),
         h(Campo,{label:'Adicionar arquivos (até 10 MB cada)'},
-          h('input',{type:'file',multiple:true,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
+          h('input',{type:'file',multiple:true,disabled:enviandoDocs,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
             const lista=Array.from(e.target.files||[]);
             const validos=lista.filter(a=>a.size<=10*1024*1024);
             if(validos.length!==lista.length)toast('Arquivos acima de 10 MB foram ignorados.','error');
@@ -2244,9 +2294,13 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
       arquivosDocs.length>0 && h('div',{style:{marginTop:8,display:'flex',flexDirection:'column',gap:5}},
         arquivosDocs.map((a,i)=>h('div',{key:i,style:{display:'flex',justifyContent:'space-between',gap:8}},
           h('span',{style:{overflowWrap:'anywhere'}},a.name),
-          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setArquivosDocs(v=>v.filter((_,j)=>j!==i))},'Remover')))),
-      h('div',{style:{marginTop:12}},
-        h('button',{type:'button',className:'btn btn-primary',disabled:enviandoDocs||!arquivosDocs.length,onClick:enviarDocumentosFicha},enviandoDocs?'Enviando...':'Salvar novos anexos'))
+          h('button',{type:'button',className:'btn btn-secondary btn-sm',disabled:enviandoDocs,onClick:()=>setArquivosDocs(v=>v.filter((_,j)=>j!==i))},'Remover')))),
+      podeAnexar&&h('div',{style:{marginTop:12,display:'flex',gap:8,flexWrap:'wrap'}},
+        h('button',{type:'button',className:'btn btn-secondary',disabled:enviandoDocs||!arquivosDocs.length,
+          onClick:()=>enviarDocumentosFicha()},enviandoDocs?'Enviando...':'Salvar novos anexos'),
+        recusa?.id&&onReenviada&&h('button',{type:'button',className:'btn btn-primary',
+          disabled:enviandoDocs||(!arquivosDocs.length&&!documentos.length),onClick:()=>enviarDocumentosFicha(true)},
+          arquivosDocs.length?'Anexar e reenviar para aprovação':'Reenviar para aprovação'))
     ),
     h('div', { style: { marginTop: 18 } },
       h('div', { className: 'section-title' }, 'Fluxo de Aprovação'),
@@ -2263,6 +2317,12 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
                 h('td', { className: 'mono' }, fmtData(ap.decidido_em)),
                 h('td', null, ap.observacao || '—'));
             })))),
+      reenvios.length>0&&h('div',{style:{marginTop:12}},
+        h('div',{className:'section-title'},'Histórico de reenvios'),
+        reenvios.map(r=>h('div',{key:r.id,style:{marginBottom:8}},
+          h('strong',null,rotuloEtapa(r.etapa)+' · Reenviada em '+fmtData(r.reenviado_em)),
+          h('div',{className:'page-sub'},'Recusa anterior'+(r.recusado_em?' em '+fmtData(r.recusado_em):'')+
+            ' · '+(r.motivo_recusa||'Sem observação registrada'))))),
       h('div', { style: { marginTop: 10, fontSize: 12, color: 'var(--text-muted)' } },
         'Criada em ' + fmtData(f.created_at),
         (f.ficha_aprovacoes || []).some(a => a.status === 'nao_aplica')
@@ -2272,7 +2332,7 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
 // =====================================================================
 // PAGINA: FICHAS (tabela geral - hierarquia garantida pelo RLS)
 // =====================================================================
-function PaginaFichas({ profile }) {
+function PaginaFichas({ profile, ehPreview, onChanged }) {
   const [fichas, setFichas] = useState(null);
   const [busca, setBusca] = useState('');
   const [detalhe, setDetalhe] = useState(null);
@@ -2281,7 +2341,7 @@ function PaginaFichas({ profile }) {
   useEffect(() => { carregar(); }, []);
   async function carregar() {
     const { data } = await sb.from('fichas_clientes')
-      .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(etapa, status, decidido_em, observacao)')
+      .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
       .order('created_at', { ascending: false });
     setFichas(data || []);
   }
@@ -2315,7 +2375,8 @@ function PaginaFichas({ profile }) {
   return h('div', null,
     detalhe&&(corrigindo?h(EditorQuantidadesFicha,{ficha:detalhe,onClose:()=>setCorrigindo(false),
       onSalvar:f=>{setDetalhe(f);setCorrigindo(false);carregar();}}):
-      h(DetalheFicha,{ficha:detalhe,onClose:()=>setDetalhe(null),
+      h(DetalheFicha,{ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
+        onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();},
         onCorrigirQuantidades:profile.papel==='admin'?()=>setCorrigindo(true):undefined,
         onPrazoContratoSalvo:profile.papel==='admin'?prazo=>{
           const atualizar=f=>f?.id===detalhe.id?{...f,contrato_prazo_meses:prazo}:f;
@@ -3589,7 +3650,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
 // =====================================================================
 // PAGINA: SOLICITACOES — equipamentos, bonificacoes e amostras
 // =====================================================================
-function PaginaSolicitacoes({ profile, visao, modulo }) {
+function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const [fichas, setFichas] = useState(null);
   const [solicitacoes, setSolicitacoes] = useState(null);
   const [erroConsultaSolicitacoes,setErroConsultaSolicitacoes] = useState('');
@@ -3768,7 +3829,7 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
     const [rf,rs]=await Promise.all([
       ehVendedor
         ? sb.from('fichas_clientes')
-            .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(etapa, status, decidido_em, observacao)')
+            .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
             .eq('vendedor_id',profile.id).order('created_at',{ascending:false})
         : Promise.resolve({data:[]}),
       sb.from('solicitacoes')
@@ -3803,7 +3864,8 @@ function PaginaSolicitacoes({ profile, visao, modulo }) {
   const podeCriar = podeEquipamento || podeBonificacao || podeAmostra;
 
   return h('div', null,
-    detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
+    detalhe && h(DetalheFicha, { ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
+      onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();} }),
     modalNova && h(ModalNovaSolicitacao, {
       profile, visao, modulo, onClose: () => setModalNova(false),
       onCriada: (categoria) => { setModalNova(false); setSub(categoria || 'equipamento'); setSubStatus('aprovacao'); carregar(); }
@@ -11019,9 +11081,9 @@ function App() {
   else if (paginaAtual === 'dashboard_admin') conteudo = h(PaginaDashboardAdmin,{profile});
   else if (paginaAtual === 'gamificacao') conteudo = profile.papel==='admin'?h(PaginaGamificacaoComercial,{profile}):h('div',{className:'empty-state'},'Acesso restrito ao administrador.');
   else if (paginaAtual === 'emissao') conteudo = h(PaginaEmissao, { profile, onSaved: () => setPagina('solicitacoes') });
-  else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile });
+  else if (paginaAtual === 'fichas') conteudo = h(PaginaFichas, { profile, ehPreview, onChanged:atualizarContador });
   else if (paginaAtual === 'clientes') conteudo = h(PaginaClientes, { profile, modulo });
-  else if (paginaAtual === 'solicitacoes') conteudo = h(PaginaSolicitacoes, { profile, visao, modulo });
+  else if (paginaAtual === 'solicitacoes') conteudo = h(PaginaSolicitacoes, { profile, visao, modulo, ehPreview, onChanged:atualizarContador });
   else if (paginaAtual === 'pendencias') conteudo = h(PaginaPendencias, { profile, visao, ehPreview, onChanged: atualizarContador });
   else if (paginaAtual === 'analise_viabilidade') conteudo = h(PaginaViabilidadeFinanceira,{profile});
   else if (paginaAtual === 'logistica_fichas') conteudo=h(PaginaLogisticaFichas,{profile});
