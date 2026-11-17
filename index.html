@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v133-ficha-reenvio-anexos';
-console.info('[Meu Cliente] BUILD v133-ficha-reenvio-anexos');
+window.__MEU_CLIENTE_BUILD__='v134-bonificacao-pv';
+console.info('[Meu Cliente] BUILD v134-bonificacao-pv');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -8753,6 +8753,7 @@ function PaginaPedidos({ profile }) {
   const [tabelaPrecoCliente, setTabelaPrecoCliente] = useState({});
   const [precosHistoricosCliente,setPrecosHistoricosCliente]=useState({});
   const [pedidoConfirmado,setPedidoConfirmado]=useState(null);
+  const [erroGravacaoPedido,setErroGravacaoPedido]=useState(null);
   const [acordosBonifPedido,setAcordosBonifPedido]=useState([]);
   const [apropriacoesPedido,setApropriacoesPedido]=useState([]);
   const [valorIntroducaoPedido,setValorIntroducaoPedido]=useState('');
@@ -9024,6 +9025,7 @@ function PaginaPedidos({ profile }) {
 
   async function selecionarCliente(cli) {
     if(carregandoCliente||salvando)return;
+    setErroGravacaoPedido(null);
     setCarregandoCliente(true);
     setBonificacoesAbertas([]);setHistoricoBonificacoes([]);
     setBonificacoesVinculadas([]);setDiagnosticoBonificacoesLegado(null);
@@ -9133,7 +9135,7 @@ function PaginaPedidos({ profile }) {
           return {
             produto_id:it.produto_id,codigo:it.produtos?.codigo,
             descricao:it.produtos?.descricao,unidade:it.produtos?.unidade,
-            quantidade:'',
+            quantidade:'',sugestaoPedidoAnterior:true,
             valor_unitario:(it.tipo_item||'venda')==='bonificacao'?0:
               (precoTabela>0?precoTabela:precoAnterior>0?precoAnterior:precoHistorico>0?precoHistorico:''),
             tipo_item:it.tipo_item||'venda',numero_nf:1,
@@ -9166,7 +9168,7 @@ function PaginaPedidos({ profile }) {
     setTesItens({});
     setItens(itens.map((it, i) => {
       if (i !== idx || (it.solicitacao_bonificacao_id&&campo!=='numero_nf')) return it;
-      const novo = { ...it, [campo]: valor };
+      const novo = { ...it, [campo]: valor, sugestaoPedidoAnterior:false };
       if(campo==='tipo_item'){
         novo.codigo_operacao=valor==='bonificacao'?'04':operacaoPedido;
         novo.valor_unitario=valor==='bonificacao'?0:
@@ -9224,11 +9226,18 @@ function PaginaPedidos({ profile }) {
     setBonificacoesVinculadas(prev=>[...prev,sol]);
   }
 
+  function quantidadeBonificacaoNoPv(sol,item){
+    const escolhida=quantidadesBonificacao[sol.id]?.[item.produto_id];
+    if(escolhida!==undefined)return escolhida;
+    const unicoProdutoComSaldo=sol.itens.filter(i=>Number(i.saldo)>0).length===1;
+    return sol.modalidade!=='desconto'&&unicoProdutoComSaldo&&Number(item.saldo)>0?String(item.saldo):'';
+  }
+
   function vincularBonificacao(sol) {
     if(salvando||carregandoCliente||operacaoPedido!=='01')return;
     if(itens.some(it=>it.solicitacao_bonificacao_id===sol.id&&!it.item_id))return;
     const escolhidos=sol.itens.map(item=>({...item,
-      qtd:Number(quantidadesBonificacao[sol.id]?.[item.produto_id]||0)}));
+      qtd:Number(quantidadeBonificacaoNoPv(sol,item)||0)}));
     if(escolhidos.some(i=>!Number.isFinite(i.qtd)||i.qtd<0||i.qtd>Number(i.saldo)||
       Math.round(i.qtd*1000)/1000!==i.qtd)||!escolhidos.some(i=>i.qtd>0)){
       return toast('Informe uma quantidade positiva de até três casas decimais, dentro do saldo aprovado por produto.','error');
@@ -9254,6 +9263,8 @@ function PaginaPedidos({ profile }) {
       copia.push(item);
     }
     setTesItens({});
+    setPedidoConfirmado(null);
+    setErroGravacaoPedido(null);
     setItens(copia);
   }
 
@@ -9265,7 +9276,11 @@ function PaginaPedidos({ profile }) {
   async function salvarPedido() {
     if(salvando||carregandoCliente)return;
     if(pedidoEditandoId&&apropriacoesPedido.some(x=>x.pedido_id===pedidoEditandoId&&!x.estornado_em))return toast('Este pedido já possui bonificação apropriada. Solicite estorno gerencial antes de editar seus itens.','error');
-    const preenchidos=itens.filter(it=>it.produto_id);
+    setErroGravacaoPedido(null);
+    const temBonificacaoSolicitada=itens.some(it=>it.produto_id&&it.solicitacao_bonificacao_id);
+    // Linhas sugeridas pelo pedido anterior só entram neste PV quando preenchidas.
+    const preenchidos=itens.filter(it=>it.produto_id&&
+      !(temBonificacaoSolicitada&&it.sugestaoPedidoAnterior&&it.quantidade===''));
     if(!preenchidos.length)return toast('Adicione pelo menos um produto ao pedido.','error');
     const incompletos=preenchidos.filter(it=>!(Number(it.quantidade)>0)||
       ((it.tipo_item||'venda')!=='bonificacao'&&!(Number(it.valor_unitario)>0)));
@@ -9319,7 +9334,6 @@ function PaginaPedidos({ profile }) {
       numero_nf:Number(it.numero_nf||1),
       codigo_operacao:it.tipo_item==='bonificacao'?'04':(it.codigo_operacao||operacaoPedido)
     }));
-    const temBonificacaoSolicitada=validos.some(it=>it.solicitacao_bonificacao_id);
     try{
       if(temBonificacaoSolicitada){
         const resultado=await sb.rpc('mc_salvar_pedido_bonificacao_pv',{
@@ -9399,7 +9413,9 @@ function PaginaPedidos({ profile }) {
       }
     }catch(err){
       console.error('Falha ao salvar/confirmar pedido:',err);
-      toast('Pedido não confirmado: '+(err?.message||String(err)),'error');
+      const mensagem='Pedido não confirmado: '+(err?.message||String(err));
+      setErroGravacaoPedido(mensagem);
+      toast(mensagem,'error');
       return;
     }finally{setSalvando(false);}
 
@@ -9822,12 +9838,14 @@ function PaginaPedidos({ profile }) {
                           h('input',{className:'form-input sm',type:'number',min:0,max:it.saldo,step:'0.001',
                             inputMode:'decimal',style:{width:140},
                             'aria-label':'Quantidade neste PV — '+b.codigo+' · '+it.codigo,
-                            value:quantidadesBonificacao[b.id]?.[it.produto_id]??'',
+                            value:quantidadeBonificacaoNoPv(b,it),
                             disabled:vinculada||salvando||Number(it.saldo)<=0,
                             onChange:e=>{const valor=e.target.value;setQuantidadesBonificacao(prev=>({...prev,
                               [b.id]:{...prev[b.id],[it.produto_id]:valor}}));}})))),
                       h('button',{className:'btn btn-secondary btn-sm',disabled:vinculada||salvando,
-                        onClick:()=>vincularBonificacao(b)},vinculada?'Incluída neste PV':'Incluir no PV'));
+                        onClick:()=>vincularBonificacao(b)},vinculada?'Incluída neste PV':'Incluir no PV'),
+                      vinculada&&h('div',{className:'page-sub',role:'status',style:{marginTop:6}},
+                        'Bonificação incluída. Salve o pedido para confirmar a baixa.'));
                   })),
                 historicoBonificacoes.length>0&&h('details',{className:'card'},
                   h('summary',{style:{cursor:'pointer',fontWeight:700}},'Histórico de apropriações por PV'),
@@ -9912,6 +9930,7 @@ function PaginaPedidos({ profile }) {
                         a.modalidade==='Desconto'&&h('div',{className:'page-sub',style:{marginTop:6,color:'var(--warning)'}},'Desconto registrado no Meu Cliente: após importar o CSV no Protheus, o usuário deverá editar o pedido e conceder o desconto manualmente antes do faturamento.'));
                     })
                   ),
+                  erroGravacaoPedido&&h('div',{role:'alert',style:{marginBottom:12,color:'var(--danger)'}},erroGravacaoPedido),
                   pedidoConfirmado && h('div',{style:{padding:12,marginBottom:14,border:'1px solid var(--success)',borderRadius:8}},
                     h('strong',null,'Pedido confirmado no banco: '+pedidoConfirmado.codigo),
                     h('div',{className:'page-sub'},pedidoConfirmado.quantidade+' item(ns) · '+fmtMoeda(pedidoConfirmado.total)+' · '+pedidoConfirmado.quando)),
