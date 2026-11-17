@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v134-bonificacao-pv';
-console.info('[Meu Cliente] BUILD v134-bonificacao-pv');
+window.__MEU_CLIENTE_BUILD__='v135-pedidos-rotas-nome-fantasia';
+console.info('[Meu Cliente] BUILD v135-pedidos-rotas-nome-fantasia');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -8854,7 +8854,7 @@ function PaginaPedidos({ profile }) {
     const rota = (rotas || []).find(r => r.id === rotaId);
     if (!rota) return;
     const { data: crs } = await sb.from('cliente_rotas')
-      .select('id, ordem_entrega, clientes(id, razao_social, cnpj_cpf, codigo_totvs, telefone, condicao_pagamento, acordo_comercial, tabela_preco_id)')
+      .select('id, ordem_entrega, clientes(id, razao_social, nome_fantasia, cnpj_cpf, codigo_totvs, telefone, condicao_pagamento, acordo_comercial, tabela_preco_id)')
       .eq('rota_id', rotaId).order('ordem_entrega');
     const cls = (crs || []).map(cr => cr.clientes).filter(Boolean);
     const { data: acs, error: erroAcomp } = await sb.from('pedido_acompanhamento')
@@ -9748,11 +9748,16 @@ function PaginaPedidos({ profile }) {
           h('div', { style: { fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', padding: '8px 6px' } }, 'Clientes'),
           cls.map((c, i) => {
             const st = infoStatus(statusCliente(c.id));
+            const fantasia = c.nome_fantasia?.trim();
+            const mostrarFantasia = fantasia && c.razao_social?.trim()
+              && fantasia.toLocaleLowerCase('pt-BR') !== c.razao_social.trim().toLocaleLowerCase('pt-BR');
             return h('div', {
               key:c.id, className:'nav-item' + (clienteAtivo && clienteAtivo.id === c.id ? ' active' : ''),
               onClick:()=>selecionarCliente(c), title:st.label
             }, h('span',{className:'nav-icon',style:{fontSize:12}},i+1),
-               h('span',{style:{fontSize:13,flex:1}},identificacaoCliente(c)),
+               h('span',{style:{fontSize:13,flex:1,minWidth:0,overflowWrap:'anywhere'}},
+                 identificacaoCliente(c),
+                 mostrarFantasia && h('span',{style:{display:'block',marginTop:2,fontSize:12,fontWeight:400}},fantasia)),
                h('span',{style:{fontSize:16,fontWeight:800,color:st.cor,marginLeft:6}},st.icon));
           })),
 
