@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v135-pedidos-rotas-nome-fantasia';
-console.info('[Meu Cliente] BUILD v135-pedidos-rotas-nome-fantasia');
+window.__MEU_CLIENTE_BUILD__='v136-financeiro-analise-credito';
+console.info('[Meu Cliente] BUILD v136-financeiro-analise-credito');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2930,7 +2930,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       // DEMAIS ETAPAS
       // Busca primeiro as aprovações: embeds de ficha podem falhar ou voltar null por RLS.
       let q=sb.from('ficha_aprovacoes').select('*').eq('status','pendente');
-      if(etapa!=='admin')q=q.eq('etapa',etapa);
+      if(etapa==='financeiro')q=q.in('etapa',['analise_credito','financeiro']);
+      else if(etapa!=='admin')q=q.eq('etapa',etapa);
 
       if(!ehPreview&&(etapa==='supervisor'||etapa==='coordenador')){
         q=q.eq('responsavel_id',profile.id);
@@ -3507,10 +3508,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     ),
 
     decidindo && decidindo.anCredito && h(ModalAnaliseCredito, {
-      fichaId: decidindo.anCredito.ficha_id,
-      razaoSocial: decidindo.anCredito.fichas_clientes.razao_social,
+      aprovacao: decidindo.anCredito,
+      podeAprovarFinanceiro: !ehPreview && profile.papel==='financeiro',
       onClose: () => setDecidindo(null),
-      onSaved: () => { setDecidindo(null); carregar(); onChanged && onChanged(); }
+      onSaved: (avisos) => { setDestinatarios(avisos); setDecidindo(null); carregar(); onChanged?.(); }
     }),
 
     decidindo && !decidindo.anCredito && h(Modal, {
@@ -3551,6 +3552,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         h('div', { className: 'page-sub' },
           ehPreview ? `Visualização de teste — fila de todos os ${(ROLE_LABELS[etapa]||etapa||'usuário').toLowerCase()}s`
                     : etapa==='admin'?'Administrador · todas as etapas pendentes de Fichas e Solicitações'
+                    : etapa==='financeiro'?'Análise de Crédito e aprovação financeira'
                     : `Solicitações aguardando sua decisão como ${ROLE_LABELS[etapa]||etapa||'usuário'}`))),
 
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
@@ -3626,7 +3628,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               h('div', { style: { textAlign: 'right' } },
                 h('div', { style: { fontSize: 18, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(f.faturamento_previsto)),
                 h('div', { className: 'kpi-label' }, 'faturamento previsto/mês'))),
-            h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: f.ficha_aprovacoes, atualId:ap.id })),
+            h('div', { style: { marginBottom: 12 } }, h(StepperGenerico, { aprovacoes: f.ficha_aprovacoes, atualId:ap.id }),
+              etapa==='financeiro'&&h('span',{className:'badge badge-blue'},
+                ap.etapa==='analise_credito'?'Análise de Crédito':'Aprovação financeira')),
             h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2px 24px', marginBottom: 14, alignItems: 'start' } },
               linhaInfo('Vendedor', f.usuarios && f.usuarios.nome),
               linhaInfo('Cidade', (f.cidade || '') + (f.estado ? '/' + f.estado : '')),
@@ -3639,7 +3643,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               linhaInfo('Equipamentos', resumoEquipamentos(f))),
             h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' },onClick:e=>e.stopPropagation() },
               ap.etapa === 'analise_credito'
-                ? h('button', { className: 'btn btn-primary', onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
+                ? h('button', { className: 'btn btn-primary', disabled:ehPreview, onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
                     h('button',{className:'btn btn-success',onClick:()=>{if(ap.etapa==='diretoria'&&ap.fichas_clientes.precisa_equipamento){setCondicaoDiretoria(ap.fichas_clientes.equipamento_condicao||'');}setDecidindo({ap,status:'aprovado'});}},'✓ Aprovar'),
                     h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ ap, status: 'reprovado' }) }, '✗ Reprovar')),
@@ -5443,7 +5447,8 @@ function PaginaDashboard({ profile, visao, ehPreview, modulo }) {
     }
 
     // Demais papéis mantêm a visão de fila operacional.
-    let q=sb.from('ficha_aprovacoes').select('id,status,fichas_clientes(faturamento_previsto)').eq('etapa',visao);
+    let q=sb.from('ficha_aprovacoes').select('id,status,fichas_clientes(faturamento_previsto)');
+    q=visao==='financeiro'?q.or('etapa.eq.financeiro,and(etapa.eq.analise_credito,status.eq.pendente)'):q.eq('etapa',visao);
     if(!ehPreview && ['supervisor','coordenador'].includes(visao))q=q.eq('responsavel_id',profile.id);
     const qs=sb.from('solicitacao_aprovacoes').select('id,status').eq('etapa',visao);
     const [rf,rs]=await Promise.all([visao==='manutencao'?Promise.resolve({data:[]}):q,qs]);
@@ -6282,68 +6287,59 @@ function PaginaAdmin({ profile }) {
 // =====================================================================
 // MODAL: ANALISE DE CREDITO (preencher campos antes do financeiro)
 // =====================================================================
-function ModalAnaliseCredito({ fichaId, razaoSocial, onClose, onSaved }) {
+function ModalAnaliseCredito({ aprovacao, podeAprovarFinanceiro, onClose, onSaved }) {
   const toast = useToast();
+  const ficha=aprovacao.fichas_clientes;
   const [credito, setCredito] = useState('');
   const [condicao, setCondicao] = useState('');
   const [risco,setRisco]=useState('');
   const [obs, setObs] = useState('');
   const [salvando, setSalvando] = useState(false);
-  const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
-
-  async function salvar() {
-    const valor = moedaParaNumero(credito);
-    if (!valor || valor <= 0) return toast('Informe o crédito liberado.', 'error');
-    if (!condicao.trim()) return toast('Informe a condição de pagamento.', 'error');
-    if(!risco) return toast('Informe o risco de crédito.', 'error');
+  async function salvar(aprovarFinanceiro){
+    if(salvando)return;
+    const valor=moedaParaNumero(credito);
+    if(!Number.isFinite(valor)||valor<=0)return toast('Informe o crédito liberado.','error');
+    if(!condicao.trim())return toast('Informe a condição de pagamento.','error');
+    if(!risco)return toast('Informe o risco de crédito.','error');
 
     setSalvando(true);
-    // salva os campos na ficha
-    const { error: errFicha } = await sb.from('fichas_clientes').update({
-      credito_liberado: valor,
-      condicao_pagamento_credito: condicao.trim(),
-      risco_credito:risco,
-      observacoes_credito: obs.trim() || null,
-      analise_credito_em: new Date().toISOString(),
-    }).eq('id', fichaId);
-
-    if (errFicha) { setSalvando(false); return toast(errFicha.message, 'error'); }
-
-    // marca a etapa analise_credito como aprovada (avanca a fila)
-    const { data: apEtapa } = await sb.from('ficha_aprovacoes')
-      .select('id').eq('ficha_id', fichaId).eq('etapa', 'analise_credito').eq('status', 'pendente')
-      .maybeSingle();
-
-    if (apEtapa) {
-      const winRef = preAbrirJanelaWhats();
-      const { error: errAp } = await sb.rpc('decidir_ficha_workflow', {
-        p_aprovacao_id: apEtapa.id,
-        p_status: 'aprovado',
-        p_observacao: 'Crédito: ' + fmtMoeda(valor) + ' | Risco ' + risco + ' | ' + condicao.trim()
-      });
-
-      if (errAp) { setSalvando(false); if (winRef && !winRef.closed) winRef.close(); return toast(errAp.message, 'error'); }
-
-      // avisa o proximo (financeiro)
-      const fichaObj = { razao_social: razaoSocial, cnpj_cpf: '' };
-      await avisarProximo(fichaId, 3, fichaObj, winRef);
+    const winRef=preAbrirJanelaWhats();
+    const {data:ordem,error}=await sb.rpc('mc_registrar_analise_credito_ficha',{
+      p_aprovacao:aprovacao.id,p_credito:valor,p_condicao:condicao.trim(),p_risco:risco,
+      p_observacoes:obs.trim()||null,p_aprovar_financeiro:aprovarFinanceiro
+    });
+    if(error){
+      setSalvando(false);
+      if(winRef&&!winRef.closed)winRef.close();
+      return toast(error.message,'error');
     }
 
+    let avisos=[];
+    try{
+      avisos=await avisarProximo(aprovacao.ficha_id,ordem,ficha,winRef);
+    }catch(error){
+      if(winRef&&!winRef.closed)winRef.close();
+      console.warn('Aviso da análise de crédito:',error);
+    }
     setSalvando(false);
-    toast('Análise de crédito concluída!', 'success');
-    onSaved();
+    toast(aprovarFinanceiro?'Análise de crédito concluída. Ficha encaminhada à Diretoria.':
+      'Análise de crédito concluída. Ficha liberada para o Financeiro.','success');
+    onSaved(avisos);
   }
 
   return h(Modal, {
     titulo: 'Análise de Crédito',
-    sub: razaoSocial,
-    onClose,
+    sub: ficha.razao_social,
+    onClose:()=>{if(!salvando)onClose();},
     acoes: [
-      h('button', { key: 'c', className: 'btn btn-secondary', onClick: onClose }, 'Cancelar'),
-      h('button', { key: 'ok', className: 'btn btn-primary', onClick: salvar, disabled: salvando },
-        salvando ? 'Salvando...' : 'Concluir análise e liberar para Financeiro')
+      h('button',{key:'c',className:'btn btn-secondary',onClick:onClose,disabled:salvando},'Cancelar'),
+      h('button',{key:'ok',className:podeAprovarFinanceiro?'btn btn-secondary':'btn btn-primary',
+        onClick:()=>salvar(false),disabled:salvando},salvando?'Salvando...':'Concluir análise e liberar para Financeiro'),
+      podeAprovarFinanceiro&&h('button',{key:'ambas',className:'btn btn-success',
+        onClick:()=>salvar(true),disabled:salvando},'Concluir análise e aprovar ficha')
     ]
   },
+    podeAprovarFinanceiro&&h('p',{className:'page-sub'},'Ao concluir as duas etapas, a ficha segue para a Diretoria.'),
     h('div', { className: 'form-grid' },
       h(Campo, { label: 'Crédito Liberado (R$)', obrigatorio: true },
         h(Input, { value: credito, inputMode: 'numeric', placeholder: '0,00',
@@ -11050,8 +11046,8 @@ function App() {
     const etapa = visao === 'admin' ? 'supervisor' : visao;
     if (['vendedor','motorista_manutencao'].includes(visao)) { setContador(0); return; }
 
-    let q = sb.from('ficha_aprovacoes').select('id', { count: 'exact', head: true })
-      .eq('etapa', etapa).eq('status', 'pendente');
+    let q = sb.from('ficha_aprovacoes').select('id', { count: 'exact', head: true }).eq('status','pendente');
+    q=etapa==='financeiro'?q.in('etapa',['analise_credito','financeiro']):q.eq('etapa',etapa);
     let qs = sb.from('solicitacao_aprovacoes').select('id', { count: 'exact', head: true })
       .eq('etapa', etapa).eq('status', 'pendente');
     if (visao !== 'admin' && (etapa === 'supervisor' || etapa === 'coordenador')) {
