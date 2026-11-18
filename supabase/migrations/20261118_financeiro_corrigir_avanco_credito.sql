@@ -55,15 +55,29 @@ BEGIN
     RAISE EXCEPTION 'A etapa Financeiro já possui decisão ou está em situação inválida (%).',
       coalesce(v_financeiro.status,'sem status');
   END IF;
+  -- Bloqueia as etapas posteriores antes de conferir e acertar sua fila.
+  PERFORM 1 FROM public.ficha_aprovacoes a
+  WHERE a.ficha_id=v_ficha AND a.ordem>v_financeiro.ordem
+  ORDER BY a.ordem,a.id FOR UPDATE;
   IF EXISTS (
     SELECT 1 FROM public.ficha_aprovacoes a WHERE a.ficha_id=v_ficha
-      AND a.id<>v_financeiro.id AND a.ordem>=v_financeiro.ordem AND a.status='pendente'
+      AND a.id<>v_financeiro.id AND (
+        (a.ordem=v_financeiro.ordem AND a.status IS DISTINCT FROM 'nao_aplica')
+        OR (a.ordem>v_financeiro.ordem AND
+          (a.status IN ('aprovado','reprovado') OR
+            (a.status='pendente' AND (a.aprovador_id IS NOT NULL OR a.decidido_em IS NOT NULL))))
+      )
   ) THEN
-    RAISE EXCEPTION 'A ficha possui outra etapa pendente além do Financeiro. Confira a fila de aprovação.';
+    RAISE EXCEPTION 'A fila tem etapas duplicadas ou decisões posteriores ao Financeiro. Confira o histórico da ficha.';
   END IF;
   IF p_aprovar_financeiro AND v_financeiro.responsavel_id IS NOT NULL AND v_financeiro.responsavel_id<>v_uid THEN
     RAISE EXCEPTION 'A aprovação financeira está atribuída a outro usuário. Conclua apenas a análise de crédito.';
   END IF;
+
+  -- Só devolve à espera etapas posteriores abertas sem decisão.
+  UPDATE public.ficha_aprovacoes SET status='aguardando'
+  WHERE ficha_id=v_ficha AND ordem>v_financeiro.ordem AND status='pendente'
+    AND aprovador_id IS NULL AND decidido_em IS NULL;
 
   v_risco:=p_risco;
   UPDATE public.fichas_clientes SET
