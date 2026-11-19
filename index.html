@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v136-financeiro-analise-credito';
-console.info('[Meu Cliente] BUILD v136-financeiro-analise-credito');
+window.__MEU_CLIENTE_BUILD__='v138-risco-e-busca-solicitacoes';
+console.info('[Meu Cliente] BUILD v138-risco-e-busca-solicitacoes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -3662,6 +3662,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
   const [subStatus,setSubStatus] = useState('aprovacao');
+  const [buscaSolicitacao,setBuscaSolicitacao]=useState('');
   const [concluindoSolicitacao,setConcluindoSolicitacao]=useState(null);
   const toast=useToast();
   const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
@@ -3852,9 +3853,18 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
-  const equipamentos = solicitacoes.filter(s => !s.categoria || s.categoria === 'equipamento');
-  const bonificacoes = solicitacoes.filter(s => s.categoria === 'bonificacao');
-  const amostras = solicitacoes.filter(s => s.categoria === 'amostra');
+  const normalizarBusca=valor=>String(valor??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const buscaNormalizada=normalizarBusca(buscaSolicitacao);
+  const termosBusca=buscaNormalizada.split(/\s+/).filter(Boolean);
+  const solicitacoesVisiveis=termosBusca.length?solicitacoes.filter(s=>{
+    const cliente=s.clientes;
+    const campos=[codigoAuditoria(s,prefixoSolicitacao(s)),cliente?.codigo_totvs,
+      cliente?.razao_social,cliente?.nome_fantasia].map(normalizarBusca);
+    return termosBusca.every(termo=>campos.some(campo=>campo.includes(termo)));
+  }):solicitacoes;
+  const equipamentos = solicitacoesVisiveis.filter(s => !s.categoria || s.categoria === 'equipamento');
+  const bonificacoes = solicitacoesVisiveis.filter(s => s.categoria === 'bonificacao');
+  const amostras = solicitacoesVisiveis.filter(s => s.categoria === 'amostra');
   const abas = [
     { id: 'equipamento', label: 'Equipamentos (' + equipamentos.length + ')' },
     { id: 'bonificacao', label: 'Bonificações (' + bonificacoes.length + ')' },
@@ -3879,7 +3889,12 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
       h('div', null,
         h('div', { className: 'page-title' }, 'Solicitações'),
         h('div', { className: 'page-sub' }, 'Equipamentos · bonificações · envio de amostras')),
-      podeCriar && h('button', { className: 'btn btn-primary', onClick: () => setModalNova(true) }, '+ Solicitação')),
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        sub!=='fichas'&&h('input',{type:'search',className:'form-input',style:{width:'min(360px, 100%)'},
+          value:buscaSolicitacao,onChange:e=>setBuscaSolicitacao(e.target.value),
+          placeholder:'Buscar por código, razão social ou nome fantasia',
+          'aria-label':'Buscar solicitações por código, razão social ou nome fantasia'}),
+        podeCriar&&h('button',{className:'btn btn-primary',onClick:()=>setModalNova(true)},'+ Solicitação'))),
 
     erroConsultaSolicitacoes && h('div',{className:'card',style:{borderColor:'var(--danger)',marginBottom:12,color:'var(--danger)'}},
       h('strong',null,'Erro ao consultar solicitações'),
@@ -3928,7 +3943,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
                 h('div', { style: { fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" } }, fmtMoeda(f.faturamento_previsto))),
               h(Stepper, { aprovacoes: f.ficha_aprovacoes }))))
       : (lista.length === 0
-          ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: 'Nenhuma solicitação nesta situação.' }))
+          ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: termosBusca.length?'Nenhuma solicitação encontrada nesta situação.':'Nenhuma solicitação nesta situação.' }))
           : lista.map(x => h('div',{key:x.id},
               h(CardSolicitacao,{s:x,rotas:rotasPorCliente[x.cliente_id]||[],erroRotas:erroRotasSolicitacoes}),
               podeConcluirAdm && subStatus==='realizacao' &&
@@ -6347,7 +6362,7 @@ function ModalAnaliseCredito({ aprovacao, podeAprovarFinanceiro, onClose, onSave
       h(Campo, { label: 'Condição de Pagamento', obrigatorio: true },
         h(Input, { value: condicao, placeholder: 'ex: 28 dias boleto',
           onChange: e => setCondicao(e.target.value) })),
-      h(Campo,{label:'Risco de Crédito',obrigatorio:true},h(Select,{opcoes:['A','B','C','D'],value:risco,onChange:e=>setRisco(e.target.value)})),
+      h(Campo,{label:'Risco de Crédito',obrigatorio:true},h(Select,{opcoes:['A','B','C','D','E'],value:risco,onChange:e=>setRisco(e.target.value)})),
       h('div', { style: { gridColumn: '1 / -1' } },
         h(Campo, { label: 'Observações' },
           h('textarea', { className: 'form-textarea', rows: 3, value: obs,
