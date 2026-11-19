@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v138-risco-e-busca-solicitacoes';
-console.info('[Meu Cliente] BUILD v138-risco-e-busca-solicitacoes');
+window.__MEU_CLIENTE_BUILD__='v139-manutencao-editar-rota';
+console.info('[Meu Cliente] BUILD v139-manutencao-editar-rota');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -6659,6 +6659,9 @@ function PaginaEntregasEquipamentos({profile}) {
   const [caminhoes,setCaminhoes]=useState([]),[rotasComerciais,setRotasComerciais]=useState([]),[erroFrota,setErroFrota]=useState('');
   const [caminhaoId,setCaminhaoId]=useState(''),[rotaComercialId,setRotaComercialId]=useState('');
   const [rotaEnviando,setRotaEnviando]=useState(null);
+  const [edicaoRota,setEdicaoRota]=useState(null);
+  const [buscaEdicaoRota,setBuscaEdicaoRota]=useState('');
+  const [salvandoEdicaoRota,setSalvandoEdicaoRota]=useState(false);
   const caminhaoSelecionado=caminhoes.find(c=>c.id===caminhaoId&&c.ativo);
   const requerRotaComercial=caminhaoSelecionado?.propriedade==='logistica';
   const nomeCaminhaoDaRota=r=>{const c=caminhoes.find(c=>c.id===r.caminhao_equipamentos_id);return c?rotuloCaminhao(c):'—';};
@@ -6669,7 +6672,8 @@ function PaginaEntregasEquipamentos({profile}) {
 
   useEffect(()=>{carregar();},[]);
   useEffect(()=>{const t=setTimeout(()=>desenhaMontagem(),120);return()=>clearTimeout(t);},[selecionadas,entregas]);
-  useEffect(()=>{if(!aberta)return;const t=setTimeout(()=>desenhaRota(aberta),150);return()=>clearTimeout(t);},[aberta,itensRota,entregas]);
+  useEffect(()=>{if(!aberta||edicaoRota)return;const t=setTimeout(()=>desenhaRota(aberta),150);return()=>clearTimeout(t);},
+    [aberta,itensRota,entregas,edicaoRota?.rotaId]);
 
   async function carregar(){
     setErro('');
@@ -6878,8 +6882,52 @@ function PaginaEntregasEquipamentos({profile}) {
     }
   }
 
+  function podeEditarComposicao(r){
+    return ['manutencao','admin'].includes(profile.papel)&&r?.setor_responsavel==='manutencao'&&
+      !r.motorista_inicio_em&&!r.concluida_em&&itensDaRota(r.id).every(i=>i.entrega.status==='roteirizada');
+  }
+  function editarComposicao(r){
+    if(!podeEditarComposicao(r))return;
+    const ids=itensDaRota(r.id).map(i=>i.entrega_id);
+    setAberta(r);setBuscaEdicaoRota('');setEdicaoRota({rotaId:r.id,original:ids,ids});
+  }
+  function alternarParadaEdicao(id){
+    setEdicaoRota(atual=>({...atual,ids:atual.ids.includes(id)
+      ?atual.ids.filter(x=>x!==id):[...atual.ids,id]}));
+  }
+  function fecharRota(){
+    if(salvandoEdicaoRota)return;
+    setEdicaoRota(null);setAberta(null);
+  }
+  async function salvarComposicao(r){
+    if(salvandoEdicaoRota||!edicaoRota?.ids.length||edicaoRota.rotaId!==r.id)return;
+    const adicionadas=edicaoRota.ids.filter(id=>!edicaoRota.original.includes(id)).map(entregaPorId).filter(Boolean);
+    const divergentes=adicionadas.filter(e=>e.data_prevista&&e.data_prevista!==r.data_rota);
+    if(divergentes.length&&!window.confirm(divergentes.length+
+      ' demanda(s) possuem data prevista diferente da data da rota. Deseja continuar?'))return;
+    setSalvandoEdicaoRota(true);
+    try{
+      const {data,error}=await sb.rpc('mc_editar_paradas_rota_manutencao',{
+        p_rota_id:r.id,p_paradas_atuais:edicaoRota.original,p_paradas_finais:edicaoRota.ids
+      });
+      if(error)throw error;
+      setEdicaoRota(null);
+      toast('Rota atualizada: '+(data?.adicionadas||0)+' incluída(s), '+(data?.retiradas||0)+' retirada(s).','success');
+      if(data?.adicionadas){
+        await Promise.all(adicionadas.map(geo));
+        await enviarProgramacaoRota(r.id);
+      }
+      await carregar();
+    }catch(error){
+      toast('Não foi possível editar a rota: '+error.message,'error');
+      await carregar();
+    }finally{setSalvandoEdicaoRota(false);}
+  }
+
   async function melhorarRota(r){
     if(!r||!r.id)return;
+    if(r.setor_responsavel==='manutencao'&&!podeEditarComposicao(r))
+      return toast('A ordem só pode ser alterada antes do check-in do motorista.','error');
     let its=itensDaRota(r.id),xs=(await Promise.all(its.filter(i=>i&&i.entrega).map(async i=>{const g=await geo(i.entrega);return g?{...g,_item:i.id}:null;}))).filter(Boolean);if(!xs.length)return toast('A rota não possui demandas válidas para otimizar.','error');xs=otimiza(xs);
     for(let i=0;i<xs.length;i++){const u=await sb.from('rota_equipamento_itens').update({ordem:i+1}).eq('id',xs[i]._item);if(u.error)return toast(u.error.message,'error');}
     await carregar();setAberta(r);toast('Rota reorganizada.','success');
@@ -7042,7 +7090,7 @@ function PaginaEntregasEquipamentos({profile}) {
   if(entregas===null)return h('div',{className:'empty-state'},'Carregando...');
 
   const detalhe=detalheDemanda&&detalheDemanda.id?detalheDemanda:null;
-  const rotaAberta=aberta&&aberta.id?aberta:null;
+  const rotaAberta=aberta?.id?(rotas.find(r=>r.id===aberta.id)||aberta):null;
   const rotasValidas=(rotas||[]).filter(r=>r&&r.id);
   const disponiveis=(filtradas||[]).filter(e=>e&&e.id);
   const selecionadasValidas=(escolhidas||[]).filter(e=>e&&e.id);
@@ -7100,18 +7148,51 @@ function PaginaEntregasEquipamentos({profile}) {
   let modalRota=null;
   if(rotaAberta){
     const itsAbertos=itensDaRota(rotaAberta.id);
+    const editando=edicaoRota?.rotaId===rotaAberta.id;
+    const termo=buscaEdicaoRota.trim().toLowerCase();
+    const alternativas=editando?entregas.filter(e=>!edicaoRota.original.includes(e.id)&&
+      e.status==='ag_rota'&&!jaEmRota(e.id)&&
+      (edicaoRota.ids.includes(e.id)||!termo||
+        [codCliente(e),nomeCliente(e),e.clientes?.nome_fantasia,e.fichas_clientes?.nome_fantasia,e.endereco_cidade]
+          .some(v=>String(v||'').toLowerCase().includes(termo)))):[];
+    const mudou=editando&&(edicaoRota.ids.length!==edicaoRota.original.length||
+      edicaoRota.ids.some(id=>!edicaoRota.original.includes(id)));
     modalRota=h(Modal,{
-      titulo:rotaAberta.nome||'Rota',
+      titulo:(editando?'Editar paradas · ':'')+(rotaAberta.nome||'Rota'),
       sub:[fmtData(rotaAberta.data_rota),nomeCaminhaoDaRota(rotaAberta),nomeRotaComercial(rotaAberta)].filter(Boolean).join(' · '),
-      largo:true,onClose:()=>setAberta(null),
-      acoes:[
+      largo:true,onClose:fecharRota,
+      acoes:editando?[
+        h('button',{key:'c',className:'btn btn-secondary',disabled:salvandoEdicaoRota,onClick:()=>setEdicaoRota(null)},'Cancelar'),
+        h('button',{key:'s',className:'btn btn-primary',disabled:salvandoEdicaoRota||!mudou||
+          !edicaoRota.ids.length||!podeEditarComposicao(rotaAberta),onClick:()=>salvarComposicao(rotaAberta)},
+          salvandoEdicaoRota?'Salvando…':'Salvar alterações')
+      ]:[
+        podeEditarComposicao(rotaAberta)&&h('button',{key:'e',className:'btn btn-secondary',onClick:()=>editarComposicao(rotaAberta)},'Editar paradas'),
         h('button',{key:'r',className:'btn btn-primary',onClick:()=>baixarRomaneio(rotaAberta)},'Gerar Romaneio'),
         !rotaAberta.concluida_em&&!rotaAberta.setor_responsavel&&h('button',{key:'c',className:'btn btn-success',onClick:()=>concluirRota(rotaAberta)},'Concluir rota'),
-        !rotaAberta.concluida_em&&h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
+        !rotaAberta.concluida_em&&(rotaAberta.setor_responsavel!=='manutencao'||podeEditarComposicao(rotaAberta))&&
+          h('button',{key:'m',className:'btn btn-secondary',onClick:()=>melhorarRota(rotaAberta)},'Melhorar rota'),
         !rotaAberta.concluida_em&&!rotaAberta.motorista_inicio_em&&!itsAbertos.some(i=>i.entrega.status==='concluida')&&h('button',{key:'d',className:'btn btn-danger',onClick:()=>desmontarRota(rotaAberta)},'Desmontar rota'),
-        h('button',{key:'f',className:'btn btn-secondary',onClick:()=>setAberta(null)},'Fechar')
+        h('button',{key:'f',className:'btn btn-secondary',onClick:fecharRota},'Fechar')
       ]
     },
+      editando?h('div',null,
+        h('div',{className:'section-title'},'Paradas atuais'),
+        h('p',{className:'page-sub'},'Desmarque as paradas que devem voltar para Ag. Rota.'),
+        ...itsAbertos.map(({entrega:e})=>h('label',{key:e.id,style:{display:'block',padding:'6px 0'}},
+          h('input',{type:'checkbox',checked:edicaoRota.ids.includes(e.id),disabled:salvandoEdicaoRota,
+            onChange:()=>alternarParadaEdicao(e.id)}),' '+(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)+' · '+(e.equipamento_resumo||e.tipo_demanda||'Equipamento'))),
+        h('div',{className:'section-title',style:{marginTop:14}},'Adicionar paradas · Ag. Rota'),
+        h('input',{type:'search',className:'form-input',value:buscaEdicaoRota,onChange:e=>setBuscaEdicaoRota(e.target.value),
+          placeholder:'Buscar cliente ou cidade','aria-label':'Buscar cliente ou cidade para adicionar à rota'}),
+        h('div',{style:{maxHeight:260,overflowY:'auto'}},
+          ...(alternativas.length?alternativas.map(e=>h('label',{key:e.id,style:{display:'block',padding:'6px 0'}},
+            h('input',{type:'checkbox',checked:edicaoRota.ids.includes(e.id),disabled:salvandoEdicaoRota,
+              onChange:()=>alternarParadaEdicao(e.id)}),' '+(codCliente(e)?codCliente(e)+' — ':'')+
+              nomeCliente(e)+' · '+(e.endereco_cidade||'—')+' · '+(e.equipamento_resumo||e.tipo_demanda||'Equipamento')))
+            :[h('p',{key:'vazio',className:'page-sub'},'Nenhuma demanda disponível para esta busca.')])),
+        !edicaoRota.ids.length&&h('p',{className:'page-sub'},'Mantenha uma parada ou use Desmontar rota para retirar todas.'))
+      :h(React.Fragment,null,
       h('div',{id:'mapa-rota-equip',style:{height:430,border:'1px solid var(--border)',borderRadius:10,marginBottom:14}}),
       itsAbertos.length===0
         ? h('div',{className:'empty-state',style:{padding:20}},'Esta rota não possui demandas válidas vinculadas.')
@@ -7123,7 +7204,7 @@ function PaginaEntregasEquipamentos({profile}) {
                 h('td',null,it.ordem||'—'),
                 h('td',null,ent?nomeCliente(ent):'Demanda não localizada'),
                 h('td',null,ent?(ent.equipamento_resumo||ent.equipamento_entrega||'—'):'—'));
-            }))))
+            })))))
     );
   }
 
@@ -7163,6 +7244,7 @@ function PaginaEntregasEquipamentos({profile}) {
           h('td',null,itensDaRota(r.id).length),
           h('td',null,h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setAberta(r)},'Mapa / Rota'),
+            podeEditarComposicao(r)&&h('button',{className:'btn btn-secondary btn-sm',onClick:()=>editarComposicao(r)},'Editar paradas'),
             h('button',{className:'btn btn-primary btn-sm',onClick:()=>baixarRomaneio(r)},'Romaneio'),
             !r.concluida_em&&itensDaRota(r.id).some(i=>i.entrega.status==='roteirizada')&&
               h('button',{className:'btn btn-secondary btn-sm',disabled:!!rotaEnviando||criandoRota,onClick:()=>enviarProgramacaoRota(r.id)},
