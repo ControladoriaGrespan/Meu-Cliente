@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v142-vt-mapa-faturamento';
-console.info('[Meu Cliente] BUILD v142-vt-mapa-faturamento');
+window.__MEU_CLIENTE_BUILD__='v143-vt-mapa-abertura';
+console.info('[Meu Cliente] BUILD v143-vt-mapa-abertura');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7355,14 +7355,31 @@ async function consultarClientesVisita(valores,pagina,administrador){
   return data||[];
 }
 
-function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,aoAbrirConsumo}){
+async function buscarCentroCidadeVisita(cidade,uf,signal){
+  const consulta=[cidade,uf,'Brasil'].filter(Boolean).join(', ');
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q='+encodeURIComponent(consulta);
+  const resp=await fetch(url,{headers:{'Accept':'application/json'},signal});
+  if(!resp.ok)throw Error('Serviço de localização de cidades indisponível. Tente novamente.');
+  const [resultado]=await resp.json();
+  const latitude=Number(resultado?.lat),longitude=Number(resultado?.lon);
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude))
+    throw Error('Não foi possível localizar a cidade '+consulta+'. Verifique cidade e estado.');
+  return {latitude,longitude};
+}
+
+function MapaClientesVisita({consulta,centroGPS,administrador,aoAbrirHistorico,aoNavegar,aoAbrirConsumo}){
   const [registros,setRegistros]=useState(null);
   const [erro,setErro]=useState('');
   const [aviso,setAviso]=useState('');
+  const [erroVisual,setErroVisual]=useState('');
+  const [semTiles,setSemTiles]=useState(false);
+  const [centroMunicipio,setCentroMunicipio]=useState(null);
   const mapaRef=useRef(null);
+  const mapaAtivo=useRef(null);
   const acoes=useRef(null);
   acoes.current={aoAbrirHistorico,aoNavegar,aoAbrirConsumo};
   useEffect(()=>{
+    if(!consulta)return;
     let ativo=true;
     async function carregarMapa(){
       try{
@@ -7379,6 +7396,7 @@ function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,a
         }
         if(!ativo)return;
         const ids=[...clientes.keys()],consumo=new Map();
+        setRegistros(classificarConsumo([...clientes.values()]));
         try{
           for(let i=0;i<ids.length&&ativo;i+=100){
             const {data,error}=await sb.rpc('vt_consumo_clientes',{p_clientes:ids.slice(i,i+100)});
@@ -7398,11 +7416,47 @@ function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,a
 
   const pontos=useMemo(()=>(registros||[]).filter(pontoCliente),[registros]);
   useEffect(()=>{
-    if(!pontos.length||!mapaRef.current||!window.L)return;
-    const L=window.L,mapa=L.map(mapaRef.current);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(mapa);
+    if(!mapaRef.current||!window.L)return;
+    try{
+      const L=window.L,mapa=L.map(mapaRef.current);
+      mapaAtivo.current=mapa;
+      mapa.setView([-14.2,-51.9],4);
+      let carregouFundo=false;
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+        maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      }).on('tileload',()=>{carregouFundo=true;setSemTiles(false);})
+        .on('tileerror',()=>{if(!carregouFundo)setSemTiles(true);}).addTo(mapa);
+    }catch{
+      mapaAtivo.current?.remove();
+      mapaAtivo.current=null;
+      setErroVisual('Não foi possível inicializar o mapa. Recolha e abra novamente.');
+    }
+    return ()=>{mapaAtivo.current?.remove();mapaAtivo.current=null;};
+  },[]);
+
+  const precisaCentro=Boolean(consulta&&registros&&!pontos.length&&!consulta.centro);
+  useEffect(()=>{
+    if(!precisaCentro)return;
+    const controlador=new AbortController();
+    const timeout=setTimeout(()=>controlador.abort(),8000);
+    buscarCentroCidadeVisita(consulta.cidade,consulta.uf,controlador.signal)
+      .then(ponto=>{if(!controlador.signal.aborted)setCentroMunicipio([ponto.latitude,ponto.longitude]);})
+      .catch(()=>{})
+      .finally(()=>clearTimeout(timeout));
+    return ()=>{clearTimeout(timeout);controlador.abort();};
+  },[precisaCentro,consulta]);
+
+  useEffect(()=>{
+    const mapa=mapaAtivo.current;
+    if(!mapa||pontos.length)return;
+    const centro=consulta?(consulta.centro||centroMunicipio):centroGPS;
+    if(centro)mapa.setView(centro,12);
+  },[consulta,centroMunicipio,centroGPS,pontos.length]);
+
+  useEffect(()=>{
+    const mapa=mapaAtivo.current;
+    if(!pontos.length||!mapa)return;
+    const L=window.L,marcadores=[];
     const grupos=new Map();
     for(const c of pontos){
       const chave=pontoCliente(c).join(',');
@@ -7429,17 +7483,18 @@ function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,a
         }
         popup.append(bloco);
       }
-      L.marker(pontoCliente(grupo[0]),{icon:icones,title:grupo.map(nomeClienteVisita).join(' · ')})
+      const marcador=L.marker(pontoCliente(grupo[0]),{icon:icones,title:grupo.map(nomeClienteVisita).join(' · ')})
         .addTo(mapa).bindPopup(popup,{maxHeight:280});
+      marcadores.push(marcador);
     }
     mapa.fitBounds(L.latLngBounds(pontos.map(pontoCliente)),{padding:[25,25],maxZoom:15});
-    return ()=>mapa.remove();
+    return ()=>marcadores.forEach(marcador=>marcador.remove());
   },[pontos]);
   const semPonto=registros?registros.length-pontos.length:0;
   const meses=registros?.find(c=>c.meses!=null)?.meses;
   return h('div',{style:{marginTop:12}},
     erro&&h('p',{role:'alert'},erro),
-    !erro&&!registros&&h('p',{role:'status'},'Carregando clientes do município…'),
+    consulta&&!erro&&!registros&&h('p',{role:'status'},'Carregando clientes do município…'),
     aviso&&h('p',{role:'status'},aviso),
     registros&&h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 14px',marginBottom:8}},
       Object.values(FAIXAS_CONSUMO).map(f=>h('span',{key:f.rotulo,style:{fontSize:12}},
@@ -7447,8 +7502,10 @@ function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,a
     meses>0&&h('p',{style:{fontSize:12}},'Média de kg vendidos por mês · '+meses+' de 10 meses importados.'),
     semPonto>0&&h('p',{style:{fontSize:12}},semPonto+' cliente(s) sem coordenadas cadastradas. Consulte-os na lista abaixo.'),
     registros&&!pontos.length&&h('p',null,'Nenhum cliente com coordenadas cadastradas neste município.'),
-    pontos.length>0&&(window.L?h('div',{ref:mapaRef,'aria-label':'Mapa de clientes do município',style:{height:380,borderRadius:8,border:'1px solid var(--border)',position:'relative',zIndex:0}})
-      :h('p',{role:'alert'},'Mapa indisponível.')));
+    erroVisual&&h('p',{role:'alert'},erroVisual),
+    semTiles&&h('p',{role:'status'},'O fundo do mapa está indisponível. Os pontos cadastrados e a lista de clientes continuam acessíveis.'),
+    window.L?h('div',{ref:mapaRef,'aria-label':'Mapa de clientes do município',style:{height:380,borderRadius:8,border:'1px solid var(--border)',position:'relative',zIndex:0}})
+      :h('p',{role:'alert'},'Mapa indisponível. Recarregue a página para tentar novamente.'));
 }
 
 function ClientesVisitaTecnica({profile,visao}){
@@ -7467,6 +7524,7 @@ function ClientesVisitaTecnica({profile,visao}){
   const [historico,setHistorico]=useState({itens:[],pagina:0,temMais:false,carregando:false,erro:''});
   const cacheMunicipios=useRef(new Map());
   const [mapaAberto,setMapaAberto]=useState(false);
+  const [centroGPS,setCentroGPS]=useState(null);
   const [consumo,setConsumo]=useState(null);
   const consultaConsumo=useRef(0);
 
@@ -7505,11 +7563,13 @@ function ClientesVisitaTecnica({profile,visao}){
     try{
       const gps=await localizacaoAtual();
       const ponto={lat:gps.lat.toFixed(2),lon:gps.lng.toFixed(2)};
+      const centro=[Number(ponto.lat),Number(ponto.lon)];
+      setCentroGPS(centro);
       const chave=ponto.lat+','+ponto.lon;
       let municipio=cacheMunicipios.current.get(chave);
       if(!municipio){
         const parametros=new URLSearchParams({format:'jsonv2',zoom:'10',layer:'address',...ponto});
-        const resposta=await fetch('https://nominatim.openstreetmap.org/reverse?'+parametros);
+        const resposta=await fetch('https://nominatim.openstreetmap.org/reverse?'+parametros,{signal:AbortSignal.timeout(8000)});
         if(!resposta.ok)throw Error('Não foi possível identificar o município pelo GPS. Use a busca por cidade.');
         const {address}=await resposta.json();
         const cidade=address?.city||address?.town||address?.municipality||address?.village;
@@ -7519,7 +7579,7 @@ function ClientesVisitaTecnica({profile,visao}){
         cacheMunicipios.current.set(chave,municipio);
       }
       setFiltro(municipio);
-      await carregarClientes(municipio);
+      await carregarClientes({...municipio,centro});
     }catch(e){setErro(e.message||'Não foi possível localizar o município.');}
     finally{setOcupado(false);}
   }
@@ -7566,11 +7626,17 @@ function ClientesVisitaTecnica({profile,visao}){
       ocupado&&h('p',{role:'status'},'Buscando clientes…'),
       erro&&h('p',{role:'alert'},erro),
       consulta&&h('h4',null,consulta.cidade+' — '+consulta.uf),
-      h('button',{className:'btn btn-secondary',type:'button','aria-expanded':mapaAberto,disabled:ocupado&&!mapaAberto,
-        onClick:()=>{setMapaAberto(!mapaAberto);if(!mapaAberto&&!consulta)buscarPeloGPS();}},
-        mapaAberto?'Recolher mapa':'Abrir mapa'),
-      mapaAberto&&!consulta&&!ocupado&&h('p',{style:{fontSize:12}},'Informe município e UF para carregar o mapa.'),
-      mapaAberto&&consulta&&h(MapaClientesVisita,{key:consulta.cidade+'|'+consulta.uf,consulta,administrador,
+      h('button',{className:'btn btn-secondary',type:'button','aria-expanded':mapaAberto,
+        onClick:()=>{
+          setMapaAberto(!mapaAberto);
+          if(!mapaAberto&&!consulta&&!ocupado){
+            if(filtro.cidade.trim().length>=2&&filtro.uf)buscar(filtro);
+            else buscarPeloGPS();
+          }
+        }},mapaAberto?'Recolher mapa':'Abrir mapa'),
+      mapaAberto&&!consulta&&!ocupado&&h('p',{style:{fontSize:12}},'Informe município e UF para carregar os clientes.'),
+      mapaAberto&&h(MapaClientesVisita,{key:consulta?consulta.cidade+'|'+consulta.uf+'|'+Boolean(consulta.centro):'sem-municipio',
+        consulta,centroGPS,administrador,
         aoAbrirHistorico:carregarHistorico,aoNavegar:abrirRota,aoAbrirConsumo:abrirConsumo}),
       consulta&&!ocupado&&!erro&&!lista.length&&h('p',null,administrador?'Nenhum cliente neste município.':'Nenhum cliente da carteira neste município.'),
       lista.map(c=>{
@@ -7704,14 +7770,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(!cidade)throw Error('Cliente sem cidade cadastrada. Atualize a cidade para planejar a visita.');
     const chave=(cidade+'|'+uf).normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase();
     if(cacheCidades.current[chave])return cacheCidades.current[chave];
-    // Nominatim: consulta pública sob demanda; não usar para geocodificação em massa.
-    const consulta=[cidade,uf,'Brasil'].filter(Boolean).join(', ');
-    const url='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q='+encodeURIComponent(consulta);
-    const resp=await fetch(url,{headers:{'Accept':'application/json'}});
-    if(!resp.ok)throw Error('Serviço de localização de cidades indisponível. Tente novamente.');
-    const resultados=await resp.json();
-    if(!resultados.length)throw Error('Não foi possível localizar a cidade '+consulta+'. Verifique cidade e estado no cadastro do cliente.');
-    const ponto={latitude:Number(resultados[0].lat),longitude:Number(resultados[0].lon)};
+    const ponto=await buscarCentroCidadeVisita(cidade,uf);
     cacheCidades.current[chave]=ponto;
     return ponto;
   }
