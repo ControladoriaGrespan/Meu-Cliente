@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v138-risco-e-busca-solicitacoes';
-console.info('[Meu Cliente] BUILD v138-risco-e-busca-solicitacoes');
+window.__MEU_CLIENTE_BUILD__='v140-vt-clientes-agenda-checkin';
+console.info('[Meu Cliente] BUILD v140-vt-clientes-agenda-checkin');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7226,6 +7226,170 @@ function PaginaEntregasEquipamentos({profile}) {
 const DIAS = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
 
+const horarioVisitaSP=new Intl.DateTimeFormat('pt-BR',{
+  timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+});
+const minutosVisita=hora=>{
+  const [h,m]=String(hora||'00:00').split(':').map(Number);
+  return h*60+m;
+};
+const textoHoraVisita=minutos=>String(Math.floor(minutos/60)).padStart(2,'0')+':'+String(minutos%60).padStart(2,'0');
+
+function intervaloAgendaVisita(visita){
+  const inicio=minutosVisita(visita.hora_inicio);
+  const previsto=inicio+Number(visita.duracao_min||120);
+  const checkout=visita.checkout_em?new Date(visita.checkout_em):null;
+  if(!checkout||!Number.isFinite(checkout.getTime())){
+    return {inicio,fim:Math.min(1440,previsto),rotulo:textoHoraVisita(inicio)+'–'+textoHoraVisita(previsto)};
+  }
+  const partes=Object.fromEntries(horarioVisitaSP.formatToParts(checkout).map(p=>[p.type,p.value]));
+  const data=partes.year+'-'+partes.month+'-'+partes.day;
+  const hora=partes.hour+':'+partes.minute;
+  const minuto=Number(partes.hour)*60+Number(partes.minute);
+  const fim=data>visita.data_visita?1440:Math.max(inicio+1,data===visita.data_visita?minuto:inicio);
+  const diaDoCheckout=data!==visita.data_visita?' ('+partes.day+'/'+partes.month+')':'';
+  return {inicio,fim,rotulo:textoHoraVisita(inicio)+'–'+hora+diaDoCheckout};
+}
+
+function posicionarAtendimentos(blocos){
+  let grupo=[],fins=[];
+  const fecharGrupo=()=>grupo.forEach(bloco=>{bloco.colunas=fins.length;});
+  for(const bloco of blocos){
+    if(!bloco.visita)continue;
+    if(fins.every(fim=>fim<=bloco.inicio)){
+      fecharGrupo();grupo=[];fins=[];
+    }
+    const livre=fins.findIndex(fim=>fim<=bloco.inicio);
+    bloco.coluna=livre<0?fins.length:livre;
+    fins[bloco.coluna]=bloco.fim;
+    grupo.push(bloco);
+  }
+  fecharGrupo();
+}
+
+function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
+  const ufs='AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO'.split(' ');
+  const tamanhoPagina=50;
+  const [filtro,setFiltro]=useState({cidade:'',uf:''});
+  const [consulta,setConsulta]=useState(null);
+  const [lista,setLista]=useState([]);
+  const [pagina,setPagina]=useState(0);
+  const [temMais,setTemMais]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState('');
+  const [cliente,setCliente]=useState(null);
+  const [historico,setHistorico]=useState({itens:[],pagina:0,temMais:false,carregando:false,erro:''});
+  const cacheMunicipios=useRef(new Map());
+
+  async function carregarClientes(valores,proxima=0){
+    const {data,error}=await sb.rpc('vt_clientes_por_cidade',{
+      p_cidade:valores.cidade.trim(),p_uf:valores.uf,p_pagina:proxima
+    });
+    if(error)throw error;
+    const itens=data||[];
+    setConsulta(valores);setPagina(proxima);setTemMais(itens.length>tamanhoPagina);
+    setLista(atual=>proxima?[...atual,...itens.slice(0,tamanhoPagina)]:itens.slice(0,tamanhoPagina));
+  }
+
+  async function buscar(valores,proxima=0){
+    setOcupado(true);setErro('');
+    try{await carregarClientes(valores,proxima);}
+    catch(e){setErro(e.message||'Não foi possível consultar os clientes.');}
+    finally{setOcupado(false);}
+  }
+
+  async function buscarPeloGPS(){
+    setOcupado(true);setErro('');
+    try{
+      const gps=await localizacaoAtual();
+      const ponto={lat:gps.lat.toFixed(2),lon:gps.lng.toFixed(2)};
+      const chave=ponto.lat+','+ponto.lon;
+      let municipio=cacheMunicipios.current.get(chave);
+      if(!municipio){
+        const parametros=new URLSearchParams({format:'jsonv2',zoom:'10',layer:'address',...ponto});
+        const resposta=await fetch('https://nominatim.openstreetmap.org/reverse?'+parametros);
+        if(!resposta.ok)throw Error('Não foi possível identificar o município pelo GPS. Use a busca por cidade.');
+        const {address}=await resposta.json();
+        const cidade=address?.city||address?.town||address?.municipality||address?.village;
+        const uf=/^BR-([A-Z]{2})$/.exec(address?.['ISO3166-2-lvl4']||'')?.[1];
+        if(!cidade||!ufs.includes(uf))throw Error('Município ou UF indisponível pelo GPS. Use a busca por cidade.');
+        municipio={cidade,uf};
+        cacheMunicipios.current.set(chave,municipio);
+      }
+      setFiltro(municipio);
+      await carregarClientes(municipio);
+    }catch(e){setErro(e.message||'Não foi possível localizar o município.');}
+    finally{setOcupado(false);}
+  }
+
+  async function carregarHistorico(c,proxima=0){
+    setCliente(c);
+    setHistorico(atual=>({...atual,itens:proxima?atual.itens:[],carregando:true,erro:''}));
+    try{
+      const {data,error}=await sb.rpc('vt_historico_visitas_cliente',{p_cliente:c.id,p_pagina:proxima});
+      if(error)throw error;
+      const itens=data||[];
+      setHistorico(atual=>({
+        itens:[...(proxima?atual.itens:[]),...itens.slice(0,tamanhoPagina)],pagina:proxima,
+        temMais:itens.length>tamanhoPagina,carregando:false,erro:''
+      }));
+    }catch(e){
+      setHistorico(atual=>({...atual,carregando:false,erro:e.message||'Não foi possível consultar o histórico.'}));
+    }
+  }
+
+  const nomeCliente=c=>[c.codigo_totvs,c.razao_social||c.nome_fantasia].filter(Boolean).join(' — ');
+  const horaRegistro=valor=>valor?horarioVisitaSP.format(new Date(valor)):'—';
+  const fechado=()=>{if(!historico.carregando)setCliente(null);};
+
+  return h(React.Fragment,null,
+    h('div',{className:'card'},
+      h('h3',null,'Clientes por município'),
+      h('button',{className:'btn btn-primary',disabled:ocupado,onClick:buscarPeloGPS},'Usar minha localização'),
+      h('div',{style:{fontSize:12,marginTop:6,color:'var(--muted)'}},
+        'A localização aproximada é consultada no ',
+        h('a',{href:'https://www.openstreetmap.org/copyright',target:'_blank',rel:'noopener noreferrer'},'OpenStreetMap'),
+        ' para identificar o município.'),
+      h('form',{style:{marginTop:12,display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'},
+        onSubmit:e=>{e.preventDefault();if(!ocupado)buscar(filtro);}},
+        h(Campo,{label:'Município'},h('input',{className:'form-input',value:filtro.cidade,required:true,minLength:2,maxLength:120,
+          disabled:ocupado,onChange:e=>setFiltro({...filtro,cidade:e.target.value})})),
+        h(Campo,{label:'UF'},h('select',{className:'form-select',value:filtro.uf,required:true,disabled:ocupado,
+          onChange:e=>setFiltro({...filtro,uf:e.target.value})},h('option',{value:''},'Selecione'),
+          ufs.map(uf=>h('option',{key:uf,value:uf},uf)))),
+        h('button',{className:'btn btn-secondary',type:'submit',disabled:ocupado},'Buscar clientes')),
+      ocupado&&h('p',{role:'status'},'Buscando clientes…'),
+      erro&&h('p',{role:'alert'},erro),
+      consulta&&h('h4',null,consulta.cidade+' — '+consulta.uf),
+      consulta&&!ocupado&&!erro&&!lista.length&&h('p',null,'Nenhum cliente da carteira neste município.'),
+      lista.map(c=>{
+        const temEndereco=Boolean(c.endereco_logradouro?.trim()||(c.endereco_latitude!=null&&c.endereco_longitude!=null));
+        return h('div',{key:c.id,style:{borderTop:'1px solid var(--border)',padding:'10px 0',display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',justifyContent:'space-between'}},
+          h('div',null,h('b',null,nomeCliente(c)),
+            c.nome_fantasia&&c.nome_fantasia!==c.razao_social&&h('div',null,c.nome_fantasia),
+            h('div',{style:{fontSize:12}},temEndereco?(c.endereco_logradouro?.trim()?enderecoVisita({clientes:c}):'Localização cadastrada'):'Endereço não cadastrado')),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+            h('button',{className:'btn btn-secondary btn-sm',onClick:()=>carregarHistorico(c)},'Histórico de Visita'),
+            h('button',{className:'btn btn-secondary btn-sm',disabled:!temEndereco,onClick:()=>navegarVisita({clientes:c})},'Ir até o cliente')));
+      }),
+      temMais&&h('button',{className:'btn btn-secondary',disabled:ocupado,onClick:()=>buscar(consulta,pagina+1)},'Carregar mais clientes')),
+    cliente&&h(Modal,{titulo:'Histórico de Visita',sub:nomeCliente(cliente),largo:true,onClose:fechado,
+      acoes:h('button',{className:'btn btn-secondary',disabled:historico.carregando,onClick:fechado},'Fechar')},
+      historico.carregando&&h('p',{role:'status'},'Carregando atendimentos…'),
+      historico.erro&&h('p',{role:'alert'},historico.erro),
+      historico.erro&&!historico.itens.length&&h('button',{className:'btn btn-secondary btn-sm',onClick:()=>carregarHistorico(cliente)},'Tentar novamente'),
+      !historico.carregando&&!historico.erro&&!historico.itens.length&&h('p',null,'Nenhum atendimento anterior.'),
+      historico.itens.map(v=>h('article',{key:v.id,style:{borderTop:'1px solid var(--border)',padding:'10px 0'}},
+        h('b',null,v.data_visita.split('-').reverse().join('/')+' · '+(v.tipo_atendimento==='treinamento'?'Treinamento':'Produção')),
+        h('div',null,(v.tecnico_nome||'Profissional não identificado')+' · '+(v.checkout_em||v.status==='concluida'?'Finalizado':'Sem checkout')),
+        h('div',null,'Check-in '+horaRegistro(v.checkin_em)+' · Checkout '+horaRegistro(v.checkout_em)),
+        v.objetivo&&h('div',null,v.objetivo),
+        v.relato_execucao&&h('details',null,h('summary',null,'Relato da execução'),h('p',{style:{whiteSpace:'pre-wrap'}},v.relato_execucao)))),
+      historico.temMais&&h('button',{className:'btn btn-secondary',disabled:historico.carregando,
+        onClick:()=>carregarHistorico(cliente,historico.pagina+1)},'Carregar mais atendimentos')));
+}
+
 function PaginaVisitasTecnicas({ profile, visao }) {
   const toast=useToast();
   const papelVisao=profile.papel==='admin'&&visao&&visao!=='admin'?visao:profile.papel;
@@ -7238,6 +7402,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const lider=papelVisao==='lider_tec_panificacao';
   const adminReal=profile.papel==='admin'&&!emPreview;
   const podeAgendar=(lider||supervisor||adminReal)&&!emPreview;
+  const podeCheckinRapido=(tecnico||lider||supervisor)&&!emPreview;
+  const [abaVisita,setAbaVisita]=useState('agenda');
   const [usuarios,setUsuarios]=useState([]);
   const [visitas,setVisitas]=useState([]);
   const [pedidosGPS,setPedidosGPS]=useState([]);
@@ -7307,8 +7473,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [erroMapa,setErroMapa]=useState('');
   const [tecnicoAgenda,setTecnicoAgenda]=useState('');
   const [agora,setAgora]=useState(Date.now());
-  const paraMin=h=>{const x=String(h||'00:00').split(':');return Number(x[0])*60+Number(x[1]);};
-  const formatMin=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+  const paraMin=minutosVisita;
+  const formatMin=textoHoraVisita;
   // Planejamento usa o centro aproximado da cidade; GPS real é registrado somente no atendimento.
   const cacheCidades=React.useRef({});
   async function coordenadasCidade(c){
@@ -7538,7 +7704,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     if(ru.error)toast('Erro ao carregar equipe: '+ru.error.message,'error');
     setUsuarios(ru.data||[]);setCarregando(false);
   }
-  const supervisorTerritorio=lider?usuarios.find(u=>u.id===profile.id)?.supervisor_id:profile.id;
+  const supervisorTerritorio=tecnico?usuariosPorId[usuariosPorId[profile.id]?.supervisor_id]?.supervisor_id:
+    lider?usuariosPorId[profile.id]?.supervisor_id:profile.id;
   const comerciaisVinculados=vinculosTerritorio.filter(v=>v.supervisor_tecnico_id===supervisorTerritorio).map(v=>v.supervisor_comercial_id);
   const vendedoresTerritorio=new Set((usuarios||[]).filter(u=>comerciaisVinculados.includes(u.papel==='supervisor'?u.id:u.supervisor_id)).map(u=>u.id));
   // A RPC e a hierarquia atual usam a mesma matriz territorial.
@@ -7835,7 +8002,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   }
 
   const abrirCheckinRapido=()=>{
-    if(!lider&&!supervisor)return;
+    if(!podeCheckinRapido)return;
     setBuscaCliente('');setClientes([]);setErroBuscaClientes('');
     setCheckinRapido({cliente_id:''});
   };
@@ -7853,6 +8020,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       hora_inicio:ini,hora_fim:fim,objetivo:v.objetivo||'',observacoes:v.observacoes||''});
   }
   async function confirmarCheckinRapido(){
+    if(!podeCheckinRapido)return;
     if(!checkinRapido?.cliente_id)return toast('Selecione um cliente.','error');
     const c=clientes.find(x=>x.id===checkinRapido.cliente_id);
     if(!c||!clienteNoTerritorio(c))return toast('Check-in imediato somente na carteira própria da equipe.','error');
@@ -7864,8 +8032,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       });
       if(error)throw error;
       toast('Check-in registrado. A visita já está em andamento.','success');
-      setCheckinRapido(null);setBuscaCliente('');setClientes([]);setSemana(0);
-      await carregar();
+      setCheckinRapido(null);setBuscaCliente('');setClientes([]);setAbaVisita('agenda');setFiltroLider('');setFiltroTecnico('');setTecnicoAgenda(profile.id);
+      if(semana!==0)setSemana(0);else await carregar();
     }catch(e){toast('Check-in não registrado: '+(e.message||e),'error');}
     finally{setSalvando(false);}
   }
@@ -7946,7 +8114,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
 
     h('div',{className:'page-head'},
       h('div',null,h('div',{className:'page-title'},'Visita Técnica'),h('div',{className:'page-sub'},'Agenda semanal · Check-in e checkout · Qualidade')),
-      (lider||supervisor)&&!emPreview&&h('button',{className:'btn btn-secondary',style:{marginRight:8},onClick:abrirCheckinRapido},'✓ Check-in agora'),
+      podeCheckinRapido&&h('button',{className:'btn btn-secondary',style:{marginRight:8},onClick:abrirCheckinRapido},'✓ Check-in agora'),
       podeAgendar&&h('button',{className:'btn btn-primary',onClick:()=>{setAlertaAgenda('');setTipoAtendimento('producao');setRepetirVisitas(false);setDataFimVisitas(dias[0].iso);setForm({cliente_id:'',tecnico_id:'',data_visita:dias[0].iso,hora_inicio:'08:00',hora_fim:'10:00',objetivo:'',observacoes:''});}},'+ Agendar visita')),
     tecnico&&!emPreview&&pedidoPendente(pedidoDoTecnico)&&h('div',{className:'card',style:{marginBottom:14}},
       h('div',{className:'section-title'},'Localização solicitada'),
@@ -7957,6 +8125,12 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregarPedidosGPS},'Tentar novamente')),
     erroBanco&&h('div',{className:'card',style:{border:'1px solid #e3a83d',marginBottom:16}},
       h('b',null,'Configuração do banco pendente'),h('p',null,'A tabela visitas_tecnicas ou suas permissões ainda não estão disponíveis: '+erroBanco)),
+    podeCheckinRapido&&h('nav',{'aria-label':'Visita Técnica',style:{display:'flex',gap:8,marginBottom:14}},
+      [['agenda','Agenda'],['clientes','Clientes']].map(([id,rotulo])=>h('button',{key:id,
+        className:'btn '+(abaVisita===id?'btn-primary':'btn-secondary'),'aria-pressed':abaVisita===id,
+        onClick:()=>setAbaVisita(id)},rotulo))),
+    podeCheckinRapido&&abaVisita==='clientes'?h(ClientesVisitaTecnica,{localizacaoAtual,navegarVisita,enderecoVisita}):
+    h(React.Fragment,null,
     h('div',{className:'card',style:{marginBottom:14}},
       h('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSemana(v=>v-1)},'← Semana anterior'),
@@ -8112,7 +8286,11 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         const concluidas=hoje.filter(v=>v.status==='concluida').length;
         const atualVisita=hoje.find(v=>v.status==='em_andamento')||hoje.find(v=>v.status==='agendada');
         const indice=atualVisita?hoje.indexOf(atualVisita)+1:hoje.length;
-        const horaInicio=8*60,horaFim=20*60,alturaSlot=46;
+        const intervalos=new Map(agenda.flat().map(v=>[v.id,intervaloAgendaVisita(v)]));
+        const limites=[...intervalos.values()];
+        const horaInicio=Math.floor(Math.min(8*60,...limites.map(i=>i.inicio))/30)*30;
+        const horaFim=Math.min(1440,Math.ceil(Math.max(20*60,...limites.map(i=>i.fim))/30)*30);
+        const alturaSlot=46;
         const totalAltura=(horaFim-horaInicio)/30*alturaSlot;
         return h('div',null,
           h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}},
@@ -8143,31 +8321,34 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               const lista=agenda[di];const blocos=[];
               let fimAnterior=null;
               lista.forEach(v=>{
-                const ini=paraMin(v.hora_inicio),fim=ini+Number(v.duracao_min||120);
+                const {inicio:ini,fim,rotulo}=intervalos.get(v.id);
                 if(v.status!=='cancelada'){
                   if(fimAnterior!==null&&ini>fimAnterior)blocos.push({tipo:'deslocamento',inicio:fimAnterior,fim:ini,titulo:'Deslocamento / intervalo',sub:Math.round(ini-fimAnterior)+' min'});
                   fimAnterior=Math.max(fimAnterior??0,fim);
                 }
-                const sobreposto=lista.some(x=>(x.status==='cancelada')!==(v.status==='cancelada')&&
-                  paraMin(x.hora_inicio)<fim&&paraMin(x.hora_inicio)+Number(x.duracao_min||120)>ini);
-                blocos.push({sobreposto,tipo:statusVisita(v),inicio:ini,fim,titulo:(v.clientes?.codigo_totvs||'')+' '+(v.clientes?.razao_social||v.clientes?.nome_fantasia||'Cliente'),sub:formatMin(ini)+'–'+formatMin(fim)+' · '+(v.tipo_atendimento==='treinamento'?'Treinamento':'Produção'),visita:v});
+                const c=v.clientes||{};
+                blocos.push({tipo:statusVisita(v),inicio:ini,fim,
+                  titulo:[c.codigo_totvs,c.razao_social||c.nome_fantasia||'Cliente'].filter(Boolean).join(' — '),
+                  fantasia:c.razao_social&&c.nome_fantasia!==c.razao_social?c.nome_fantasia:null,
+                  sub:rotulo+' · '+(v.tipo_atendimento==='treinamento'?'Treinamento':'Produção'),visita:v});
               });
+              posicionarAtendimentos(blocos);
               return h('div',{key:d.iso,style:{height:totalAltura,position:'relative',borderRight:'1px solid #ddd',background:'repeating-linear-gradient(to bottom,transparent 0px,transparent '+(alturaSlot-1)+'px,#e9e9e9 '+(alturaSlot-1)+'px,#e9e9e9 '+alturaSlot+'px)'}},
                 Array.from({length:(horaFim-horaInicio)/30},(_,i)=>h('button',{key:i,title:'Agendar '+formatMin(horaInicio+i*30),disabled:!podeAgendar,onClick:()=>abrirAgendamento(selecionado,d.iso,formatMin(horaInicio+i*30)),style:{position:'absolute',top:i*alturaSlot,left:0,width:'100%',height:alturaSlot,border:0,background:'transparent',cursor:podeAgendar?'pointer':'default'}})),
-                blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:i,onClick:b.visita?()=>setVisitaAberta(b.visita):undefined,role:b.visita?'button':undefined,tabIndex:b.visita?0:undefined,onKeyDown:b.visita?e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setVisitaAberta(b.visita);}}:undefined,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:b.sobreposto&&b.tipo==='cancelada'?'50%':3,right:b.sobreposto&&b.tipo!=='cancelada'?'50%':3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:b.sobreposto?2:1,cursor:b.visita?'pointer':'default',border:'1px solid rgba(0,0,0,.08)'}},
-                  h('b',null,b.titulo),h('div',null,b.sub),b.visita&&h('div',{style:{fontWeight:700}},substituicaoPendente(b.visita)?'Substituição aguardando aprovação':rotulosVisita(b.visita,b.tipo).map(estado=>nomes[estado]).join(' · ')),b.visita?.lider_acompanha&&h('div',null,'Líder acompanha'),
+                blocos.filter(b=>b.fim>horaInicio&&b.inicio<horaFim).map((b,i)=>h('div',{key:b.visita?.id||i,title:b.visita?[b.titulo,b.fantasia,b.sub].filter(Boolean).join(' · '):undefined,onClick:b.visita?()=>setVisitaAberta(b.visita):undefined,role:b.visita?'button':undefined,tabIndex:b.visita?0:undefined,onKeyDown:b.visita?e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setVisitaAberta(b.visita);}}:undefined,style:{position:'absolute',top:Math.max(0,(b.inicio-horaInicio)/30*alturaSlot),height:Math.max(26,(Math.min(horaFim,b.fim)-Math.max(horaInicio,b.inicio))/30*alturaSlot-3),left:b.colunas>1?'calc('+100*b.coluna/b.colunas+'% + 2px)':3,right:b.colunas>1?'calc('+100*(b.colunas-b.coluna-1)/b.colunas+'% + 2px)':3,background:paleta[b.tipo].bg,color:paleta[b.tipo].fg,borderRadius:6,padding:6,boxSizing:'border-box',overflow:'auto',fontSize:11,zIndex:b.visita?1:0,cursor:b.visita?'pointer':'default',border:'1px solid rgba(0,0,0,.08)'}},
+                  h('b',null,b.titulo),b.fantasia&&h('div',null,b.fantasia),h('div',null,b.sub),b.visita&&h('div',{style:{fontWeight:700}},substituicaoPendente(b.visita)?'Substituição aguardando aprovação':rotulosVisita(b.visita,b.tipo).map(estado=>nomes[estado]).join(' · ')),b.visita?.lider_acompanha&&h('div',null,'Líder acompanha'),
                   b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
-                  b.visita&&b.visita.checkout_em&&h('div',null,'Checkout: '+new Date(b.visita.checkout_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   b.visita&&h('div',{style:{fontSize:10,marginTop:7,opacity:.75}},'Clique para ver detalhes'))));
             })));
-      })()),
+      })())),
     visitaAberta&&h(Modal,{titulo:'Atendimento técnico',largo:true,onClose:()=>setVisitaAberta(null),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setVisitaAberta(null)},'Fechar')]},
       h('div',{style:{display:'grid',gap:12}},
         h('h3',null,visitaAberta.clientes?.razao_social||visitaAberta.clientes?.nome_fantasia||'Cliente'),
         h('div',null,'Código TOTVS: '+(visitaAberta.clientes?.codigo_totvs||'—')),
+        visitaAberta.clientes?.nome_fantasia&&h('div',null,'Nome fantasia: '+visitaAberta.clientes.nome_fantasia),
         h('div',null,'Endereço: '+(enderecoVisita(visitaAberta)||'Não cadastrado')),
         h('div',null,'Responsável: '+(usuariosPorId[visitaAberta.tecnico_id]?.nome||'—')),
-        h('div',null,'Data: '+visitaAberta.data_visita+' · '+String(visitaAberta.hora_inicio||'').slice(0,5)+'–'+formatMin(paraMin(visitaAberta.hora_inicio)+Number(visitaAberta.duracao_min||60))),
+        h('div',null,'Data: '+visitaAberta.data_visita+' · '+intervaloAgendaVisita(visitaAberta).rotulo),
         h('div',null,'Atendimento: '+(visitaAberta.tipo_atendimento==='treinamento'?'Treinamento':'Produção')),
         h('div',null,'Objetivo: '+(visitaAberta.objetivo||'—')),
         h('div',null,'Status: '+(substituicaoPendente(visitaAberta)?'Substituição aguardando aprovação':rotulosVisita(visitaAberta).map(estado=>nomes[estado]).join(' · '))),
