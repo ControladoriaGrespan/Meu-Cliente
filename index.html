@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v141-vt-clientes-menu';
-console.info('[Meu Cliente] BUILD v141-vt-clientes-menu');
+window.__MEU_CLIENTE_BUILD__='v142-vt-mapa-faturamento';
+console.info('[Meu Cliente] BUILD v142-vt-mapa-faturamento');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7328,6 +7328,129 @@ async function listarHistoricoVisitaAdmin(clienteId,pagina,tamanhoPagina){
   return data.map(v=>({...v,tecnico_nome:nomes.get(v.tecnico_id),relato_execucao:v.relatorio_qualidade}));
 }
 
+const FAIXAS_CONSUMO={
+  maior:{cor:'#167744',rotulo:'Maiores consumos'},
+  medio:{cor:'#e8ad17',rotulo:'Médios consumos'},
+  menor:{cor:'#c82b24',rotulo:'Menores consumos'},
+  sem_dados:{cor:'#697586',rotulo:'Sem dados suficientes'}
+};
+const nomeClienteVisita=c=>[c.codigo_totvs,c.razao_social||c.nome_fantasia].filter(Boolean).join(' — ');
+function classificarConsumo(itens){
+  const volumes=[...new Set(itens.map(c=>c.media_kg).filter(v=>v!=null).map(Number))].sort((a,b)=>b-a);
+  const faixas=new Map(volumes.map((v,i)=>[
+    v,i===0?'maior':i===volumes.length-1?'menor':
+      ['maior','medio','menor'][Math.floor(i*3/volumes.length)]
+  ]));
+  return itens.map(c=>({...c,faixa:c.media_kg==null?'sem_dados':faixas.get(Number(c.media_kg))}));
+}
+function pontoCliente(c){
+  if(c.endereco_latitude==null||c.endereco_longitude==null)return null;
+  const lat=Number(c.endereco_latitude),lon=Number(c.endereco_longitude);
+  return Number.isFinite(lat)&&Number.isFinite(lon)&&(lat!==0||lon!==0)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?[lat,lon]:null;
+}
+async function consultarClientesVisita(valores,pagina,administrador){
+  if(administrador)return listarClientesVisitaAdmin(valores,pagina,50);
+  const {data,error}=await sb.rpc('vt_clientes_por_cidade',{p_cidade:valores.cidade.trim(),p_uf:valores.uf,p_pagina:pagina});
+  if(error)throw error;
+  return data||[];
+}
+
+function MapaClientesVisita({consulta,administrador,aoAbrirHistorico,aoNavegar,aoAbrirConsumo}){
+  const [registros,setRegistros]=useState(null);
+  const [erro,setErro]=useState('');
+  const [aviso,setAviso]=useState('');
+  const mapaRef=useRef(null);
+  const acoes=useRef(null);
+  acoes.current={aoAbrirHistorico,aoNavegar,aoAbrirConsumo};
+  useEffect(()=>{
+    let ativo=true;
+    async function carregarMapa(){
+      try{
+        const clientes=new Map();
+        if(administrador){
+          const todos=await listarClientesVisitaAdmin(consulta,0,100000);
+          todos.forEach(c=>clientes.set(c.id,c));
+        }else{
+          for(let pagina=0;ativo;pagina++){
+            const lote=await consultarClientesVisita(consulta,pagina,false);
+            lote.slice(0,50).forEach(c=>clientes.set(c.id,c));
+            if(lote.length<=50)break;
+          }
+        }
+        if(!ativo)return;
+        const ids=[...clientes.keys()],consumo=new Map();
+        try{
+          for(let i=0;i<ids.length&&ativo;i+=100){
+            const {data,error}=await sb.rpc('vt_consumo_clientes',{p_clientes:ids.slice(i,i+100)});
+            if(error)throw error;
+            (data||[]).forEach(c=>consumo.set(c.cliente_id,c));
+          }
+        }catch{
+          consumo.clear();
+          if(ativo)setAviso('Consumo indisponível. Os clientes continuam visíveis no mapa.');
+        }
+        if(ativo)setRegistros(classificarConsumo([...clientes.values()].map(c=>({...c,...consumo.get(c.id)}))));
+      }catch(e){if(ativo)setErro(e.message||'Não foi possível carregar os clientes.');}
+    }
+    carregarMapa();
+    return ()=>{ativo=false;};
+  },[consulta,administrador]);
+
+  const pontos=useMemo(()=>(registros||[]).filter(pontoCliente),[registros]);
+  useEffect(()=>{
+    if(!pontos.length||!mapaRef.current||!window.L)return;
+    const L=window.L,mapa=L.map(mapaRef.current);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(mapa);
+    const grupos=new Map();
+    for(const c of pontos){
+      const chave=pontoCliente(c).join(',');
+      if(!grupos.has(chave))grupos.set(chave,[]);
+      grupos.get(chave).push(c);
+    }
+    for(const grupo of grupos.values()){
+      const popup=document.createElement('div');
+      const icones=L.divIcon({className:'',iconSize:[25,32],iconAnchor:[12,29],popupAnchor:[0,-26],
+        html:'<div style="width:23px;height:23px;margin-top:2px;transform:rotate(-45deg);border-radius:50% 50% 50% 0;border:2px solid white;box-shadow:0 1px 4px #333;background:'+FAIXAS_CONSUMO[grupo[0].faixa].cor+'"></div>'});
+      for(const c of grupo){
+        const bloco=document.createElement('section'),nome=document.createElement('strong'),detalhe=document.createElement('div');
+        nome.textContent=nomeClienteVisita(c)+(c.nome_fantasia&&c.razao_social!==c.nome_fantasia?' · '+c.nome_fantasia:'');
+        detalhe.textContent=c.media_kg==null?FAIXAS_CONSUMO[c.faixa].rotulo:formatoConsumo.format(c.media_kg)+' kg vendidos/mês';
+        detalhe.style.color=FAIXAS_CONSUMO[c.faixa].cor;
+        bloco.style.padding='5px 0';
+        bloco.append(nome,detalhe);
+        for(const [rotulo,metodo] of [['Ir até o cliente','aoNavegar'],['Histórico de Visita','aoAbrirHistorico'],['Consumo por SKU','aoAbrirConsumo']]){
+          const botao=document.createElement('button');
+          botao.type='button';botao.className='btn btn-secondary btn-sm';botao.textContent=rotulo;
+          botao.style.margin='5px 4px 0 0';
+          botao.onclick=()=>acoes.current[metodo](c);
+          bloco.append(botao);
+        }
+        popup.append(bloco);
+      }
+      L.marker(pontoCliente(grupo[0]),{icon:icones,title:grupo.map(nomeClienteVisita).join(' · ')})
+        .addTo(mapa).bindPopup(popup,{maxHeight:280});
+    }
+    mapa.fitBounds(L.latLngBounds(pontos.map(pontoCliente)),{padding:[25,25],maxZoom:15});
+    return ()=>mapa.remove();
+  },[pontos]);
+  const semPonto=registros?registros.length-pontos.length:0;
+  const meses=registros?.find(c=>c.meses!=null)?.meses;
+  return h('div',{style:{marginTop:12}},
+    erro&&h('p',{role:'alert'},erro),
+    !erro&&!registros&&h('p',{role:'status'},'Carregando clientes do município…'),
+    aviso&&h('p',{role:'status'},aviso),
+    registros&&h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 14px',marginBottom:8}},
+      Object.values(FAIXAS_CONSUMO).map(f=>h('span',{key:f.rotulo,style:{fontSize:12}},
+        h('span',{'aria-hidden':true,style:{display:'inline-block',width:10,height:10,marginRight:5,borderRadius:'50%',background:f.cor}}),f.rotulo))),
+    meses>0&&h('p',{style:{fontSize:12}},'Média de kg vendidos por mês · '+meses+' de 10 meses importados.'),
+    semPonto>0&&h('p',{style:{fontSize:12}},semPonto+' cliente(s) sem coordenadas cadastradas. Consulte-os na lista abaixo.'),
+    registros&&!pontos.length&&h('p',null,'Nenhum cliente com coordenadas cadastradas neste município.'),
+    pontos.length>0&&(window.L?h('div',{ref:mapaRef,'aria-label':'Mapa de clientes do município',style:{height:380,borderRadius:8,border:'1px solid var(--border)',position:'relative',zIndex:0}})
+      :h('p',{role:'alert'},'Mapa indisponível.')));
+}
+
 function ClientesVisitaTecnica({profile,visao}){
   const toast=useToast();
   const administrador=profile.papel==='admin';
@@ -7343,15 +7466,30 @@ function ClientesVisitaTecnica({profile,visao}){
   const [cliente,setCliente]=useState(null);
   const [historico,setHistorico]=useState({itens:[],pagina:0,temMais:false,carregando:false,erro:''});
   const cacheMunicipios=useRef(new Map());
+  const [mapaAberto,setMapaAberto]=useState(false);
+  const [consumo,setConsumo]=useState(null);
+  const consultaConsumo=useRef(0);
+
+  async function abrirConsumo(c){
+    const atual=++consultaConsumo.current;
+    setConsumo({cliente:c,itens:null});
+    try{
+      const {data,error}=await sb.rpc('vt_consumo_cliente_sku',{p_cliente:c.id});
+      if(error)throw error;
+      if(atual===consultaConsumo.current)setConsumo({cliente:c,itens:data||[]});
+    }catch(e){
+      if(atual===consultaConsumo.current)setConsumo({cliente:c,erro:e.message||'Não foi possível consultar o consumo.'});
+    }
+  }
+  function fecharConsumo(){consultaConsumo.current++;setConsumo(null);}
+  const abrirRota=c=>navegarVisita({clientes:c},toast);
 
   async function carregarClientes(valores,proxima=0){
     const cidade=valores.cidade.trim();
     if(cidade.length<2)throw Error('Informe o município.');
-    const resposta=administrador?{data:await listarClientesVisitaAdmin(valores,proxima,tamanhoPagina)}
-      :await sb.rpc('vt_clientes_por_cidade',{p_cidade:cidade,p_uf:valores.uf,p_pagina:proxima});
-    if(resposta.error)throw resposta.error;
-    const itens=resposta.data||[];
-    setConsulta(valores);setPagina(proxima);setTemMais(itens.length>tamanhoPagina);
+    const itens=await consultarClientesVisita(valores,proxima,administrador);
+    if(!proxima)setConsulta(valores);
+    setPagina(proxima);setTemMais(itens.length>tamanhoPagina);
     setLista(atual=>proxima?[...atual,...itens.slice(0,tamanhoPagina)]:itens.slice(0,tamanhoPagina));
   }
 
@@ -7403,7 +7541,7 @@ function ClientesVisitaTecnica({profile,visao}){
     }
   }
 
-  const nomeCliente=c=>[c.codigo_totvs,c.razao_social||c.nome_fantasia].filter(Boolean).join(' — ');
+  const nomeCliente=nomeClienteVisita;
   const horaRegistro=valor=>valor?horarioVisitaSP.format(new Date(valor)):'—';
   const fechado=()=>{if(!historico.carregando)setCliente(null);};
 
@@ -7428,6 +7566,12 @@ function ClientesVisitaTecnica({profile,visao}){
       ocupado&&h('p',{role:'status'},'Buscando clientes…'),
       erro&&h('p',{role:'alert'},erro),
       consulta&&h('h4',null,consulta.cidade+' — '+consulta.uf),
+      h('button',{className:'btn btn-secondary',type:'button','aria-expanded':mapaAberto,disabled:ocupado&&!mapaAberto,
+        onClick:()=>{setMapaAberto(!mapaAberto);if(!mapaAberto&&!consulta)buscarPeloGPS();}},
+        mapaAberto?'Recolher mapa':'Abrir mapa'),
+      mapaAberto&&!consulta&&!ocupado&&h('p',{style:{fontSize:12}},'Informe município e UF para carregar o mapa.'),
+      mapaAberto&&consulta&&h(MapaClientesVisita,{key:consulta.cidade+'|'+consulta.uf,consulta,administrador,
+        aoAbrirHistorico:carregarHistorico,aoNavegar:abrirRota,aoAbrirConsumo:abrirConsumo}),
       consulta&&!ocupado&&!erro&&!lista.length&&h('p',null,administrador?'Nenhum cliente neste município.':'Nenhum cliente da carteira neste município.'),
       lista.map(c=>{
         const temEndereco=Boolean(c.endereco_logradouro?.trim()||(c.endereco_latitude!=null&&c.endereco_longitude!=null));
@@ -7437,9 +7581,21 @@ function ClientesVisitaTecnica({profile,visao}){
             h('div',{style:{fontSize:12}},temEndereco?(c.endereco_logradouro?.trim()?enderecoVisita({clientes:c}):'Localização cadastrada'):'Endereço não cadastrado')),
           h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>carregarHistorico(c)},'Histórico de Visita'),
-            h('button',{className:'btn btn-secondary btn-sm',disabled:!temEndereco,onClick:()=>navegarVisita({clientes:c},toast)},'Ir até o cliente')));
+            h('button',{className:'btn btn-secondary btn-sm',disabled:!temEndereco,onClick:()=>abrirRota(c)},'Ir até o cliente'),
+            h('button',{className:'btn btn-secondary btn-sm',onClick:()=>abrirConsumo(c)},'Consumo por SKU')));
       }),
       temMais&&h('button',{className:'btn btn-secondary',disabled:ocupado,onClick:()=>buscar(consulta,pagina+1)},'Carregar mais clientes')),
+    consumo&&h(Modal,{titulo:'Consumo médio mensal por SKU',sub:nomeCliente(consumo.cliente),largo:true,onClose:fecharConsumo,
+      acoes:h('button',{className:'btn btn-secondary',onClick:fecharConsumo},'Fechar')},
+      consumo.erro?h('p',{role:'alert'},consumo.erro):
+        !consumo.itens?h('p',{role:'status'},'Consultando consumo…'):
+        !consumo.itens.length?h('p',null,'Nenhum consumo importado para este cliente.'):
+        h(React.Fragment,null,h('p',null,consumo.itens[0].meses+' de 10 meses importados · jan–out/2026'),
+          h('div',{className:'table-wrap'},
+            h('table',null,h('thead',null,h('tr',null,['SKU','Produto','Unidade','Venda/mês','Bonificação/mês'].map(t=>h('th',{key:t},t)))),
+              h('tbody',null,consumo.itens.map(item=>h('tr',{key:item.codigo+'|'+item.unidade},
+                h('td',null,item.codigo),h('td',null,item.descricao),h('td',null,item.unidade),
+                h('td',null,formatoConsumo.format(item.media_venda)),h('td',null,formatoConsumo.format(item.media_bonificacao))))))))),
     cliente&&h(Modal,{titulo:'Histórico de Visita',sub:nomeCliente(cliente),largo:true,onClose:fechado,
       acoes:h('button',{className:'btn btn-secondary',disabled:historico.carregando,onClick:fechado},'Fechar')},
       historico.carregando&&h('p',{role:'status'},'Carregando atendimentos…'),
@@ -10506,6 +10662,237 @@ const MODELOS = {
   },
 };
 
+const COLUNAS_FATURAMENTO=['data_emissao','codigo_totvs','loja_totvs','codigo_produto','unidade','quantidade','valor_total','tipo_movimento','peso_total_kg'];
+const formatoConsumo=new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3});
+function numeroFaturamento(valor){
+  let texto=String(valor??'').trim().replace(/^R\$\s*/,'').replace(/\s/g,'');
+  if(texto.includes(',')&&texto.includes('.')){
+    texto=texto.lastIndexOf(',')>texto.lastIndexOf('.')?texto.replace(/\./g,''):texto.replace(/,/g,'');
+  }
+  texto=texto.replace(',','.');
+  return /^\d+(\.\d+)?$/.test(texto)?Number(texto):NaN;
+}
+const codigoFaturamento=v=>String(v??'').trim().toUpperCase().replace(/^0+(?=\d)/,'');
+function mesFaturamento(valor){
+  const texto=String(valor??'').trim();
+  const iso=/^(\d{4})-(\d{2})-(\d{2})$/.exec(texto)||/^(\d{4})(\d{2})(\d{2})$/.exec(texto);
+  const br=/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(texto);
+  const [,ano,mes,dia]=iso||(br?[null,br[3].length===2?'20'+br[3]:br[3],br[2],br[1]]:[]);
+  const data=new Date(Date.UTC(Number(ano),Number(mes)-1,Number(dia)));
+  if(Number(ano)!==2026||!(Number(mes)>=1&&Number(mes)<=10)||data.getUTCDate()!==Number(dia))return null;
+  return '2026-'+String(mes).padStart(2,'0')+'-01';
+}
+const COLUNAS_NF_TOTVS=['documento','serie','cliente','loja','data','tipo','produto','quantidade','total','cfop','tes','tipo_operacao','tipo_operacao_descricao','finalidade_tes','peso_bruto'];
+function tipoFaturamentoTotvs(linha){
+  const operacao=codigoFaturamento(linha.tipo_operacao);
+  const descricao=normalizarCabecalhoImportacao(linha.tipo_operacao_descricao);
+  const finalidade=normalizarCabecalhoImportacao(linha.finalidade_tes).replace(/doacao_ou_brinde/g,'');
+  const cfop=String(linha.cfop??'').trim().replace(/\D/g,'');
+  if(String(linha.tipo??'').trim().toUpperCase()!=='N')return 'fora';
+  if(/(?:^|_)(doacao|brinde|sucata|imobilizado)(?:_|$)/.test(finalidade))return 'fora';
+  if(operacao==='1'&&descricao==='venda')return 'venda';
+  if((operacao==='4'&&descricao==='bonificacao')||
+      (!operacao&&['5910','6910'].includes(cfop)&&/(?:^|_)bonificacao(?:_|$)/.test(finalidade)))
+    return 'bonificacao';
+  if(['2','3','5','13','17'].includes(operacao)||['5911','6911'].includes(cfop)||/amostra|comodato|demonstracao/.test(finalidade))return 'fora';
+  return 'indefinido';
+}
+function lerFaturamentoArquivo(bruto,nome){
+  const planilha=/\.xlsx?$/i.test(nome)
+    ? XLSX.read(bruto,{type:'array',sheets:0,dense:true,dateNF:'yyyy-mm-dd'})
+    : XLSX.read(bruto,{type:'string',sheets:0,dense:true,raw:true});
+  const aba=planilha.SheetNames[0],ws=planilha.Sheets[aba];
+  if(!ws)throw Error('Nenhuma aba legível.');
+  const matrizBruta=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,range:0,blankrows:true});
+  const iCabecalho=matrizBruta.slice(0,25).findIndex(l=>{
+    const colunas=new Set(l.map(normalizarCabecalhoImportacao));
+    return COLUNAS_NF_TOTVS.every(k=>colunas.has(k));
+  });
+  if(iCabecalho>=0){
+    const colunas=new Map(matrizBruta[iCabecalho].map((nome,i)=>[normalizarCabecalhoImportacao(nome),i]));
+    const linhas=[],meses=new Set(),erros=[];
+    let fora=0,repeticoesCabecalho=0;
+    for(let i=iCabecalho+1;i<matrizBruta.length;i++){
+      const r=matrizBruta[i],v=k=>r[colunas.get(k)]??'';
+      if(!v('documento')&&!v('produto')&&!v('cliente'))continue;
+      if(normalizarCabecalhoImportacao(v('documento'))==='documento'&&normalizarCabecalhoImportacao(v('produto'))==='produto'){
+        repeticoesCabecalho++;continue;
+      }
+      const info={tipo:v('tipo'),tipo_operacao:v('tipo_operacao'),tipo_operacao_descricao:v('tipo_operacao_descricao'),finalidade_tes:v('finalidade_tes'),cfop:v('cfop'),data:v('data'),tes:v('tes')};
+      const tipo=tipoFaturamentoTotvs(info);
+      const data=typeof info.data==='number'&&info.data<100000
+        ? (XLSX.SSF.parse_date_code(info.data,{date1904:!!planilha.Workbook?.WBProps?.date1904})||{})
+        : null;
+      const emissao=data&&data.y?`${data.y}-${String(data.m).padStart(2,'0')}-${String(data.d).padStart(2,'0')}`:info.data;
+      const mes=mesFaturamento(emissao);
+      if(!mes){erros.push([i+1,'Data de emissão fora do período ou inválida',false]);continue;}
+      meses.add(mes);
+      if(tipo==='fora'){fora++;continue;}
+      if(tipo==='indefinido'){erros.push([i+1,'Operação sem classificação (TES '+info.tes+' / CFOP '+info.cfop+')',false]);continue;}
+      linhas.push({linha:i+1,origem_totvs:true,data_emissao:emissao,codigo_totvs:v('cliente'),loja_totvs:v('loja'),
+        codigo_produto:v('produto'),quantidade:v('quantidade'),valor_total:v('total'),tipo_movimento:tipo,
+        peso_total_kg:numeroFaturamento(v('peso_bruto'))===0?'':v('peso_bruto')});
+    }
+    if(!linhas.length)throw Error('A aba '+aba+' não possui vendas ou bonificações reconhecidas.');
+    return {linhas,aba,meses,fora,repeticoesCabecalho,erros};
+  }
+  const matriz=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:false});
+  const parsed=montarPreviewImportacao(matriz);
+  if(!parsed?.rows.length)throw Error('Nenhum item na primeira aba do arquivo.');
+  const faltantes=COLUNAS_FATURAMENTO.filter(col=>!['loja_totvs','peso_total_kg'].includes(col)&&!parsed.headers.includes(col));
+  if(faltantes.length)throw Error('Layout não reconhecido. Colunas do modelo ausentes: '+faltantes.join(', '));
+  return {linhas:parsed.rows,aba,meses:new Set(parsed.rows.map(r=>mesFaturamento(r.data_emissao)).filter(Boolean)),fora:0,repeticoesCabecalho:0,erros:[]};
+}
+
+function prepararFaturamento(rows,clientes,produtos){
+  const agrupar=(lista,chave)=>{
+    const mapa=new Map();
+    for(const item of lista){
+      const codigo=chave(item);
+      if(!codigo)continue;
+      if(!mapa.has(codigo))mapa.set(codigo,[]);
+      mapa.get(codigo).push(item);
+    }
+    return mapa;
+  };
+  const porCliente=agrupar(clientes,c=>codigoFaturamento(c.codigo_totvs));
+  const porProduto=agrupar(produtos,p=>codigoFaturamento(p.codigo));
+  const grupos=new Map(),meses=new Set(),erros=[];
+  const resumo={venda:{linhas:0,valor:0},bonificacao:{linhas:0,valor:0},semPeso:0};
+  const tipoPorNome={venda:'venda',faturamento:'venda',bonificacao:'bonificacao'};
+  const unidade=v=>{
+    const u=String(v??'').trim().toUpperCase();
+    return u==='PCT'?'PT':u;
+  };
+  rows.forEach((r,i)=>{
+    const mes=mesFaturamento(r.data_emissao),loja=codigoFaturamento(r.loja_totvs);
+    const candidatos=porCliente.get(codigoFaturamento(r.codigo_totvs))||[];
+    const exatos=loja?candidatos.filter(c=>codigoFaturamento(c.loja_totvs)===loja):candidatos;
+    const clientesDaLoja=!exatos.length&&candidatos.length===1&&!codigoFaturamento(candidatos[0].loja_totvs)?candidatos:exatos;
+    const itens=porProduto.get(codigoFaturamento(r.codigo_produto))||[];
+    const movimento=normalizarCabecalhoImportacao(r.tipo_movimento);
+    const tipo=Object.hasOwn(tipoPorNome,movimento)?tipoPorNome[movimento]:null;
+    const quantidade=numeroFaturamento(r.quantidade),valor=numeroFaturamento(r.valor_total);
+    const pesoInformado=String(r.peso_total_kg||'').trim();
+    const peso=numeroFaturamento(pesoInformado);
+    const p=itens[0],u=unidade(r.origem_totvs?p?.unidade:r.unidade);
+    let erro,cadastral=false;
+    if(!mes)erro='Data de emissão inválida ou fora de jan–out/2026';
+    else if(clientesDaLoja.length!==1){cadastral=true;erro='Cliente/loja '+r.codigo_totvs+'/'+(r.loja_totvs||'—')+' não cadastrado ou ambíguo';}
+    else if(itens.length!==1){cadastral=true;erro='SKU '+r.codigo_produto+' não cadastrado ou ambíguo';}
+    else if(!tipo)erro='Classifique o item como Venda ou Bonificação';
+    else if(!u||u!==unidade(p.unidade)){cadastral=r.origem_totvs===true;erro='Unidade do SKU '+r.codigo_produto+' diverge do cadastro ('+(p.unidade||'sem unidade')+')';}
+    else if(!Number.isFinite(quantidade)||quantidade<=0||!Number.isFinite(valor)||valor<0)erro='Quantidade ou valor inválido';
+    else if(pesoInformado&&(!Number.isFinite(peso)||peso<=0))erro='Peso total inválido';
+    if(erro){erros.push([r.linha||i+2,erro,cadastral]);return;}
+    const cliente_id=clientesDaLoja[0].id,produto_id=p.id;
+    const pesoUnitario=u==='KG'?1:Number(p.peso_kg);
+    const kg=pesoInformado?peso:(pesoUnitario>0?quantidade*pesoUnitario:null);
+    const chave=[mes,cliente_id,produto_id,tipo].join('|');
+    const anterior=grupos.get(chave)||{mes,cliente_id,produto_id,tipo,unidade:u,quantidade:0,kg:0,valor_documento:0};
+    anterior.quantidade+=quantidade;
+    anterior.kg=anterior.kg===null||kg===null?null:anterior.kg+kg;
+    anterior.valor_documento+=valor;
+    grupos.set(chave,anterior);meses.add(mes);
+    resumo[tipo].linhas++;resumo[tipo].valor+=valor;
+    if(tipo==='venda'&&kg===null)resumo.semPeso++;
+  });
+  return {grupos:[...grupos.values()].map(g=>({...g,quantidade:Number(g.quantidade.toFixed(8)),
+    kg:g.kg===null?null:Number(g.kg.toFixed(8)),valor_documento:Number(g.valor_documento.toFixed(2))})),meses:[...meses].sort(),erros,resumo};
+}
+
+function ImportadorFaturamentoVisita(){
+  const [previa,setPrevia]=useState(null);
+  const [aceitaPendencias,setAceitaPendencias]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [status,setStatus]=useState('');
+  const [erro,setErro]=useState('');
+  const moeda=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
+  async function cadastro(tabela,colunas){
+    const registros=[];
+    for(let i=0;;i+=1000){
+      const {data,error}=await sb.from(tabela).select(colunas).order('id').range(i,i+999);
+      if(error)throw error;
+      registros.push(...data);
+      if(data.length<1000)return registros;
+    }
+  }
+  async function conferir(arquivos){
+    if(!arquivos.length)return;
+    setOcupado(true);setPrevia(null);setAceitaPendencias(false);setErro('');setStatus('Carregando cadastros…');
+    try{
+      const [clientes,produtos]=await Promise.all([
+        cadastro('clientes','id,codigo_totvs,loja_totvs'),cadastro('produtos','id,codigo,unidade,peso_kg')
+      ]);
+      const grupos=[],meses=new Map(),erros=[],resumos=[];
+      for(const file of arquivos){
+        setStatus('Conferindo '+file.name+'…');
+        const origem=lerFaturamentoArquivo(await lerArquivo(file),file.name);
+        const p=prepararFaturamento(origem.linhas,clientes,produtos);
+        for(const mes of origem.meses){
+          if(meses.has(mes))throw Error('Os arquivos '+meses.get(mes)+' e '+file.name+' cobrem o mesmo mês ('+mes.slice(0,7)+'). Selecione a exportação completa de cada mês.');
+          if(!p.meses.includes(mes))throw Error(file.name+' não possui itens conciliados no mês '+mes.slice(0,7)+'.');
+          meses.set(mes,file.name);
+        }
+        grupos.push(...p.grupos);
+        const pendencias=[...origem.erros,...p.erros];
+        erros.push(...pendencias.map(([linha,motivo,cadastral])=>({arquivo:file.name,aba:origem.aba,linha,motivo,cadastral})));
+        resumos.push({arquivo:file.name,aba:origem.aba,meses:p.meses,fora:origem.fora,...p.resumo});
+      }
+      setPrevia({grupos,meses:[...meses.keys()].sort(),erros,resumos,
+        temBloqueios:erros.some(e=>!e.cadastral)});setStatus('');
+    }catch(e){setErro(e.message||String(e));setStatus('');}
+    finally{setOcupado(false);}
+  }
+  async function confirmar(){
+    if(ocupado||!previa?.grupos.length||previa.temBloqueios||(previa.erros.length&&!aceitaPendencias))return;
+    setOcupado(true);setErro('');setStatus('Preparando carga…');
+    try{
+      const {data:carga,error}=await sb.rpc('vt_carga_faturamento_iniciar',{p_arquivo:(previa.resumos.length===1?previa.resumos[0].arquivo:previa.resumos.length+' arquivos TOTVS · '+previa.meses.map(m=>m.slice(5,7)).join(',')+'/2026'),p_total:previa.grupos.length});
+      if(error)throw error;
+      for(let i=0;i<previa.grupos.length;i+=400){
+        const lote=previa.grupos.slice(i,i+400);
+        const r=await sb.rpc('vt_carga_faturamento_lote',{p_carga:carga,p_lote:lote});
+        if(r.error)throw r.error;
+        setStatus((i+lote.length)+' de '+previa.grupos.length+' grupos enviados…');
+      }
+      const r=await sb.rpc('vt_carga_faturamento_publicar',{p_carga:carga,p_meses:previa.meses});
+      if(r.error)throw r.error;
+      setStatus('Importação concluída. '+previa.meses.length+' mês(es) atualizado(s).');setPrevia(null);
+    }catch(e){setErro(e.message||String(e));setStatus('');}
+    finally{setOcupado(false);}
+  }
+  const modelo=()=>downloadXlsx('modelo_faturamento_jan_out_2026',COLUNAS_FATURAMENTO,[
+    ['2026-01-15','000123','01','10001','PT','12','420,00','Venda','48'],
+    ['2026-01-15','000123','01','10001','PT','2','70,00','Bonificação','8']
+  ]);
+  return h('div',{className:'card',style:{marginBottom:16}},
+    h('h3',null,'Faturamento e bonificações · jan–out/2026'),
+    h('p',null,'Selecione os relatórios originais de notas fiscais do TOTVS. A primeira aba contém a base de itens. O sistema classifica vendas e bonificações, usa o peso bruto da NF e substitui a carga dos meses selecionados ao confirmar.'),
+    h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}},
+      h('input',{'aria-label':'Arquivos de faturamento',type:'file',multiple:true,accept:'.xlsx,.xls,.csv,.tsv',disabled:ocupado,
+        onChange:e=>{const arquivos=Array.from(e.target.files);e.target.value='';conferir(arquivos);}}),
+      h('button',{className:'btn btn-secondary btn-sm',onClick:modelo},'Baixar modelo alternativo')),
+    status&&h('p',{role:'status'},status),
+    erro&&h('p',{role:'alert'},erro),
+    previa&&h('div',{style:{marginTop:12}},
+      h('div',{className:'table-wrap'},h('table',null,
+        h('thead',null,h('tr',null,['Arquivo e aba','Meses','Venda conciliada','Bonificação conciliada','Outras operações'].map(t=>h('th',{key:t},t)))),
+        h('tbody',null,previa.resumos.map(r=>h('tr',{key:r.arquivo},
+          h('td',null,r.arquivo+' · '+r.aba),h('td',null,r.meses.map(m=>m.slice(5,7)+'/2026').join(', ')),
+          h('td',null,r.venda.linhas+' itens · '+moeda.format(r.venda.valor)),
+          h('td',null,r.bonificacao.linhas+' itens · '+moeda.format(r.bonificacao.valor)),h('td',null,r.fora)))))),
+      previa.resumos.some(r=>r.semPeso)&&h('p',null,'Há vendas sem peso. Esses clientes ficam sem classificação se o cadastro também estiver sem peso.'),
+      previa.erros.length>0&&h('div',{role:'alert'},
+        h('p',null,previa.erros.length+' linha(s) com pendências. '+(previa.temBloqueios?'Verifique os dados de origem.':'Revise os clientes, lojas e SKUs que não foram conciliados.')),
+        h('button',{className:'btn btn-secondary btn-sm',onClick:()=>downloadXlsx('pendencias_faturamento',['Arquivo','Aba','Linha','Motivo'],
+          previa.erros.map(e=>[e.arquivo,e.aba,e.linha,e.motivo]))},'Baixar pendências'),
+        !previa.temBloqueios&&h('label',{style:{display:'block',margin:'8px 0'}},
+          h('input',{type:'checkbox',checked:aceitaPendencias,disabled:ocupado,onChange:e=>setAceitaPendencias(e.target.checked)}),
+          ' Importar somente os itens conciliados. As linhas pendentes ficarão fora das médias.')),
+      h('button',{className:'btn btn-primary',disabled:ocupado||previa.temBloqueios||(previa.erros.length>0&&!aceitaPendencias),onClick:confirmar},'Confirmar importação')));
+}
+
 function PaginaImportacao({ profile }) {
   const toast = useToast();
   const [aba, setAba] = useState('produtos');
@@ -10514,15 +10901,19 @@ function PaginaImportacao({ profile }) {
   const [statusEnderecos,setStatusEnderecos]=useState('');
   const [importandoEnderecos,setImportandoEnderecos]=useState(false);
   const colunasEndereco=['codigo_totvs','cnpj_cpf','endereco_cep','endereco_logradouro','endereco_numero','endereco_complemento','endereco_bairro','cidade','estado'];
+  const colunasCoordenadas=['endereco_latitude','endereco_longitude'];
   function baixarModeloEnderecos(){
-    downloadXlsx('modelo_importacao_enderecos',colunasEndereco,[['000123','12.345.678/0001-90','17500-000','Rua Exemplo','150','','Centro','Marília','SP']]);
+    downloadXlsx('modelo_importacao_enderecos',[...colunasEndereco,...colunasCoordenadas],[['000123','12.345.678/0001-90','17500-000','Rua Exemplo','150','','Centro','Marília','SP']]);
   }
   async function prepararEnderecos(file){
     setArquivoEnderecos(file);setPreviaEnderecos([]);setStatusEnderecos('');
     if(!file)return;
     try{
       const parsed=parseArquivo(await lerArquivo(file),file.name);
-      const faltantes=colunasEndereco.filter(k=>!parsed.headers.includes(k));
+      if(!parsed)throw Error('Arquivo vazio ou formato não reconhecido.');
+      const soCoordenadas=colunasCoordenadas.every(k=>parsed.headers.includes(k))&&!parsed.headers.includes('endereco_logradouro');
+      const obrigatorias=soCoordenadas?['codigo_totvs',...colunasCoordenadas]:colunasEndereco;
+      const faltantes=obrigatorias.filter(k=>!parsed.headers.includes(k));
       if(faltantes.length)throw new Error('Colunas ausentes: '+faltantes.join(', '));
       const rows=parsed.rows.filter(x=>String(x.codigo_totvs||'').trim());
       if(!rows.length)throw new Error('Nenhum cliente na planilha.');
@@ -10537,10 +10928,15 @@ function PaginaImportacao({ profile }) {
     try{
       const normal=v=>String(v==null?'':v).trim().replace(/\.0$/,'').replace(/^0+/,'')||'0';
       const docs=v=>String(v||'').replace(/\D/g,'');
-      const {data:base,error}=await sb.from('clientes').select('id,codigo_totvs,cnpj_cpf,endereco_logradouro').limit(100000);
-      if(error)throw error;
       const porCodigo=new Map();
-      (base||[]).forEach(c=>{const k=normal(c.codigo_totvs);if(!porCodigo.has(k))porCodigo.set(k,[]);porCodigo.get(k).push(c);});
+      for(let i=0;;i+=1000){
+        const {data,error}=await sb.from('clientes')
+          .select('id,codigo_totvs,cnpj_cpf,endereco_logradouro,endereco_latitude,endereco_longitude')
+          .order('id').range(i,i+999);
+        if(error)throw error;
+        data.forEach(c=>{const k=normal(c.codigo_totvs);if(!porCodigo.has(k))porCodigo.set(k,[]);porCodigo.get(k).push(c);});
+        if(data.length<1000)break;
+      }
       const vistos=new Set();
       for(let i=0;i<previaEnderecos.length;i++){
         const x=previaEnderecos[i],codigo=normal(x.codigo_totvs),matches=porCodigo.get(codigo)||[];
@@ -10548,11 +10944,29 @@ function PaginaImportacao({ profile }) {
         if(matches.length!==1){ignorados++;erros.push('Linha '+(i+2)+': código não encontrado ou ambíguo');continue;}
         const c=matches[0];
         if(x.cnpj_cpf&&docs(x.cnpj_cpf)!==docs(c.cnpj_cpf)){ignorados++;erros.push('Linha '+(i+2)+': CNPJ/CPF divergente');continue;}
-        if(c.endereco_logradouro){ignorados++;erros.push('Linha '+(i+2)+': endereço já preenchido; não sobrescrito');continue;}
-        if(!['endereco_cep','endereco_logradouro','endereco_numero','endereco_bairro','cidade','estado'].every(k=>String(x[k]||'').trim())){ignorados++;erros.push('Linha '+(i+2)+': endereço incompleto');continue;}
-        const payload={};['endereco_cep','endereco_logradouro','endereco_numero','endereco_complemento','endereco_bairro','cidade','estado'].forEach(k=>payload[k]=String(x[k]||'').trim()||null);
-        const {error:eu}=await sb.from('clientes').update(payload).eq('id',c.id).is('endereco_logradouro',null);
-        if(eu){ignorados++;erros.push('Linha '+(i+2)+': '+eu.message);}else salvos++;
+        const preenchido=k=>String(x[k]??'').trim()!=='';
+        const payload={};
+        const temCoordenadas=colunasCoordenadas.some(preenchido);
+        const [lat,lon]=colunasCoordenadas.map(k=>preenchido(k)?Number(x[k].trim().replace(',','.')):NaN);
+        const ponto=pontoCliente({endereco_latitude:lat,endereco_longitude:lon});
+        if(temCoordenadas&&!ponto){ignorados++;erros.push('Linha '+(i+2)+': latitude e longitude válidas são obrigatórias');continue;}
+        const componentes=['endereco_cep','endereco_logradouro','endereco_numero','endereco_bairro','cidade','estado'];
+        if(!c.endereco_logradouro&&componentes.every(preenchido)){
+          [...componentes,'endereco_complemento'].forEach(k=>payload[k]=String(x[k]||'').trim()||null);
+        }
+        if(temCoordenadas&&!pontoCliente(c)){
+          payload.endereco_latitude=lat;payload.endereco_longitude=lon;
+        }
+        if(!Object.keys(payload).length){
+          ignorados++;erros.push('Linha '+(i+2)+': sem endereço completo ou coordenadas novas');continue;
+        }
+        let update=sb.from('clientes').update(payload).eq('id',c.id);
+        if(payload.endereco_logradouro)update=update.is('endereco_logradouro',null);
+        if(payload.endereco_latitude!=null){
+          for(const k of colunasCoordenadas)update=c[k]==null?update.is(k,null):update.eq(k,c[k]);
+        }
+        const {data:gravados,error:eu}=await update.select('id');
+        if(eu||!gravados.length){ignorados++;erros.push('Linha '+(i+2)+': '+(eu?.message||'Cadastro alterado durante a importação'));}else salvos++;
       }
       setStatusEnderecos('Atualizados: '+salvos+' | Ignorados/erros: '+ignorados+'\n'+erros.slice(0,30).join('\n'));
       setPreviaEnderecos([]);setArquivoEnderecos(null);
@@ -11111,14 +11525,15 @@ function PaginaImportacao({ profile }) {
   ];
 
   return h('div', null,
+    profile.papel==='admin'&&h(ImportadorFaturamentoVisita),
     h('div',{className:'card',style:{marginBottom:16}},
       h('h3',null,'Importação de endereços dos clientes'),
-      h('p',null,'Atualiza somente clientes existentes pelo código TOTVS; não substitui endereços preenchidos.'),
+      h('p',null,'Atualiza clientes existentes pelo código TOTVS. Latitude e longitude podem ser importadas para completar o cadastro e exibir o cliente no mapa.'),
       h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}},
         h('button',{className:'btn btn-secondary btn-sm',onClick:baixarModeloEnderecos},'Baixar modelo Excel'),
         h('input',{type:'file',accept:'.xlsx,.xls,.csv',onChange:e=>prepararEnderecos(e.target.files[0]||null)}),
-        h('button',{className:'btn btn-primary btn-sm',disabled:!previaEnderecos.length||importandoEnderecos,onClick:confirmarEnderecos},importandoEnderecos?'Importando...':'Confirmar '+previaEnderecos.length+' endereço(s)')),
-      previaEnderecos.length>0&&h('div',{style:{marginTop:8,fontSize:12}},'Prévia: '+previaEnderecos.slice(0,5).map(x=>x.codigo_totvs+' — '+x.endereco_logradouro+', '+x.endereco_numero).join(' | ')),
+        h('button',{className:'btn btn-primary btn-sm',disabled:!previaEnderecos.length||importandoEnderecos,onClick:confirmarEnderecos},importandoEnderecos?'Importando...':'Confirmar '+previaEnderecos.length+' cadastro(s)')),
+      previaEnderecos.length>0&&h('div',{style:{marginTop:8,fontSize:12}},'Prévia: '+previaEnderecos.slice(0,5).map(x=>x.codigo_totvs+' — '+(x.endereco_logradouro?[x.endereco_logradouro,x.endereco_numero].filter(Boolean).join(', '):[x.endereco_latitude,x.endereco_longitude].filter(Boolean).join(', '))).join(' | ')),
       statusEnderecos&&h('pre',{style:{whiteSpace:'pre-wrap',fontSize:12,marginTop:8}},statusEnderecos)),
     modalRota && h(Modal,{titulo:'Importar rota',onClose:()=>setModalRota(false),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setModalRota(false)},'Cancelar'),h('button',{className:'btn btn-primary',disabled:importando,onClick:importarRotaArquivo},importando?'Importando...':'Importar rota')]},
       h(Campo,{label:'Nome da rota'},h(Input,{value:rotaNome,onChange:e=>setRotaNome(e.target.value),placeholder:'Nome da rota'})),
