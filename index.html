@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v144-vt-enderecos-mapa';
-console.info('[Meu Cliente] BUILD v144-vt-enderecos-mapa');
+window.__MEU_CLIENTE_BUILD__='v145-vt-geocodificacao-progressiva';
+console.info('[Meu Cliente] BUILD v145-vt-geocodificacao-progressiva');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7388,34 +7388,25 @@ function validarPontoDoEndereco(endereco,resultado){
   const coordenadas=pontoCliente(local);
   return coordenadas?{endereco_latitude:coordenadas[0],endereco_longitude:coordenadas[1]}:null;
 }
-async function consultarLoteGeoapify(chave,consultas,sinal){
-  const url=new URL('https://api.geoapify.com/v1/batch/geocode/search');
-  url.search=new URLSearchParams({apiKey:chave,filter:'countrycode:br',lang:'pt'});
-  async function requisitar(opcoes){
-    let resposta;
-    try{
-      resposta=await fetch(url,{...opcoes,signal:AbortSignal.any([sinal,AbortSignal.timeout(18000)])});
-    }catch{
-      throw Error('Não foi possível conectar à Geoapify. Confira a conexão e tente novamente.');
-    }
-    if(resposta.status===401||resposta.status===403)throw Error('Chave Geoapify inválida ou sem permissão para este site.');
-    if(resposta.status===429)throw Error('Limite de consultas da Geoapify atingido. Confira o limite disponível no seu projeto.');
-    if(!resposta.ok)throw Error('A Geoapify não concluiu a consulta ('+resposta.status+').');
-    return {status:resposta.status,dados:await resposta.json()};
+async function consultarEnderecoGeoapify(chave,endereco,sinal){
+  const url=new URL('https://api.geoapify.com/v1/geocode/search');
+  url.search=new URLSearchParams({
+    apiKey:chave,text:endereco,filter:'countrycode:br',lang:'pt',format:'json',limit:'5'
+  });
+  let resposta;
+  try{
+    resposta=await fetch(url,{signal:AbortSignal.any([sinal,AbortSignal.timeout(12000)])});
+  }catch{
+    throw Error('Não foi possível conectar à Geoapify. Confira a conexão e tente novamente.');
   }
-  let r=await requisitar({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(consultas)});
-  if(r.status===200&&Array.isArray(r.dados))return r.dados;
-  if(!r.dados?.id)throw Error('A Geoapify não informou o identificador do lote.');
-  url.searchParams.set('id',r.dados.id);
-  url.searchParams.set('format','json');
-  for(let i=0;i<45;i++){
-    await new Promise(resolve=>setTimeout(resolve,2000));
-    sinal.throwIfAborted();
-    r=await requisitar({});
-    if(r.status===200&&Array.isArray(r.dados))return r.dados;
-    if(r.status!==202)throw Error('A Geoapify retornou um resultado de lote inesperado.');
-  }
-  throw Error('A localização dos endereços excedeu o tempo de espera.');
+  if(resposta.status===401||resposta.status===403)
+    return {chaveInvalida:true,erro:'Chave Geoapify inválida ou sem permissão para este site.'};
+  if(resposta.status===429)
+    return {erro:'Limite de consultas da Geoapify atingido. Confira o limite disponível no seu projeto.'};
+  if(!resposta.ok)throw Error('A Geoapify não concluiu a consulta ('+resposta.status+').');
+  const {results}=await resposta.json();
+  if(!Array.isArray(results))throw Error('A Geoapify retornou um resultado inesperado.');
+  return {candidatos:results};
 }
 
 async function gravarPontoDoCliente(cliente,coordenadas,sinal){
@@ -7452,36 +7443,58 @@ function LocalizadorClientesMapa({registros,aoEncontrar,chaveSessao}){
       grupos.get(consulta).push(registro);
     }
     const consultas=[...grupos.keys()];
-    let encontrados=0,semResultado=0,semGravar=0;
+    let encontrados=0,semResultado=0,semGravar=0,semConsulta=0,verificados=0;
+    const espera=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+    const mensagemProgresso=()=>verificados+' de '+consultas.length+' endereços verificados · '+encontrados+' cliente(s) localizado(s).';
+    const resumo=()=>encontrados+' localizado(s) · '+semResultado+' sem correspondência exata · '+semGravar+' sem gravação · '+semConsulta+' sem resposta.';
+    setEstado({progresso:mensagemProgresso(),erro:''});
+
+    async function localizarEndereco(consulta,indice){
+      if(indice)await espera(indice*350);
+      sinal.throwIfAborted();
+      const resposta=await consultarEnderecoGeoapify(chave,consulta,sinal);
+      if(resposta.erro)return resposta;
+      const novosPontos=new Map();
+      for(const {cliente,endereco} of grupos.get(consulta)){
+        sinal.throwIfAborted();
+        const ponto=resposta.candidatos.map(c=>validarPontoDoEndereco(endereco,c)).find(Boolean);
+        if(!ponto){semResultado++;continue;}
+        try{
+          if(await gravarPontoDoCliente(cliente,ponto,sinal)){
+            novosPontos.set(cliente.id,ponto);
+            encontrados++;
+          }else semGravar++;
+        }catch{semGravar++;}
+      }
+      return {novosPontos};
+    }
     try{
-      for(let i=0;i<consultas.length;i+=250){
-        const lote=consultas.slice(i,i+250);
-        setEstado({progresso:'Consultando endereços '+(i+1)+' a '+(i+lote.length)+' de '+consultas.length+'…',erro:''});
-        const retorno=await consultarLoteGeoapify(chave,lote,sinal);
-        const resultados=new Map(retorno.map(r=>[r?.query?.text,r]));
+      for(let i=0;i<consultas.length;i+=3){
+        const lote=consultas.slice(i,i+3);
+        const [retornos]=await Promise.all([
+          Promise.allSettled(lote.map(localizarEndereco)),
+          i+3<consultas.length?espera(1050):Promise.resolve()
+        ]);
+        if(sinal.aborted)return;
         const novosPontos=new Map();
-        for(const consulta of lote){
-          for(const {cliente,endereco} of grupos.get(consulta)){
-            sinal.throwIfAborted();
-            const ponto=validarPontoDoEndereco(endereco,resultados.get(consulta));
-            if(!ponto){semResultado++;continue;}
-            try{
-              if(await gravarPontoDoCliente(cliente,ponto,sinal)){
-                encontrados++;
-                novosPontos.set(cliente.id,ponto);
-              }else semGravar++;
-            }catch{semGravar++;}
-          }
+        let falhaFatal=null;
+        for(const retorno of retornos){
+          if(retorno.status==='rejected'){semConsulta++;continue;}
+          if(retorno.value.erro){semConsulta++;falhaFatal=retorno.value;continue;}
+          retorno.value.novosPontos.forEach((ponto,id)=>novosPontos.set(id,ponto));
         }
-        if(novosPontos.size&&!sinal.aborted)aoEncontrar(novosPontos);
+        verificados+=lote.length;
+        if(novosPontos.size)aoEncontrar(novosPontos);
+        if(falhaFatal){
+          if(falhaFatal.chaveInvalida)chaveSessao.current=null;
+          throw Error(falhaFatal.erro);
+        }
+        if(i===0&&retornos.every(r=>r.status==='rejected'))throw retornos[0].reason;
+        setEstado({progresso:mensagemProgresso(),erro:''});
       }
-      if(!sinal.aborted)setEstado({progresso:'',
-        resultado:encontrados+' localizado(s) · '+semResultado+' sem correspondência exata · '+semGravar+' sem gravação.',erro:''});
+      if(!sinal.aborted)setEstado({progresso:'',resultado:resumo(),erro:''});
     }catch(e){
-      if(!sinal.aborted){
-        if(e.message.startsWith('Chave Geoapify'))chaveSessao.current=null;
-        setEstado({progresso:'',resultado:encontrados+' localizado(s) antes da interrupção.',erro:e.message});
-      }
+      if(!sinal.aborted)setEstado({progresso:'',resultado:resumo(),erro:e.message});
     }finally{operacao.current=null;}
   }
 
