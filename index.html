@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v140-vt-clientes-agenda-checkin';
-console.info('[Meu Cliente] BUILD v140-vt-clientes-agenda-checkin');
+window.__MEU_CLIENTE_BUILD__='v141-vt-clientes-menu';
+console.info('[Meu Cliente] BUILD v141-vt-clientes-menu');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -639,10 +639,18 @@ const MODULOS = {
   visita_tecnica: { label:'Visita Técnica', icon:'▦', descricao:'Agenda semanal, visitas aos clientes, check-in, checkout e controle de qualidade.' },
   administracao: { label:'Administração', icon:'⚙', descricao:'Usuários, hierarquia comercial, módulos, carteiras e importações.' }
 };
-function menuForModulo(modulo, papel) {
+const PAPEIS_EQUIPE_VISITA_TECNICA=['supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'];
+const podeConsultarClientesVisita=(papel,papelReal=papel)=>
+  papel===papelReal&&(papel==='admin'||PAPEIS_EQUIPE_VISITA_TECNICA.includes(papel));
+
+function menuForModulo(modulo, papel, papelReal=papel) {
   if (modulo === 'logistica') return [{id:'logistica_fichas',label:'Fichas e Rotas',icon:'⌖'},{id:'logistica_equipamentos',label:'Entregas de Equipamentos',icon:'▤'}];
   if (modulo === 'motorista_manutencao') return [{id:'motorista_rotas',label:'Minhas Rotas',icon:'⌖'}];
-  if (modulo === 'visita_tecnica') return [{id:'visitas_tecnicas',label:'Agenda Técnica',icon:'▦'},{id:'relatorios_visitas',label:'Relatórios',icon:'▤'}];
+  if (modulo === 'visita_tecnica') return [
+    {id:'visitas_tecnicas',label:'Agenda Técnica',icon:'▦'},
+    ...(podeConsultarClientesVisita(papel,papelReal)?[{id:'clientes_visita_tecnica',label:'Clientes',icon:'☺'}]:[]),
+    {id:'relatorios_visitas',label:'Relatórios',icon:'▤'}
+  ];
   if (modulo === 'vendas') {
     const itens=[
       {id:'dashboard',label:'Dashboard',icon:'◳'},{id:'emissao',label:'Cadastro de Ficha',icon:'+'},
@@ -1108,7 +1116,7 @@ function Login({ onLogged }) {
 // SIDEBAR
 // =====================================================================
 function Sidebar({ profile, visao, modulo, pagina, onNavigate, onVoltarModulos, open, collapsed, onToggleCollapse, onClose, contadorPendencias, onLogout, tema, onToggleTema }) {
-  const itens = menuForModulo(modulo, visao);
+  const itens = menuForModulo(modulo, visao, profile.papel);
   return h('div', { className: `sidebar ${open ? 'open' : ''} ${collapsed ? 'collapsed' : ''}` },
     h('div', { className: 'sidebar-header', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
       !collapsed && h('div', { className: 'sidebar-logo', style: { display:'flex', alignItems:'center', gap:10 } },
@@ -7268,7 +7276,61 @@ function posicionarAtendimentos(blocos){
   fecharGrupo();
 }
 
-function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
+async function localizacaoAtual(){
+  if(!navigator.geolocation)throw Error('GPS indisponível.');
+  return new Promise((ok,fail)=>navigator.geolocation.getCurrentPosition(p=>ok({lat:p.coords.latitude,lng:p.coords.longitude,precisao:p.coords.accuracy}),e=>fail(Error(e.code===1?'Localização bloqueada. Nas permissões deste site no navegador ou do aplicativo no celular, altere Localização para Permitir e tente novamente.':'Não foi possível obter a localização. Confira se o GPS está ativo e tente novamente.')),{enableHighAccuracy:true,maximumAge:0,timeout:20000}));
+}
+const enderecoVisita=v=>{const c=v.clientes||{};return [c.endereco_logradouro,c.endereco_numero,c.endereco_bairro,c.cidade,c.estado,c.endereco_cep].filter(Boolean).join(', ');};
+function navegarVisita(v,toast){
+  const c=v.clientes||{};
+  const destino=c.endereco_latitude!=null&&c.endereco_longitude!=null
+    ? c.endereco_latitude+','+c.endereco_longitude : enderecoVisita(v);
+  if(!destino)return toast('Cliente sem endereço cadastrado.','error');
+  window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destino),'_blank','noopener,noreferrer');
+}
+
+
+async function listarClientesVisitaAdmin({cidade,uf},pagina,tamanhoPagina){
+  const normalizar=texto=>texto.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const municipio=normalizar(cidade);
+  const filtro=municipio.replaceAll('\\','\\\\').replaceAll('%','\\%').replaceAll('_','\\_').replace(/[aeiouc]/g,'_');
+  const inicio=pagina*tamanhoPagina;
+  const limite=inicio+tamanhoPagina+1;
+  const encontrados=[];
+  const lote=200;
+  for(let offset=0;encontrados.length<limite;offset+=lote){
+    const {data,error}=await sb.from('clientes')
+      .select('id,codigo_totvs,razao_social,nome_fantasia,cidade,estado,endereco_logradouro,endereco_numero,endereco_bairro,endereco_cep,endereco_latitude,endereco_longitude')
+      .ilike('estado',uf).ilike('cidade',filtro)
+      .order('nome_fantasia').order('razao_social').order('id').range(offset,offset+lote-1);
+    if(error)throw error;
+    encontrados.push(...data.filter(c=>normalizar(c.cidade||'')===municipio));
+    if(data.length<lote)break;
+  }
+  return encontrados.slice(inicio,limite);
+}
+
+async function listarHistoricoVisitaAdmin(clienteId,pagina,tamanhoPagina){
+  const hoje=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(new Date());
+  const inicio=pagina*tamanhoPagina;
+  const {data,error}=await sb.from('visitas_tecnicas')
+    .select('id,data_visita,hora_inicio,checkin_em,checkout_em,status,tipo_atendimento,tecnico_id,objetivo,relatorio_qualidade')
+    .eq('cliente_id',clienteId).neq('status','cancelada')
+    .or('checkout_em.not.is.null,status.eq.concluida,and(checkin_em.not.is.null,data_visita.lt.'+hoje+')')
+    .order('data_visita',{ascending:false}).order('hora_inicio',{ascending:false}).order('id',{ascending:false})
+    .range(inicio,inicio+tamanhoPagina);
+  if(error)throw error;
+  const ids=[...new Set(data.map(v=>v.tecnico_id).filter(Boolean))];
+  if(!ids.length)return data.map(v=>({...v,relato_execucao:v.relatorio_qualidade}));
+  const profissionais=await sb.from('usuarios').select('id,nome').in('id',ids);
+  if(profissionais.error)throw profissionais.error;
+  const nomes=new Map(profissionais.data.map(u=>[u.id,u.nome]));
+  return data.map(v=>({...v,tecnico_nome:nomes.get(v.tecnico_id),relato_execucao:v.relatorio_qualidade}));
+}
+
+function ClientesVisitaTecnica({profile,visao}){
+  const toast=useToast();
+  const administrador=profile.papel==='admin';
   const ufs='AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO'.split(' ');
   const tamanhoPagina=50;
   const [filtro,setFiltro]=useState({cidade:'',uf:''});
@@ -7283,11 +7345,12 @@ function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
   const cacheMunicipios=useRef(new Map());
 
   async function carregarClientes(valores,proxima=0){
-    const {data,error}=await sb.rpc('vt_clientes_por_cidade',{
-      p_cidade:valores.cidade.trim(),p_uf:valores.uf,p_pagina:proxima
-    });
-    if(error)throw error;
-    const itens=data||[];
+    const cidade=valores.cidade.trim();
+    if(cidade.length<2)throw Error('Informe o município.');
+    const resposta=administrador?{data:await listarClientesVisitaAdmin(valores,proxima,tamanhoPagina)}
+      :await sb.rpc('vt_clientes_por_cidade',{p_cidade:cidade,p_uf:valores.uf,p_pagina:proxima});
+    if(resposta.error)throw resposta.error;
+    const itens=resposta.data||[];
     setConsulta(valores);setPagina(proxima);setTemMais(itens.length>tamanhoPagina);
     setLista(atual=>proxima?[...atual,...itens.slice(0,tamanhoPagina)]:itens.slice(0,tamanhoPagina));
   }
@@ -7327,9 +7390,10 @@ function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
     setCliente(c);
     setHistorico(atual=>({...atual,itens:proxima?atual.itens:[],carregando:true,erro:''}));
     try{
-      const {data,error}=await sb.rpc('vt_historico_visitas_cliente',{p_cliente:c.id,p_pagina:proxima});
-      if(error)throw error;
-      const itens=data||[];
+      const resposta=administrador?{data:await listarHistoricoVisitaAdmin(c.id,proxima,tamanhoPagina)}
+        :await sb.rpc('vt_historico_visitas_cliente',{p_cliente:c.id,p_pagina:proxima});
+      if(resposta.error)throw resposta.error;
+      const itens=resposta.data||[];
       setHistorico(atual=>({
         itens:[...(proxima?atual.itens:[]),...itens.slice(0,tamanhoPagina)],pagina:proxima,
         temMais:itens.length>tamanhoPagina,carregando:false,erro:''
@@ -7343,7 +7407,9 @@ function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
   const horaRegistro=valor=>valor?horarioVisitaSP.format(new Date(valor)):'—';
   const fechado=()=>{if(!historico.carregando)setCliente(null);};
 
+  if(!podeConsultarClientesVisita(visao,profile.papel))return h('div',{className:'card'},'Acesso não autorizado.');
   return h(React.Fragment,null,
+    h('div',{className:'page-head'},h('div',{className:'page-title'},'Clientes')),
     h('div',{className:'card'},
       h('h3',null,'Clientes por município'),
       h('button',{className:'btn btn-primary',disabled:ocupado,onClick:buscarPeloGPS},'Usar minha localização'),
@@ -7362,7 +7428,7 @@ function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
       ocupado&&h('p',{role:'status'},'Buscando clientes…'),
       erro&&h('p',{role:'alert'},erro),
       consulta&&h('h4',null,consulta.cidade+' — '+consulta.uf),
-      consulta&&!ocupado&&!erro&&!lista.length&&h('p',null,'Nenhum cliente da carteira neste município.'),
+      consulta&&!ocupado&&!erro&&!lista.length&&h('p',null,administrador?'Nenhum cliente neste município.':'Nenhum cliente da carteira neste município.'),
       lista.map(c=>{
         const temEndereco=Boolean(c.endereco_logradouro?.trim()||(c.endereco_latitude!=null&&c.endereco_longitude!=null));
         return h('div',{key:c.id,style:{borderTop:'1px solid var(--border)',padding:'10px 0',display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',justifyContent:'space-between'}},
@@ -7371,7 +7437,7 @@ function ClientesVisitaTecnica({localizacaoAtual,navegarVisita,enderecoVisita}){
             h('div',{style:{fontSize:12}},temEndereco?(c.endereco_logradouro?.trim()?enderecoVisita({clientes:c}):'Localização cadastrada'):'Endereço não cadastrado')),
           h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
             h('button',{className:'btn btn-secondary btn-sm',onClick:()=>carregarHistorico(c)},'Histórico de Visita'),
-            h('button',{className:'btn btn-secondary btn-sm',disabled:!temEndereco,onClick:()=>navegarVisita({clientes:c})},'Ir até o cliente')));
+            h('button',{className:'btn btn-secondary btn-sm',disabled:!temEndereco,onClick:()=>navegarVisita({clientes:c},toast)},'Ir até o cliente')));
       }),
       temMais&&h('button',{className:'btn btn-secondary',disabled:ocupado,onClick:()=>buscar(consulta,pagina+1)},'Carregar mais clientes')),
     cliente&&h(Modal,{titulo:'Histórico de Visita',sub:nomeCliente(cliente),largo:true,onClose:fechado,
@@ -7403,7 +7469,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const adminReal=profile.papel==='admin'&&!emPreview;
   const podeAgendar=(lider||supervisor||adminReal)&&!emPreview;
   const podeCheckinRapido=(tecnico||lider||supervisor)&&!emPreview;
-  const [abaVisita,setAbaVisita]=useState('agenda');
   const [usuarios,setUsuarios]=useState([]);
   const [visitas,setVisitas]=useState([]);
   const [pedidosGPS,setPedidosGPS]=useState([]);
@@ -7524,10 +7589,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     }
     if(paraMin(form.hora_inicio)+minutosPlanejados>1440)throw Error('Visita termina após meia-noite.');
     return 'Horário viável. Deslocamentos e margem considerados.';
-  }
-  async function localizacaoAtual(){
-    if(!navigator.geolocation)throw Error('GPS indisponível.');
-    return new Promise((ok,fail)=>navigator.geolocation.getCurrentPosition(p=>ok({lat:p.coords.latitude,lng:p.coords.longitude,precisao:p.coords.accuracy}),e=>fail(Error(e.code===1?'Localização bloqueada. Nas permissões deste site no navegador ou do aplicativo no celular, altere Localização para Permitir e tente novamente.':'Não foi possível obter a localização. Confira se o GPS está ativo e tente novamente.')),{enableHighAccuracy:true,maximumAge:0,timeout:20000}));
   }
   const dataHoraAgenda=valor=>new Date(valor).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'});
   const pedidoPendente=p=>p&&(!p.respondido_em||Date.parse(p.respondido_em)<Date.parse(p.solicitado_em));
@@ -8032,7 +8093,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       });
       if(error)throw error;
       toast('Check-in registrado. A visita já está em andamento.','success');
-      setCheckinRapido(null);setBuscaCliente('');setClientes([]);setAbaVisita('agenda');setFiltroLider('');setFiltroTecnico('');setTecnicoAgenda(profile.id);
+      setCheckinRapido(null);setBuscaCliente('');setClientes([]);setFiltroLider('');setFiltroTecnico('');setTecnicoAgenda(profile.id);
       if(semana!==0)setSemana(0);else await carregar();
     }catch(e){toast('Check-in não registrado: '+(e.message||e),'error');}
     finally{setSalvando(false);}
@@ -8054,8 +8115,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const {error}=await sb.from('vt_supervisor_comercial_tecnico').delete().eq('supervisor_tecnico_id',st).eq('supervisor_comercial_id',sc);
     if(error)return toast(error.message,'error');carregar();
   }
-  const enderecoVisita=v=>{const c=v.clientes||{};return [c.endereco_logradouro,c.endereco_numero,c.endereco_bairro,c.cidade,c.estado,c.endereco_cep].filter(Boolean).join(', ');};
-  const navegarVisita=v=>{const c=v.clientes||{};const destino=c.endereco_latitude!=null&&c.endereco_longitude!=null?c.endereco_latitude+','+c.endereco_longitude:enderecoVisita(v);if(!destino)return toast('Cliente sem endereço cadastrado.','error');window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destino),'_blank','noopener,noreferrer');};
   const pdfVisita=async v=>{
     if(!window.jspdf?.jsPDF)return toast('Biblioteca PDF indisponível.','error');
     const {data:registro,error}=await sb.from('vt_relatorios').select('conteudo').eq('visita_id',v.id).maybeSingle();
@@ -8125,12 +8184,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
       h('button',{className:'btn btn-secondary btn-sm',onClick:carregarPedidosGPS},'Tentar novamente')),
     erroBanco&&h('div',{className:'card',style:{border:'1px solid #e3a83d',marginBottom:16}},
       h('b',null,'Configuração do banco pendente'),h('p',null,'A tabela visitas_tecnicas ou suas permissões ainda não estão disponíveis: '+erroBanco)),
-    podeCheckinRapido&&h('nav',{'aria-label':'Visita Técnica',style:{display:'flex',gap:8,marginBottom:14}},
-      [['agenda','Agenda'],['clientes','Clientes']].map(([id,rotulo])=>h('button',{key:id,
-        className:'btn '+(abaVisita===id?'btn-primary':'btn-secondary'),'aria-pressed':abaVisita===id,
-        onClick:()=>setAbaVisita(id)},rotulo))),
-    podeCheckinRapido&&abaVisita==='clientes'?h(ClientesVisitaTecnica,{localizacaoAtual,navegarVisita,enderecoVisita}):
-    h(React.Fragment,null,
     h('div',{className:'card',style:{marginBottom:14}},
       h('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSemana(v=>v-1)},'← Semana anterior'),
@@ -8340,7 +8393,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
                   b.visita&&b.visita.checkin_em&&h('div',null,'Check-in: '+new Date(b.visita.checkin_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})),
                   b.visita&&h('div',{style:{fontSize:10,marginTop:7,opacity:.75}},'Clique para ver detalhes'))));
             })));
-      })())),
+      })()),
     visitaAberta&&h(Modal,{titulo:'Atendimento técnico',largo:true,onClose:()=>setVisitaAberta(null),acoes:[h('button',{className:'btn btn-secondary',onClick:()=>setVisitaAberta(null)},'Fechar')]},
       h('div',{style:{display:'grid',gap:12}},
         h('h3',null,visitaAberta.clientes?.razao_social||visitaAberta.clientes?.nome_fantasia||'Cliente'),
@@ -8364,7 +8417,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           [dataHoraAgenda(visitaAberta.checkout_em),usuariosPorId[visitaAberta.checkout_administrativo_por]?.nome].filter(Boolean).join(' · ')),
         visitaAberta.cancelado_em&&linhaInfo('Cancelada em',dataHoraAgenda(visitaAberta.cancelado_em)),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-          visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta)},'Abrir rota'),
+          visitaAberta.status==='agendada'&&h('button',{className:'btn btn-secondary',onClick:()=>navegarVisita(visitaAberta,toast)},'Abrir rota'),
           lider&&!emPreview&&equipeParticipantes.some(u=>u.id===visitaAberta.tecnico_id)&&h('button',{className:'btn btn-secondary',onClick:()=>copiarVisita(visitaAberta)},'Copiar visita'),
           podeCancelarAtendimento(visitaAberta)&&h('button',{className:'btn btn-danger',disabled:salvando,onClick:()=>cancelarAtendimento(visitaAberta)},'Cancelar atendimento'),
           podeRegistrarAdministrativo(visitaAberta)&&!substituicaoPendente(visitaAberta)&&visitaAberta.status==='agendada'&&h('button',{
@@ -11284,7 +11337,7 @@ function App() {
       onAbrir:m=>{setModulo(m);setVisao(profile.papel);const x=menuForModulo(m,profile.papel)[0];setPagina(x?x.id:'dashboard')},
       onPerfil:()=>setPagina('perfil'),onConfig:()=>setPagina('config_modulos'),onLogout:logout});
   }
-  const menuIds=menuForModulo(modulo,visao).map(m=>m.id);
+  const menuIds=menuForModulo(modulo,visao,profile.papel).map(m=>m.id);
   const paginaAtual=profile.exigir_troca_senha?'perfil':(pagina==='perfil' || pagina==='administracao'?pagina:(menuIds.includes(pagina)?pagina:menuIds[0]));
   let conteudo;
   if (paginaAtual === 'perfil') conteudo = h(PaginaMeuPerfil, {
@@ -11310,6 +11363,7 @@ function App() {
   else if (paginaAtual === 'logistica_equipamentos') conteudo=h(PaginaExecucaoEquipamentos,{setor:'logistica'});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'visitas_tecnicas') conteudo = h(PaginaVisitasTecnicas, { profile, visao });
+  else if (paginaAtual === 'clientes_visita_tecnica') conteudo = h(ClientesVisitaTecnica,{profile,visao});
   else if (paginaAtual === 'relatorios_visitas') conteudo = h(PaginaRelatoriosVisitas,{profile,visao});
   else if (paginaAtual === 'relatorios_admin') conteudo = h(PaginaRelatoriosAdmin,{profile});
   else if (paginaAtual === 'importacao') conteudo = h(PaginaImportacao, { profile });
