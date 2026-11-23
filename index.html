@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v145-vt-geocodificacao-progressiva';
-console.info('[Meu Cliente] BUILD v145-vt-geocodificacao-progressiva');
+window.__MEU_CLIENTE_BUILD__='v146-indicadores-solicitacoes';
+console.info('[Meu Cliente] BUILD v146-indicadores-solicitacoes');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -3671,6 +3671,10 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const [sub, setSub] = useState('equipamento');
   const [subStatus,setSubStatus] = useState('aprovacao');
   const [buscaSolicitacao,setBuscaSolicitacao]=useState('');
+  const [indicadoresClientes,setIndicadoresClientes]=useState({});
+  const [erroIndicadores,setErroIndicadores]=useState('');
+  const [detalheBonificacao,setDetalheBonificacao]=useState(null);
+  const [linhasBonificacao,setLinhasBonificacao]=useState(null);
   const [concluindoSolicitacao,setConcluindoSolicitacao]=useState(null);
   const toast=useToast();
   const [entregasPorSolicitacao,setEntregasPorSolicitacao]=useState({});
@@ -3685,6 +3689,24 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const podeEquipamento = (modulo === 'vendas' && ['vendedor','supervisor','coordenador','admin'].includes(visao))
     || (modulo === 'administracao_vendas' && ['adm_vendas','gestao_adm_vendas','admin'].includes(visao));
 
+  async function carregarIndicadoresSolicitacoes(lista){
+    setIndicadoresClientes({});
+    const ids=[...new Set((lista||[]).map(s=>s.cliente_id).filter(Boolean))];
+    const mapa={};
+    for(let i=0;i<ids.length;i+=100){
+      const bloco=ids.slice(i,i+100);
+      const {data,error}=await sb.rpc('mc_resumo_consumo_solicitacoes',{p_clientes:bloco});
+      bloco.forEach(id=>mapa[id]=null);
+      if(error){setErroIndicadores('Indicadores fiscais: '+error.message);}
+      else (data||[]).forEach(r=>mapa[r.cliente_id]=r);
+      setIndicadoresClientes({...mapa});
+    }
+  }
+  async function abrirBonificacoesCliente(cliente){
+    setDetalheBonificacao(cliente);setLinhasBonificacao(null);
+    const {data,error}=await sb.rpc('mc_bonificacoes_sku_mensal',{p_cliente:cliente.id});
+    setLinhasBonificacao(error?{erro:error.message}:(data||[]));
+  }
   async function carregarRotasSolicitacoes(lista) {
     const ids=[...new Set((lista||[]).map(s=>s.cliente_id).filter(Boolean))];
     if(!ids.length){setRotasPorCliente({});return;}
@@ -3834,7 +3856,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
       }else{
         const lista=await carregarItensBonificacoes(await carregarItensSolicitacoes(Array.isArray(resultado.data)?resultado.data:[]));
         setSolicitacoes(lista);
-        await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
+        await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista),carregarIndicadoresSolicitacoes(lista)]);
       }
       setFichas([]);
       return;
@@ -3856,7 +3878,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
     setFichas(rf.data||[]);
     const lista=await carregarItensBonificacoes(await carregarItensSolicitacoes(rs.data||[]));
     setSolicitacoes(lista);
-    await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista)]);
+    await Promise.all([carregarSituacaoEquipamentos(lista),carregarRotasSolicitacoes(lista),carregarIndicadoresSolicitacoes(lista)]);
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
@@ -3886,6 +3908,20 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const podeCriar = podeEquipamento || podeBonificacao || podeAmostra;
 
   return h('div', null,
+    detalheBonificacao&&h(Modal,{titulo:'Bonificações por SKU e mês',
+      sub:detalheBonificacao.nome+' · notas fiscais de 2026',largo:true,
+      onClose:()=>{setDetalheBonificacao(null);setLinhasBonificacao(null);},
+      acoes:h('button',{className:'btn btn-secondary',onClick:()=>setDetalheBonificacao(null)},'Fechar')},
+      linhasBonificacao===null?h('p',null,'Consultando histórico…')
+      :linhasBonificacao.erro?h('p',{style:{color:'var(--danger)'}},linhasBonificacao.erro)
+      :!linhasBonificacao.length?h('p',null,'Sem bonificações no período importado.')
+      :h('div',{style:{maxHeight:'60vh',overflow:'auto'}},
+        h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:12}},
+          h('thead',null,h('tr',null,...['Mês','SKU','Descrição','Quantidade','Kg','R$ bonificado'].map(v=>h('th',{style:{padding:8,textAlign:'left'}},v)))),
+          h('tbody',null,...linhasBonificacao.map((v,i)=>h('tr',{key:i},
+            ...[String(v.mes||'').slice(0,7).split('-').reverse().join('/'),v.codigo,v.descricao,
+              fmtNum(v.quantidade)+' '+v.unidade,v.kg===null?'—':fmtNum(v.kg),fmtMoeda(v.valor_rs)]
+              .map(c=>h('td',{style:{padding:7,borderTop:'1px solid var(--border)'}},c)))))))),
     detalhe && h(DetalheFicha, { ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
       onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();} }),
     modalNova && h(ModalNovaSolicitacao, {
@@ -3909,6 +3945,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
       h('div',{style:{marginTop:6,fontSize:13}},erroConsultaSolicitacoes),
       h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:10},onClick:carregar},'Tentar novamente')),
 
+    erroIndicadores&&h('div',{style:{fontSize:12,color:'var(--warning)',marginBottom:10}},erroIndicadores),
     h('div', { className: 'tabs', style: { display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 18, flexWrap: 'wrap' } },
       abas.map(a => h('button', {
         key: a.id, onClick: () => { setSub(a.id); setSubStatus('aprovacao'); },
@@ -3953,7 +3990,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
       : (lista.length === 0
           ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: termosBusca.length?'Nenhuma solicitação encontrada nesta situação.':'Nenhuma solicitação nesta situação.' }))
           : lista.map(x => h('div',{key:x.id},
-              h(CardSolicitacao,{s:x,rotas:rotasPorCliente[x.cliente_id]||[],erroRotas:erroRotasSolicitacoes}),
+              h(CardSolicitacao,{s:x,rotas:rotasPorCliente[x.cliente_id]||[],erroRotas:erroRotasSolicitacoes,indicadores:indicadoresClientes[x.cliente_id],onAbrirBonificacoes:()=>abrirBonificacoesCliente({id:x.cliente_id,nome:x.clientes?.razao_social||'Cliente'})}),
               podeConcluirAdm && subStatus==='realizacao' &&
                 ['bonificacao','amostra'].includes(x.categoria) &&
                 x.status_fluxo==='vinculada' &&
@@ -4861,7 +4898,28 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     ));
 }
 
-function CardSolicitacao({ s,rotas=[],erroRotas='' }) {
+function IndicadoresSolicitacao({info,onAbrir}) {
+  if(info===undefined)return h('div',{style:{fontSize:12,color:'var(--text-muted)'}},'Carregando indicadores fiscais…');
+  if(info===null)return h('div',{style:{fontSize:12,color:'var(--text-muted)'}},'Indicadores fiscais indisponíveis.');
+  const meses=Number(info.meses||0);
+  if(!meses)return h('div',{style:{fontSize:12,color:'var(--text-muted)'}},'Ainda não há meses de NF importados.');
+  const rs=Number(info.vendas_rs||0)-Number(info.bonificacoes_rs||0);
+  const kg=info.vendas_kg===null||info.bonificacoes_kg===null?null:Number(info.vendas_kg)-Number(info.bonificacoes_kg);
+  const kpi=(nome,valor,legenda)=>h('div',{style:{flex:'1 1 180px'}},
+    h('div',{style:{fontSize:11,color:'var(--text-muted)'}},nome),
+    h('div',{style:{fontWeight:700,fontSize:14,marginTop:3}},valor),
+    h('div',{style:{fontSize:10,color:'var(--text-muted)',marginTop:3}},legenda));
+  return h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',padding:12,border:'1px solid var(--border)',borderRadius:8,margin:'10px 0'}},
+    kpi('Consumo líquido/mês',fmtMoeda(rs)+' · '+(kg===null?'Kg indisponível':fmtNum(kg)+' kg'),'Venda − bonificação / '+meses+' meses'),
+    kpi('Preço kg francês',info.preco_kg_frances==null?'Não cadastrado':fmtMoeda(info.preco_kg_frances),'Última ficha'),
+    h('div',{style:{flex:'1 1 180px'}},
+      h('div',{style:{fontSize:11,color:'var(--text-muted)'}},'Bonificado total no período'),
+      h('div',{style:{fontWeight:700,fontSize:14,marginTop:3}},fmtMoeda(info.total_bonificado_rs||0)),
+      h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:6},onClick:onAbrir},'Ver SKU × mês')),
+    Number(info.itens_sem_peso)>0&&h('div',{style:{width:'100%',fontSize:11,color:'var(--warning)'}},
+      'Peso incompleto em '+info.itens_sem_peso+' registro(s) fiscais.'));
+}
+function CardSolicitacao({ s,rotas=[],erroRotas='',indicadores,onAbrirBonificacoes }) {
   const cli = s.clientes || {};
   const itensEquip=itensDaSolicitacao(s);
   const cat = s.categoria || 'equipamento';
@@ -4888,6 +4946,7 @@ function CardSolicitacao({ s,rotas=[],erroRotas='' }) {
     h('div', { style:{marginBottom:8} },
           h('span', { className:'badge badge-red', style:{fontFamily:"'JetBrains Mono', monospace", fontWeight:700} }, codigoAuditoria(s, prefixoSolicitacao(s)))),
         h(StepperGenerico, { aprovacoes: s.solicitacao_aprovacoes }),
+    h(IndicadoresSolicitacao,{info:indicadores,onAbrir:onAbrirBonificacoes}),
     cat==='bonificacao' && h('div',{style:{marginTop:9}},
       ...itensBonificacao.map((it,i)=>h('div',{key:'b_'+i,style:{fontSize:12,padding:'4px 0',borderBottom:'1px solid var(--border)'}},
         ((it.produtos?.codigo||'')+' — '+(it.produtos?.descricao||'Produto'))+' · '+fmtNum(it.quantidade||0)+' un.'))),
