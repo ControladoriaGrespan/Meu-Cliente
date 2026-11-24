@@ -1921,6 +1921,7 @@ function gerarContratoSimModeloOficial(f,salvar=true,formato='pdf'){
   const prazoExtenso=Number.isInteger(prazo)&&prazo>0?numeroPorExtenso(prazo):'____________________';
   const verba=Number(f.verba_introducao||f.verbas_acordo||0);
   const parcelas=Number(f.duracao_verba);
+  if(!(verba>0)){alert('Informe o valor da verba de introdução/bonificação na ficha para preencher a cláusula terceira do Contrato – SIM.');return null;}
   const valor=verba>0?fmtMoeda(verba):'R$ __________';
   const valorExtenso=verba>0?reaisPorExtenso(verba):'____________________';
   const vezes=Number.isInteger(parcelas)&&parcelas>0?String(parcelas):'____';
@@ -2061,7 +2062,7 @@ function gerarContratoSimModeloOficial(f,salvar=true,formato='pdf'){
     // acrescentada unilateralmente ao modelo jurídico aprovado.
     console.info('[Minuta Contrato SIM] Bonificação percentual na ficha exige conferência do Acordo Comercial anexo.');
   }
-  if(formato==='docx')return baixarContratoEmWord(blocosWord,nomePDF.replace(/\\.pdf$/i,'.docx'));
+  if(formato==='docx')return baixarContratoEmWord(blocosWord,nomePDF.slice(0,-4)+'.docx');
   if(salvar)d.save(nomePDF);
   return {doc:d,nome:nomePDF};
 }
@@ -2186,7 +2187,7 @@ function gerarContratoPDF(f,salvar=true,formato='pdf'){
     d.text('Testemunha 2 — Nome / CPF',153,y,{align:'center'});
   }
   rodape();
-  if(formato==='docx')return baixarContratoEmWord(blocosWord,nome.replace(/\\.pdf$/i,'.docx'));
+  if(formato==='docx')return baixarContratoEmWord(blocosWord,nome.slice(0,-4)+'.docx');
   if(salvar)d.save(nome);
   return {doc:d,nome};
 }
