@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v148-romaneio-itens-quantidades';
-console.info('[Meu Cliente] BUILD v148-romaneio-itens-quantidades');
+window.__MEU_CLIENTE_BUILD__='v149-historico-fichas-adm-vendas';
+console.info('[Meu Cliente] BUILD v149-historico-fichas-adm-vendas');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -2345,13 +2345,30 @@ function PaginaFichas({ profile, ehPreview, onChanged }) {
   const [busca, setBusca] = useState('');
   const [detalhe, setDetalhe] = useState(null);
   const [corrigindo,setCorrigindo]=useState(false);
+  const [erroFichas,setErroFichas]=useState('');
+  const leituraAdmVendas=['adm_vendas','gestao_adm_vendas'].includes(profile.papel);
 
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => { carregar(); }, [profile.id]);
   async function carregar() {
-    const { data } = await sb.from('fichas_clientes')
-      .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
-      .order('created_at', { ascending: false });
-    setFichas(data || []);
+    setErroFichas('');
+    const resultado=leituraAdmVendas
+      ? await sb.rpc('mc_listar_fichas_adm_vendas')
+      : await sb.from('fichas_clientes')
+          .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
+          .order('created_at', { ascending: false });
+    if(resultado.error){
+      console.error('Histórico de fichas:',resultado.error);
+      setErroFichas('Não foi possível consultar o histórico de fichas: '+resultado.error.message+
+        (leituraAdmVendas?' · Verifique a migração 20261124_historico_fichas_adm_vendas.sql no Supabase.':''));
+      setFichas([]);
+      return;
+    }
+    if(!Array.isArray(resultado.data)){
+      setErroFichas('O histórico de fichas retornou um formato inesperado.');
+      setFichas([]);
+      return;
+    }
+    setFichas(resultado.data);
   }
 
   const filtradas = useMemo(() => {
@@ -2391,6 +2408,11 @@ function PaginaFichas({ profile, ehPreview, onChanged }) {
           setDetalhe(atualizar);
           setFichas(lista=>lista.map(atualizar));
         }:undefined})),
+    erroFichas && h('div', { className: 'card', role:'alert',
+      style:{borderColor:'var(--danger)',color:'var(--danger)',marginBottom:14} },
+      h('strong',null,'Erro ao carregar fichas'),
+      h('div',{style:{fontSize:12,marginTop:6}},erroFichas),
+      h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:carregar},'Tentar novamente')),
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, 'Fichas de Clientes'),
