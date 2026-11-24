@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v151-contrato-fornecimento-multa';
-console.info('[Meu Cliente] BUILD v151-contrato-fornecimento-multa');
+window.__MEU_CLIENTE_BUILD__='v152-contrato-sim-cpf-extenso-data';
+console.info('[Meu Cliente] BUILD v152-contrato-sim-cpf-extenso-data');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1835,15 +1835,60 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   const nomePDF='CONTRATO - SIM - Fornecimento com Multa GRESPAN - '+nome+'.pdf';
   const contratante=String(f.razao_social).trim();
   const cnpj=String(f.cnpj_cpf).trim();
-  const representante=String(f.representante_nome||'_____________________________').trim();
-  const cpf=String(f.representante_cpf||'________________').trim();
+  const representante=String(f.representante_nome||'').trim();
+  const cpfDigitos=String(f.representante_cpf||'').replace(/\D/g,'');
+  if(!representante||cpfDigitos.length!==11){
+    alert('Preencha o nome e CPF (11 dígitos) do representante legal na Ficha para gerar o Contrato – SIM.');
+    return null;
+  }
+  const cpf=cpfDigitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');
+  const unidades=['','um','dois','três','quatro','cinco','seis','sete','oito','nove'];
+  const especiais=['dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const dezenas=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const centenas=['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  function ate999(n){
+    if(n===100)return 'cem';
+    const p=[];
+    if(n>=100){p.push(centenas[Math.floor(n/100)]);n%=100;}
+    if(n>=20){p.push(dezenas[Math.floor(n/10)]);n%=10;}
+    if(n>=10){p.push(especiais[n-10]);n=0;}
+    if(n>0)p.push(unidades[n]);
+    return p.join(' e ');
+  }
+  function numeroPorExtenso(n){
+    if(!Number.isSafeInteger(n)||n<0||n>999999999)return '';
+    if(n===0)return 'zero';
+    const p=[];
+    for(const [div,sing,plural] of [[1000000,'milhão','milhões'],[1000,'mil','mil'],[1,'','']]){
+      const valor=Math.floor(n/div)%1000;
+      if(!valor)continue;
+      if(div===1000&&valor===1){p.push('mil');continue;}
+      p.push(ate999(valor)+(sing?' '+(valor===1?sing:plural):''));
+    }
+    return p.join(' e ');
+  }
+  function reaisPorExtenso(v){
+    const centavosTotal=Math.round(Number(v)*100);
+    if(!Number.isSafeInteger(centavosTotal)||centavosTotal<0)return '';
+    const reais=Math.floor(centavosTotal/100),centavos=centavosTotal%100;
+    const r=reais?numeroPorExtenso(reais)+(reais===1?' real':' reais'):'';
+    const c=centavos?numeroPorExtenso(centavos)+(centavos===1?' centavo':' centavos'):'';
+    return r&&c?r+' e '+c:(r||c||'zero real');
+  }
+  const dataEmissao=hoje.getDate()+' de '+[
+    'janeiro','fevereiro','março','abril','maio','junho','julho','agosto',
+    'setembro','outubro','novembro','dezembro'
+  ][hoje.getMonth()]+' de '+ano;
   const endereco=[f.rua,f.numero,f.bairro,f.cidade,f.estado,f.cep].filter(Boolean).join(', ');
   const prazo=Number(f.contrato_prazo_meses);
   const prazoTexto=Number.isInteger(prazo)&&prazo>0?String(prazo):'____';
+  const prazoExtenso=Number.isInteger(prazo)&&prazo>0?numeroPorExtenso(prazo):'____________________';
   const verba=Number(f.verba_introducao||0);
   const parcelas=Number(f.duracao_verba);
   const valor=verba>0?fmtMoeda(verba):'R$ __________';
+  const valorExtenso=verba>0?reaisPorExtenso(verba):'____________________';
   const vezes=Number.isInteger(parcelas)&&parcelas>0?String(parcelas):'____';
+  const vezesExtenso=Number.isInteger(parcelas)&&parcelas>0?numeroPorExtenso(parcelas):'____________________';
   const percentual=Number(f.bonificacao_percentual||0);
   const bonificacaoExtra=percentual>0
     ? 'A Ficha de Cliente também registra bonificação de negociação de '+fmtNum(percentual)+'%, na periodicidade '+String(f.bonificacao_periodicidade||'a confirmar')+' e modalidade '+String(f.bonificacao_modalidade||'Produto')+'. Esta condição deverá ser incorporada mediante revisão do instrumento ou de seu Acordo Comercial anexo.'
@@ -1897,7 +1942,7 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   escrever('A CONTRATANTE se obriga a pagar o preço acordado, na forma prevista no Acordo Comercial.');
 
   clausula('CLÁUSULA TERCEIRA – BENEFÍCIOS/BONIFICAÇÕES/DESCONTOS/VERBAS');
-  escrever('A partir do mês seguinte a assinatura deste contrato a CONTRANTANTE, devido a nova negociação receberá em pão francês bonificados a quantia de '+valor+' (____________________), a ser enviada em '+vezes+' vezes, sendo todo inicio de mês através de nota fiscal correspondente.');
+  escrever('A partir do mês seguinte a assinatura deste contrato a CONTRANTANTE, devido a nova negociação receberá em pão francês bonificados a quantia de '+valor+' ('+valorExtenso+'), a ser enviada em '+vezes+' ('+vezesExtenso+') vezes, sendo todo inicio de mês através de nota fiscal correspondente.');
   escrever('Parágrafo único. O recebimento da bonificação estará condicionada ao atendimento de todas as clásulas previstas neste instrumento e em seus anexos, em especial no que diz respeito à exclusividade e ao prazo de vigência, previstos nas cláusulas Quarta e Quinta, respectivamente.');
   // A redação do modelo sobre bonificação em pão francês não é modificada automaticamente
   // quando a Ficha contém bonificação percentual: tal ajuste exige análise contratual.
@@ -1906,7 +1951,7 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   escrever('Por meio deste instrumento, a CONTRATANTE se compromete a respeitar a exclusividade, de modo a não comercializar os mesmos produtos de outras empresas (concorrentes) ou de sua própria fabricação, bem como a não utilizar os equipamentos recebidos em comodato para fins diversos dos previstos no contrato assinado entre as partes, sob pena de imediata rescisão contratual, e aplicação da multa prevista na cláusula nona.');
 
   clausula('CLÁUSULA QUINTA – PRAZO');
-  escrever('O prazo de vigência será de '+prazoTexto+' (____________________) meses, a contar da data de assinatura do presente acordo, podendo ser prorrogado mediante expressa concordância de ambas as partes.');
+  escrever('O prazo de vigência será de '+prazoTexto+' ('+prazoExtenso+') meses, a contar da data de assinatura do presente acordo, podendo ser prorrogado mediante expressa concordância de ambas as partes.');
   escrever('Parágrafo único. O silêncio das partes acerca da renovação importará em prorrogação do presente acordo por prazo indeterminado, mantendo-se inalteradas as cláusulas ora previstas e em seus anexos.');
 
   clausula('CLÁUSULA SEXTA – REAJUSTE');
@@ -1956,7 +2001,7 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   escrever('E, por estarem as partes justas e acordadas, assinam o presente instrumento em 02 (duas) vias de igual teor e forma, na presença de 02 (duas) testemunhas.');
 
   if(y+40>273)novaPagina();
-  y+=7;escrever('Marília-SP, ____ de ____________________ de '+ano+'.');
+  y+=7;escrever('Marília-SP, '+dataEmissao+'.');
   blocoAssinatura('MARLENE TEREZA GRESPAN FERRARI','CPF 145.699.988-52');
   blocoAssinatura('JOSÉ MARCOS GRESPAN','CPF 053.593.758-09');
   blocoAssinatura(contratante+' - '+representante,'CPF '+cpf);
