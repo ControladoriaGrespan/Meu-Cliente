@@ -1823,7 +1823,43 @@ function fichaAprovadaDiretoria(f){
  * Dados da Ficha substituem exclusivamente os campos de preenchimento do modelo.
  * Não altera o gerador de "CONTRATO – NÃO".
  */
-function gerarContratoSimModeloOficial(f,salvar=true){
+
+async function baixarContratoEmWord(blocos,nomeArquivo){
+  if(!window.docx){
+    if(!window.__grespanDocxLoader){
+      window.__grespanDocxLoader=new Promise((resolve,reject)=>{
+        const script=document.createElement('script');
+        script.src='https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.umd.js';
+        script.onload=()=>window.docx?resolve():reject(new Error('Biblioteca Word indisponível'));
+        script.onerror=()=>reject(new Error('Não foi possível carregar o gerador Word. Verifique a conexão.'));
+        document.head.appendChild(script);
+      }).catch(e=>{window.__grespanDocxLoader=null;throw e;});
+    }
+    await window.__grespanDocxLoader;
+  }
+  const {Document,Paragraph,TextRun,Packer,AlignmentType}=window.docx;
+  const children=blocos.map(b=>new Paragraph({
+    alignment:b.tipo==='titulo'?AlignmentType.CENTER:AlignmentType.LEFT,
+    spacing:{after:b.tipo==='titulo'?220:130,line:280},
+    children:[new TextRun({text:String(b.texto||''),bold:b.tipo==='titulo',size:b.tipo==='titulo'?23:21,font:'Arial'})]
+  }));
+  const documento=new Document({
+    creator:'GRESPAN PÃES CONGELADOS',title:'Minuta de contrato GRESPAN',
+    sections:[{properties:{page:{margin:{top:1134,bottom:1134,left:1134,right:1134}}},children}]
+  });
+  const blob=await Packer.toBlob(document);
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=nomeArquivo;document.body.appendChild(link);
+  link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+function solicitarContratoWord(f){
+  if(!fichaAprovadaDiretoria(f)){alert('A minuta só poderá ser gerada depois da aprovação da Diretoria.');return;}
+  Promise.resolve(gerarContratoPDF(f,false,'docx')).catch(e=>{
+    console.error('Falha ao gerar minuta Word',e);
+    alert('Não foi possível gerar o Word: '+(e.message||e));
+  });
+}
+function gerarContratoSimModeloOficial(f,salvar=true,formato='pdf'){
   if(!window.jspdf?.jsPDF){alert('Biblioteca de PDF não carregada.');return null;}
   if(!f.razao_social||!f.cnpj_cpf||!f.rua||!f.cidade||!f.estado){
     alert('Complete razão social, CNPJ e endereço na ficha antes de gerar a minuta.');return null;
@@ -1883,7 +1919,7 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   const prazo=Number(f.contrato_prazo_meses);
   const prazoTexto=Number.isInteger(prazo)&&prazo>0?String(prazo):'____';
   const prazoExtenso=Number.isInteger(prazo)&&prazo>0?numeroPorExtenso(prazo):'____________________';
-  const verba=Number(f.verba_introducao||0);
+  const verba=Number(f.verba_introducao||f.verbas_acordo||0);
   const parcelas=Number(f.duracao_verba);
   const valor=verba>0?fmtMoeda(verba):'R$ __________';
   const valorExtenso=verba>0?reaisPorExtenso(verba):'____________________';
@@ -1893,6 +1929,13 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   const bonificacaoExtra=percentual>0
     ? 'A Ficha de Cliente também registra bonificação de negociação de '+fmtNum(percentual)+'%, na periodicidade '+String(f.bonificacao_periodicidade||'a confirmar')+' e modalidade '+String(f.bonificacao_modalidade||'Produto')+'. Esta condição deverá ser incorporada mediante revisão do instrumento ou de seu Acordo Comercial anexo.'
     : '';
+  if(!(Number.isInteger(prazo)&&prazo>0)){
+    alert('Informe o prazo de vigência do contrato (em meses) na ficha antes de gerar a minuta.');return null;
+  }
+  if(verba>0&&!(Number.isInteger(parcelas)&&parcelas>0)){
+    alert('Informe a quantidade de parcelas da verba de introdução na ficha.');return null;
+  }
+  const blocosWord=[{tipo:'titulo',texto:'CONTRATO DE FORNECIMENTO DE PRODUTOS'},{tipo:'texto',texto:'Contrato nº '+numero+'/'+ano}];
   const ml=17,mr=193,w=176;
   let y=39,paginaAtual=1;
   function topo(){
@@ -1909,6 +1952,7 @@ function gerarContratoSimModeloOficial(f,salvar=true){
   }
   function novaPagina(){rodape();d.addPage();paginaAtual++;y=39;topo();}
   function escrever(conteudo,estilo='texto'){
+    if(estilo!=='titulo')blocosWord.push({tipo:'texto',texto:String(conteudo)});
     const titulo=estilo==='titulo';
     const linhas=d.splitTextToSize(String(conteudo),w-(titulo?0:4));
     const passo=titulo?5:4.6;
@@ -1920,8 +1964,10 @@ function gerarContratoSimModeloOficial(f,salvar=true){
     d.text(linhas,titulo?105:ml+2,y,{align:titulo?'center':'left'});
     y+=altura;
   }
-  function clausula(t){y+=2;escrever(t,'titulo');}
+  function clausula(t){blocosWord.push({tipo:'titulo',texto:String(t)});y+=2;escrever(t,'titulo');}
   function blocoAssinatura(nome,identificacao){
+    blocosWord.push({tipo:'texto',texto:'________________________________________'});
+    blocosWord.push({tipo:'texto',texto:String(nome)+' — '+String(identificacao)});
     if(y+22>270)novaPagina();
     y+=8;d.setDrawColor(50);d.line(ml+8,y,mr-8,y);
     y+=6;d.setFont('helvetica','normal');d.setFontSize(8.5);d.setTextColor(40);
@@ -2015,15 +2061,16 @@ function gerarContratoSimModeloOficial(f,salvar=true){
     // acrescentada unilateralmente ao modelo jurídico aprovado.
     console.info('[Minuta Contrato SIM] Bonificação percentual na ficha exige conferência do Acordo Comercial anexo.');
   }
+  if(formato==='docx')return baixarContratoEmWord(blocosWord,nomePDF.replace(/\\.pdf$/i,'.docx'));
   if(salvar)d.save(nomePDF);
   return {doc:d,nome:nomePDF};
 }
 
-function gerarContratoPDF(f,salvar=true){
+function gerarContratoPDF(f,salvar=true,formato='pdf'){
   if(!window.jspdf?.jsPDF){alert('Biblioteca de PDF não carregada.');return null;}
   // Seleciona o modelo conforme a ficha; estas minutas não enviam nada ao DocuSign.
   const modeloSim=f.contrato===true||String(f.contrato).toLowerCase()==='sim';
-  if(modeloSim)return gerarContratoSimModeloOficial(f,salvar);
+  if(modeloSim)return gerarContratoSimModeloOficial(f,salvar,formato);
   const numero=String(f.acordo_comercial_numero||codigoAuditoria(f,'ACO'));
   const consumo=Number(f.consumo_previsto||0);
   const kgMes=Math.round(consumo*PESO_PAO_KG*DIAS_MES*100)/100;
@@ -2041,6 +2088,7 @@ function gerarContratoPDF(f,salvar=true){
     alert('Complete razão social, CNPJ e endereço da ficha antes de gerar o acordo.');return null;
   }
   const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'});
+  const blocosWord=[];
   const ml=16,mr=194,w=178;let y=39,pagina=1;
   const sep=String(f.razao_social).replace(/[\\/:*?"<>|]/g,'-').slice(0,75);
   const nome=(modeloSim?'CONTRATO - SIM':'CONTRATO - NÃO')+' - Acordo Comercial GRESPAN - '+sep+'.pdf';
@@ -2060,6 +2108,7 @@ function gerarContratoPDF(f,salvar=true){
   }
   function paginaNova(){rodape();d.addPage();pagina++;y=39;cabecalho();}
   function par(t,estilo='normal'){
+    blocosWord.push({tipo:estilo==='titulo'?'titulo':'texto',texto:String(t||'')});
     const negrito=estilo==='titulo';d.setFont('helvetica',negrito?'bold':'normal');
     d.setFontSize(negrito?9.4:8.5);d.setTextColor(negrito?32:35);
     const linhas=d.splitTextToSize(String(t||''),w),altura=linhas.length*(negrito?4.35:4.05)+(negrito?3.5:3);
@@ -2070,6 +2119,7 @@ function gerarContratoPDF(f,salvar=true){
   cabecalho();
   d.setFont('helvetica','bold');d.setTextColor(30);d.setFontSize(12.4);
   d.text('ACORDO COMERCIAL Nº '+numero+'/'+ano,105,y,{align:'center'});y+=9;
+  blocosWord.push({tipo:'titulo',texto:'ACORDO COMERCIAL Nº '+numero+'/'+ano});
   par('Prezados(as) '+representante+',');
   par('É com grande satisfação que apresentamos nosso Acordo Comercial, elaborado de forma personalizada para atender às necessidades específicas de sua empresa. Nossa missão é oferecer soluções práticas e de alta qualidade para facilitar o dia a dia de mercados e padarias, assegurando produtos consistentes e serviços de excelência.');
   par('A Grespan Pães Congelados reforça seu compromisso com a inovação, o cuidado com os clientes e a qualidade dos produtos e serviços.');
@@ -2127,6 +2177,7 @@ function gerarContratoPDF(f,salvar=true){
   d.text(representante,153,y,{align:'center'});y+=4;
   d.text('10.809.214/0001-67',55.5,y,{align:'center'});
   d.text('CPF: '+cpf,153,y,{align:'center'});
+  blocosWord.push({tipo:'texto',texto:'Assinaturas: GRESPAN PÃES CONGELADOS LTDA — CNPJ 10.809.214/0001-67; '+representante+' — CPF '+cpf});
   // No anexo recebido, o modelo CONTRATO - NÃO contém campos para duas testemunhas.
   if(!modeloSim){
     if(y>248)paginaNova();
@@ -2135,6 +2186,7 @@ function gerarContratoPDF(f,salvar=true){
     d.text('Testemunha 2 — Nome / CPF',153,y,{align:'center'});
   }
   rodape();
+  if(formato==='docx')return baixarContratoEmWord(blocosWord,nome.replace(/\\.pdf$/i,'.docx'));
   if(salvar)d.save(nome);
   return {doc:d,nome};
 }
@@ -2425,6 +2477,7 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
     acoes: [
       h('button', { key:'pdf', className:'btn btn-secondary', onClick: () => baixarFichaPDF(f) }, '↓ Baixar Ficha'),
       fichaAprovadaDiretoria(f) && (f.contrato || Number(f.verbas_acordo||0)>0 || Number(f.bonificacao_percentual||0)>0) && h('button',{key:'contrato',className:'btn btn-primary',onClick:()=>solicitarAssinaturaContrato(f)},f.contrato?'Gerar minuta — Contrato SIM':'Gerar minuta — Acordo NÃO'),
+      fichaAprovadaDiretoria(f) && (f.contrato || Number(f.verbas_acordo||0)>0 || Number(f.bonificacao_percentual||0)>0) && h('button',{key:'contrato-word',className:'btn btn-secondary',onClick:()=>solicitarContratoWord(f)},'↓ Baixar minuta Word'),
       h('button', { key:'fechar', className: 'btn btn-secondary', disabled:enviandoDocs, onClick: onClose }, 'Fechar')
     ].filter(Boolean)
   },
