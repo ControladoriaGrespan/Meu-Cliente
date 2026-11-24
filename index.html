@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v146-indicadores-solicitacoes';
-console.info('[Meu Cliente] BUILD v146-indicadores-solicitacoes');
+window.__MEU_CLIENTE_BUILD__='v147-romaneio-equipamentos-tabela';
+console.info('[Meu Cliente] BUILD v147-romaneio-equipamentos-tabela');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7086,22 +7086,87 @@ function PaginaEntregasEquipamentos({profile}) {
   function baixarRomaneio(r){
     if(!window.jspdf)return toast('Biblioteca de PDF não carregada.','error');
     const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'}),its=itensDaRota(r.id);
+    const margem=15,largura=180;
     let y=18;
-    d.setFont('helvetica','bold');d.setTextColor(176,28,32);d.setFontSize(18);d.text('GRESPAN',15,y);
-    d.setTextColor(30);d.setFontSize(14);d.text('ROMANEIO DE EQUIPAMENTOS',105,y,{align:'center'});y+=10;
-    d.setFontSize(9);d.setFont('helvetica','normal');d.text(`Rota: ${r.nome}`,15,y);d.text(`Data: ${fmtData(r.data_rota)}`,150,y);y+=8;
+    function cabecalho(pagina){
+      d.setFont('helvetica','bold');d.setTextColor(176,28,32);d.setFontSize(18);d.text('GRESPAN',15,18);
+      d.setTextColor(30);d.setFontSize(14);d.text('ROMANEIO DE EQUIPAMENTOS',105,18,{align:'center'});
+      d.setFontSize(9);d.setFont('helvetica','normal');
+      d.text('Rota: '+String(r.nome||'—'),15,28);
+      d.text('Data: '+fmtData(r.data_rota),150,28);
+      if(pagina>1)d.text('Continuação · Página '+pagina,15,34);
+      y=pagina>1?39:36;
+    }
+    let pagina=1;cabecalho(pagina);
+    function novaPagina(){
+      d.addPage();pagina++;cabecalho(pagina);
+    }
+    function garantir(altura){if(y+altura>282)novaPagina();}
+    function listaEquipamentos(valor){
+      return String(valor||'').split(/\s*(?:,|;|\n|[•·])\s*/).map(v=>v.trim()).filter(Boolean);
+    }
+    function escreverTabela(linhas){
+      const inicio=[margem,margem+30,margem+142,margem+largura];
+      const col=[30,112,38];
+      const cab=8;
+      function cabTabela(){
+        garantir(cab+8);
+        d.setFillColor(244,244,244);d.setDrawColor(190);d.rect(margem,y,largura,cab,'FD');
+        d.setFont('helvetica','bold');d.setTextColor(35);d.setFontSize(8);
+        d.text('MOVIMENTO',inicio[0]+3,y+5.2);
+        d.text('EQUIPAMENTO',inicio[1]+3,y+5.2);
+        d.text('DETALHES',inicio[2]+3,y+5.2);
+        d.line(inicio[1],y,inicio[1],y+cab);d.line(inicio[2],y,inicio[2],y+cab);
+        y+=cab;
+      }
+      cabTabela();
+      linhas.forEach((linha,index)=>{
+        d.setFont('helvetica','normal');d.setFontSize(8);d.setTextColor(35);
+        const textos=[
+          d.splitTextToSize(linha.movimento,col[0]-6),
+          d.splitTextToSize(linha.equipamento,col[1]-6),
+          d.splitTextToSize(linha.detalhe||'—',col[2]-6)
+        ];
+        const altura=Math.max(9,...textos.map(t=>t.length*4+4));
+        if(y+altura>282){novaPagina();cabTabela();}
+        d.setDrawColor(200);d.rect(margem,y,largura,altura);
+        d.line(inicio[1],y,inicio[1],y+altura);d.line(inicio[2],y,inicio[2],y+altura);
+        d.text(textos[0],inicio[0]+3,y+5);
+        d.text(textos[1],inicio[1]+3,y+5);
+        d.text(textos[2],inicio[2]+3,y+5);
+        y+=altura;
+      });
+    }
     its.forEach((it,i)=>{
       const e=it.entrega||{};
-      if(y>258){d.addPage();y=18;}
-      d.setDrawColor(210);d.roundedRect(15,y,180,31,2,2);
-      d.setFont('helvetica','bold');d.setFontSize(9);d.text(`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)}`,19,y+6);
-      d.setFont('helvetica','normal');d.setFontSize(7.5);d.text(d.splitTextToSize('Endereço: '+endereco(e),170),19,y+11);
+      const linhas=[];
+      function adicionar(movimento,valor,detalhe){
+        listaEquipamentos(valor).forEach(equipamento=>linhas.push({movimento,equipamento,detalhe}));
+      }
       if(e.tipo_demanda==='troca'){
-        d.text(d.splitTextToSize(`COLETAR: ${e.equipamento_coleta||'—'} | Patrimônio: ${e.patrimonio_coleta||'—'}`,170),19,y+18);
-        d.text(d.splitTextToSize(`ENTREGAR: ${e.equipamento_entrega||'—'} | Patrimônio: ${e.patrimonio_entrega||'—'}`,170),19,y+23);
-      }else d.text(d.splitTextToSize(`ENTREGAR: ${e.equipamento_entrega||e.equipamento_resumo||'—'} | Condição: ${e.equipamento_condicao||'—'}`,170),19,y+18);
-      d.text('Recebido por: ______________________________   Assinatura: ______________________________',19,y+28);
-      y+=35;
+        adicionar('COLETAR',e.equipamento_coleta,e.patrimonio_coleta?'Patrimônio: '+e.patrimonio_coleta:'');
+        adicionar('ENTREGAR',e.equipamento_entrega,e.patrimonio_entrega?'Patrimônio: '+e.patrimonio_entrega:'');
+      }else if(e.tipo_demanda==='retirada'){
+        adicionar('COLETAR',e.equipamento_coleta||e.equipamento_resumo,e.patrimonio_coleta?'Patrimônio: '+e.patrimonio_coleta:'');
+      }else{
+        adicionar('ENTREGAR',e.equipamento_entrega||e.equipamento_resumo,e.equipamento_condicao?'Condição: '+e.equipamento_condicao:'');
+      }
+      if(!linhas.length)linhas.push({movimento:'—',equipamento:'Não informado',detalhe:''});
+      garantir(32);
+      d.setFont('helvetica','bold');d.setTextColor(30);d.setFontSize(9);
+      const cliente=`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)}`;
+      const titulo=d.splitTextToSize(cliente,173);
+      const ender=d.splitTextToSize('Endereço: '+(endereco(e)||'—'),173);
+      const alturaTopo=5+titulo.length*4+ender.length*3.7;
+      garantir(alturaTopo+17);
+      d.text(titulo,margem+3,y+4);y+=titulo.length*4+3;
+      d.setFont('helvetica','normal');d.setFontSize(8);
+      d.text(ender,margem+3,y+3);y+=ender.length*3.7+5;
+      escreverTabela(linhas);
+      garantir(17);
+      d.setFont('helvetica','normal');d.setFontSize(8);
+      d.text('Recebido por: ______________________________   Assinatura: ______________________________',margem+3,y+7);
+      y+=17;
     });
     d.save('Romaneio - '+String(r.nome||'Rota').replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
   }
