@@ -1871,13 +1871,12 @@ function gerarContratoSimModeloOficial(f,salvar=true,formato='pdf'){
   const nomePDF='CONTRATO - SIM - Fornecimento com Multa GRESPAN - '+nome+'.pdf';
   const contratante=String(f.razao_social).trim();
   const cnpj=String(f.cnpj_cpf).trim();
-  const representante=String(f.representante_nome||'').trim();
+  // O representante pode ser preenchido posteriormente na minuta.
+  const representante=String(f.representante_nome||'').trim()||'________________________________';
   const cpfDigitos=String(f.representante_cpf||'').replace(/\D/g,'');
-  if(!representante||cpfDigitos.length!==11){
-    alert('Preencha o nome e CPF (11 dígitos) do representante legal na Ficha para gerar o Contrato – SIM.');
-    return null;
-  }
-  const cpf=cpfDigitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');
+  const cpf=cpfDigitos.length===11
+    ?cpfDigitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
+    :'________________________';
   const unidades=['','um','dois','três','quatro','cinco','seis','sete','oito','nove'];
   const especiais=['dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
   const dezenas=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
