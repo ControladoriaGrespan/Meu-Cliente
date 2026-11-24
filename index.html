@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v147-romaneio-equipamentos-tabela';
-console.info('[Meu Cliente] BUILD v147-romaneio-equipamentos-tabela');
+window.__MEU_CLIENTE_BUILD__='v148-romaneio-itens-quantidades';
+console.info('[Meu Cliente] BUILD v148-romaneio-itens-quantidades');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -7103,20 +7103,38 @@ function PaginaEntregasEquipamentos({profile}) {
     }
     function garantir(altura){if(y+altura>282)novaPagina();}
     function listaEquipamentos(valor){
-      return String(valor||'').split(/\s*(?:,|;|\n|[•·])\s*/).map(v=>v.trim()).filter(Boolean);
+      return String(valor||'')
+        .replace(/^\s*(?:ENTREGAR|COLETAR)\s*:\s*/i,'')
+        .split(/\s*(?:,|;|\n|[•·])\s*/)
+        .map(v=>v.trim()).filter(v=>v&&!/^(novo|usado|nova|usada)$/i.test(v));
+    }
+    function equipamentoEQuantidade(texto){
+      let nome=String(texto||'').trim(),quantidade=1;
+      // "Forno a Gás x2 (5 esteiras)" / "Freezer Vertical x3"
+      const meio=nome.match(/\s+x(\d+)(?=\s*(?:\(|$))/i);
+      if(meio){
+        quantidade=Number(meio[1]);
+        nome=nome.slice(0,meio.index)+nome.slice(meio.index+meio[0].length);
+      }else{
+        // "20 esteiras" / "15 assadeiras".
+        const inicio=nome.match(/^(\d+)\s+(.+)$/);
+        if(inicio){quantidade=Number(inicio[1]);nome=inicio[2];}
+      }
+      return {equipamento:nome.trim(),quantidade:Math.max(1,quantidade)};
     }
     function escreverTabela(linhas){
-      const inicio=[margem,margem+30,margem+142,margem+largura];
-      const col=[30,112,38];
+      const inicio=[margem,margem+30,margem+45,margem+142,margem+largura];
+      const col=[30,15,97,38];
       const cab=8;
       function cabTabela(){
         garantir(cab+8);
         d.setFillColor(244,244,244);d.setDrawColor(190);d.rect(margem,y,largura,cab,'FD');
         d.setFont('helvetica','bold');d.setTextColor(35);d.setFontSize(8);
         d.text('MOVIMENTO',inicio[0]+3,y+5.2);
-        d.text('EQUIPAMENTO',inicio[1]+3,y+5.2);
-        d.text('DETALHES',inicio[2]+3,y+5.2);
-        d.line(inicio[1],y,inicio[1],y+cab);d.line(inicio[2],y,inicio[2],y+cab);
+        d.text('QTD',inicio[1]+3,y+5.2);
+        d.text('EQUIPAMENTO',inicio[2]+3,y+5.2);
+        d.text('DETALHES',inicio[3]+3,y+5.2);
+        for(let k=1;k<inicio.length-1;k++)d.line(inicio[k],y,inicio[k],y+cab);
         y+=cab;
       }
       cabTabela();
@@ -7124,16 +7142,15 @@ function PaginaEntregasEquipamentos({profile}) {
         d.setFont('helvetica','normal');d.setFontSize(8);d.setTextColor(35);
         const textos=[
           d.splitTextToSize(linha.movimento,col[0]-6),
-          d.splitTextToSize(linha.equipamento,col[1]-6),
-          d.splitTextToSize(linha.detalhe||'—',col[2]-6)
+          d.splitTextToSize(String(linha.quantidade||1),col[1]-6),
+          d.splitTextToSize(linha.equipamento,col[2]-6),
+          d.splitTextToSize(linha.detalhe||'—',col[3]-6)
         ];
         const altura=Math.max(9,...textos.map(t=>t.length*4+4));
         if(y+altura>282){novaPagina();cabTabela();}
         d.setDrawColor(200);d.rect(margem,y,largura,altura);
-        d.line(inicio[1],y,inicio[1],y+altura);d.line(inicio[2],y,inicio[2],y+altura);
-        d.text(textos[0],inicio[0]+3,y+5);
-        d.text(textos[1],inicio[1]+3,y+5);
-        d.text(textos[2],inicio[2]+3,y+5);
+        for(let k=1;k<inicio.length-1;k++)d.line(inicio[k],y,inicio[k],y+altura);
+        textos.forEach((texto,k)=>d.text(texto,inicio[k]+3,y+5));
         y+=altura;
       });
     }
@@ -7141,7 +7158,11 @@ function PaginaEntregasEquipamentos({profile}) {
       const e=it.entrega||{};
       const linhas=[];
       function adicionar(movimento,valor,detalhe){
-        listaEquipamentos(valor).forEach(equipamento=>linhas.push({movimento,equipamento,detalhe}));
+        const condicao=/^\s*(?:novo|nova|usado|usada)\s*[·,;]/i.exec(String(valor||''))?.[0].replace(/[·,;\s]/g,'').trim();
+        listaEquipamentos(valor).forEach(texto=>{
+          const item=equipamentoEQuantidade(texto);
+          linhas.push({movimento,...item,detalhe:detalhe||(condicao?'Condição: '+condicao:'')});
+        });
       }
       if(e.tipo_demanda==='troca'){
         adicionar('COLETAR',e.equipamento_coleta,e.patrimonio_coleta?'Patrimônio: '+e.patrimonio_coleta:'');
@@ -7151,7 +7172,7 @@ function PaginaEntregasEquipamentos({profile}) {
       }else{
         adicionar('ENTREGAR',e.equipamento_entrega||e.equipamento_resumo,e.equipamento_condicao?'Condição: '+e.equipamento_condicao:'');
       }
-      if(!linhas.length)linhas.push({movimento:'—',equipamento:'Não informado',detalhe:''});
+      if(!linhas.length)linhas.push({movimento:'—',quantidade:1,equipamento:'Não informado',detalhe:''});
       garantir(32);
       d.setFont('helvetica','bold');d.setTextColor(30);d.setFontSize(9);
       const cliente=`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)}`;
