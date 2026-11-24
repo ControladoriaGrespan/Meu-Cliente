@@ -526,8 +526,8 @@ a {
 <script src="./viabilidade-financeira.js?v=115"></script>
 <script>
 const h = React.createElement;
-window.__MEU_CLIENTE_BUILD__='v149-historico-fichas-adm-vendas';
-console.info('[Meu Cliente] BUILD v149-historico-fichas-adm-vendas');
+window.__MEU_CLIENTE_BUILD__='v150-contrato-sim-modelo-oficial';
+console.info('[Meu Cliente] BUILD v150-contrato-sim-modelo-oficial');
 const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
 // Guardas defensivas globais. A tela Fichas v71 não usa estas variáveis.
@@ -1811,10 +1811,135 @@ function baixarFichaPDF(f) {
 function fichaAprovadaDiretoria(f){
   return (f.ficha_aprovacoes||[]).some(a=>a.etapa==='diretoria'&&a.status==='aprovado');
 }
+
+/**
+ * Modelo oficial "CONTRATO - SIM" — Acordo Comercial Grespan 2025.
+ * O texto das cláusulas segue o DOCX fornecido, sem resumos jurídicos.
+ * Apenas campos variáveis e itens opcionais são tratados dinamicamente.
+ */
+function gerarContratoSimModeloOficial(f,salvar=true){
+  if(!window.jspdf?.jsPDF){alert('Biblioteca de PDF não carregada.');return null;}
+  if(!f.razao_social||!f.cnpj_cpf||!f.rua||!f.cidade||!f.estado){
+    alert('Complete razão social, CNPJ e endereço na ficha antes de gerar a minuta.');return null;
+  }
+  const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'});
+  const numero=String(f.acordo_comercial_numero||codigoAuditoria(f,'ACO')).replace(/\/\d{4}$/,'');
+  const ano=new Date().getFullYear();
+  const consumo=Number(f.consumo_previsto||0);
+  const kgMes=Math.round(consumo*PESO_PAO_KG*DIAS_MES*100)/100;
+  const introducao=Number(f.verba_introducao||0);
+  const meses=Number(f.duracao_verba||0);
+  const percentual=Number(f.bonificacao_percentual||0);
+  const temBonificacao=introducao>0||percentual>0;
+  const prazo=String(f.condicao_pagamento_credito||f.prazo_pagamento||'____').trim();
+  const representante=String(f.representante_nome||'____________________').trim();
+  const cpf=String(f.representante_cpf||'____________________').trim();
+  const docNome='CONTRATO - SIM - Acordo Comercial GRESPAN - '+String(f.razao_social).replace(/[\\/:*?"<>|]/g,'-').slice(0,75)+'.pdf';
+  const ml=15,mr=195,w=180;let y=39,pag=1;
+  const endereco=[f.rua,f.numero,f.bairro].filter(Boolean).join(', ');
+  function topo(){
+    try{d.addImage(GRESPAN_LOGO_DOC,'PNG',ml,7,28,23);}catch(e){}
+    d.setFont('helvetica','bold');d.setFontSize(8.8);d.setTextColor(156,25,28);
+    d.text('GRESPAN PÃES CONGELADOS',50,17);
+    d.setFont('helvetica','normal');d.setFontSize(7.5);d.setTextColor(90);
+    d.text('ACORDO COMERCIAL · MINUTA PARA CONFERÊNCIA',50,22);
+    d.setDrawColor(205);d.line(ml,33,mr,33);
+  }
+  function rodape(){
+    d.setDrawColor(215);d.line(ml,279,mr,279);
+    d.setFont('helvetica','normal');d.setFontSize(6.4);d.setTextColor(75);
+    d.text('GRESPAN PAES CONGELADOS LTDA | AVENIDA REPÚBLICA, Nº 7000, DISTRITO INDUSTRIAL SANTO BARION',ml,283);
+    d.text('CEP: 17.512-035 - MARÍLIA/SP | Telefone: (14) 3425-4948 | CNPJ: 10.809.214/0001-67',ml,286.5);
+    d.text('WWW.GRESPANPAES.COM',ml,290);
+    d.text('Pág. '+pag,mr,290,{align:'right'});
+  }
+  function pagina(){rodape();d.addPage();pag++;y=39;topo();}
+  function texto(s,estilo='normal'){
+    d.setFont('helvetica',estilo==='titulo'?'bold':'normal');
+    d.setTextColor(35);d.setFontSize(estilo==='titulo'?10:9.1);
+    const linhas=d.splitTextToSize(String(s||''),w);
+    const passo=estilo==='titulo'?4.6:4.25;
+    const altura=linhas.length*passo+(estilo==='titulo'?4:3);
+    if(y+altura>275)pagina();
+    d.text(linhas,ml,y);y+=altura;
+  }
+  function titulo(s){y+=1;texto(s,'titulo');}
+  topo();
+
+  texto('Prezados(as) '+representante+',');
+  texto('É com grande satisfação que apresentamos nosso Acordo Comercial, elaborado de forma personalizada para atender às necessidades específicas de sua empresa. Nossa missão é oferecer soluções práticas e de alta qualidade para facilitar o dia a dia de mercados e padarias, assegurando produtos consistentes e serviços de excelência.');
+  texto('Com mais de 16 anos de história, a Grespan Pães Congelados se consolidou como referência na produção e distribuição de pães e confeitaria congelados em quase todo o Estado de São Paulo. Nossa trajetória é marcada pelo compromisso com a inovação, o cuidado com nossos clientes e a dedicação em entregar sempre o melhor.');
+  texto('Agradecemos pela oportunidade de apresentar nossas soluções e reforçamos que estamos à disposição para esclarecer quaisquer dúvidas que possam surgir.');
+  texto('Cordialmente,');
+  texto('Equipe Grespan');
+  texto('comercial@grespanpaes.com');
+  titulo('ACORDO COMERCIAL Nº '+numero+'/'+ano);
+  texto('Cliente: '+f.razao_social+', inscrita no CNPJ sob o nº '+f.cnpj_cpf+', situado na '+endereco+', na cidade de '+f.cidade+' / '+f.estado+', CEP: '+(f.cep||'________')+', devidamente representada.');
+  texto('Fornecedor: GRESPAN PAES CONGELADOS LTDA, inscrita no CNPJ sob o nº 10.809.214/0001-67, situada na Av. República, 7000, Distrito Industrial Santo Barion, na cidade de Marília/SP, CEP: 17.512-035, devidamente representada por seu sócio administrador conforme Contrato Social.');
+  texto('As partes acima identificadas têm, entre si, justo e acordado o presente acordo, mediante as cláusulas e condições adiante estipuladas que, voluntariamente, aceitam e outorgam:');
+
+  titulo('1 . Cláusula Primeira – Do Objeto');
+  texto('O presente contrato tem como objeto a formalização de acordo comercial, negociada entre cliente e fornecedor conforme especificações a seguir.');
+  titulo('2 . Cláusula Segunda – Regras Gerais do Acordo Comercial para o Parceiro CLIENTE:');
+  texto('O Parceiro Cliente compromete-se a cumprir os itens especificados a seguir:');
+  texto('2.1 - Exclusividade: O cliente se compromete a utilizar exclusivamente os produtos Grespan em equipamentos cedidos pela empresa.');
+  texto('2.2 - Consumo: Para a manutenção do acordo, será exigido do Cliente um consumo médio diário de '+(consumo>0?fmtNum(consumo):'_____')+' pães franceses, ou '+(consumo>0?fmtNum(kgMes):'_____')+' quilos mensais, caso haja consumo de outros produtos, conforme negociado previamente entre as partes. Tal consumo será avaliado num primeiro momento após 45 dias do início da parceria, e será reavaliado periodicamente.');
+  texto('2.3 - Atualizações no Cadastro: Quaisquer alterações no CNPJ ou outros dados cadastrais deverão ser comunicadas imediatamente à Grespan para atualização e continuidade do fornecimento, afim de manter corretas as informações para emissões de notas fiscais, entregas, dentre outros.');
+  texto('2.4 - Análise de Crédito e Inadimplência: O acordo será submetido à análise de crédito antes da formalização. Em caso de inadimplência no decorrer da parceria, a continuidade do acordo estará sujeita à revisão, podendo incluir a suspensão de fornecimento de produtos e benefícios do acordo, assim como a retirada dos equipamentos.');
+  texto('2.5 - Comodato e Conservação dos Equipamentos:');
+  texto('2.5.1 - Os equipamentos cedidos em regime de comodato deverão ser utilizados exclusivamente para o armazenamento, produção e exposição de produtos Grespan.');
+  texto('2.5.2 - É responsabilidade do cliente garantir a conservação, limpeza e bom uso dos equipamentos.');
+  texto('2.6 - Trocas de Equipamentos: A substituição de equipamentos estará sujeita à análise técnica do setor de manutenção e à aprovação do setor financeiro, especialmente em casos de inadimplência.');
+  texto('2.7 - Retirada de Equipamentos: O não cumprimento de quaisquer dos itens podem implicar na retirada dos equipamentos, principalmente em casos de não atingir o consumo mínimo preestabelecido, e inadimplência.');
+  texto('2.7.1 - A obstrução ou impedimento à retirada dos equipamentos sujeitará o cliente às medidas legais cabíveis.');
+  texto('2.7.2 - Em caso de quebra de acordo, a retirada será comunicada ao cliente com antecedência mínima de 15 dias. Esta comunicação poderá ser realizada presencialmente, ou via telefone/mensagem.');
+  texto('2.8 - Modificações posteriores da proposta comercial: Eventuais mudanças posteriores nos termos da relação comercial somente passarão a vigorar mediante aprovação da Diretoria e deverá ser assinada por ambas as partes.');
+  if(temBonificacao)texto('2.9 - Manutenção da Bonificação: Em caso de receber bonificação, a mesma estará condicionada ao cumprimento do consumo mínimo acordado. O não cumprimento poderá implicar na suspensão dos benefícios.');
+
+  titulo('3. Cláusula Terceira: Regras Gerais do Acordo Comercial para o Parceiro FORNECEDOR:');
+  texto('Sendo cumprida todas as regras anteriores pelo parceiro Cliente, o Parceiro Fornecedor, se comprometa a conceder ao Parceiro cliente:');
+  texto('3.1 - Acompanhamento de Equipamentos: Um consultor Grespan será responsável por acompanhar tanto a entrega quanto a retirada dos equipamentos, assegurando a conformidade com as condições acordadas, assim como poderá periodicamente realizar visitas ao estabelecimento do parceiro cliente afim de realizar vistorias nos equipamentos, para analisar a conservação dos mesmos.');
+  texto('3.2 – Entregas: O Parceiro cliente realizará entregas de seus produtos 1 (uma) vez por semana desde que sejam cumpridas as regras estabelecidas.');
+  texto('3.3 – Manutenção dos equipamentos: será de responsabilidade do Parceiro Fornecedor, desde que a mesma não seja oriunda de mau uso e conservação por parte do Parceiro Cliente. Sendo identificada que a manutenção se deu devido ao mau uso ou negligência na sua conservação e utilização por parte do cliente, os custos de peças, mão de obra e despesas de deslocamento serão de responsabilidade do cliente.');
+  texto('3.4 – Treinamentos: Será oferecido ao parceiro cliente, treinamento para correto manuseio dos produtos para iniciar o consumo dos mesmos, garantindo assim a qualidade no preparo.');
+
+  if(temBonificacao){
+    titulo('4. Cláusula Quarta: Bonificações/Benefícios do Acordo:');
+    if(introducao>0){
+      texto('4.1 – Bonificações de Produtos: Será concedido ao Parceiro cliente o valor total de '+fmtMoeda(introducao)+' em bonificações de produtos, que serão divididos em '+(meses>0?meses:'____')+' meses, resultando em '+(meses>0?fmtMoeda(introducao/meses):'R$ ______')+' mensais, onde serão enviados todo início de mês.');
+    }else{
+      texto('4.1 – Bonificações de Produtos: Valor e parcelamento a confirmar conforme condições comerciais aprovadas.');
+    }
+    texto('4.2 – Início: O início do envio das bonificações será realizado após a assinatura do acordo e após ____ dias do início das compras realizadas pelo parceiro cliente.');
+    if(percentual>0){
+      texto('4.3 – Bonificação de Negociação (condição específica da Ficha): '+fmtNum(percentual)+'%, periodicidade '+String(f.bonificacao_periodicidade||'a confirmar')+', modalidade '+String(f.bonificacao_modalidade||'Produto')+'. Validar a redação definitiva com as partes antes da assinatura.');
+    }
+  }
+  titulo('Observações:');
+  texto('Horário de Pedidos: Os pedidos devem ser realizados dentro do horário de atendimento da equipe comercial, entre 7:30h e 13h, para garantir que a entrega ocorra no prazo estipulado.');
+  texto('Validade do acordo: O presente Acordo terá prazo indeterminado, iniciando sua vigência de imediato após as assinaturas dos parceiros.');
+  texto('Prazo de Pagamento: '+prazo+' Dias através de boleto bancário, contados da emissão da Nota Fiscal. Em caso de inadimplência o prazo de pagamento concedido será suspenso e reavaliado, onde o pagamento deverá ser realizado de forma Antecipada.');
+
+  if(y+39>273)pagina();
+  y+=7;
+  texto((f.cidade||'________________')+', ____ de ____________________ de '+ano);
+  if(y+25>275)pagina();
+  y+=13;d.setDrawColor(65);d.line(ml,y,95,y);d.line(110,y,mr,y);y+=5;
+  d.setFont('helvetica','normal');d.setFontSize(8);
+  d.text('GRESPAN PÃES CONGELADOS LTDA',55,y,{align:'center'});
+  d.text(representante,152,y,{align:'center'});y+=5;
+  d.text('10.809.214/0001-67',55,y,{align:'center'});
+  d.text('CPF: '+cpf,152,y,{align:'center'});
+  rodape();
+  if(salvar)d.save(docNome);
+  return {doc:d,nome:docNome};
+}
+
 function gerarContratoPDF(f,salvar=true){
   if(!window.jspdf?.jsPDF){alert('Biblioteca de PDF não carregada.');return null;}
   // Seleciona o modelo conforme a ficha; estas minutas não enviam nada ao DocuSign.
   const modeloSim=f.contrato===true||String(f.contrato).toLowerCase()==='sim';
+  if(modeloSim)return gerarContratoSimModeloOficial(f,salvar);
   const numero=String(f.acordo_comercial_numero||codigoAuditoria(f,'ACO'));
   const consumo=Number(f.consumo_previsto||0);
   const kgMes=Math.round(consumo*PESO_PAO_KG*DIAS_MES*100)/100;
