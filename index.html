@@ -948,8 +948,11 @@ function AvisosWhatsApp(){
 // descobre o proximo responsavel e avisa. Retorna a lista quando ha
 // mais de um destinatario (ai a tela mostra botoes, um clique por pessoa)
 async function avisarProximo(fichaId, ordemAtual, ficha, winRef) {
+  // Próximo da fila = a etapa que ficou na vez depois da atual. Não basta somar 1 à ordem:
+  // etapas sem responsável são puladas ("não se aplica") e ninguém seria avisado.
   const { data: proxima } = await sb.from('ficha_aprovacoes').select('*')
-    .eq('ficha_id', fichaId).eq('ordem', ordemAtual + 1).maybeSingle();
+    .eq('ficha_id', fichaId).eq('status', 'pendente').gt('ordem', ordemAtual)
+    .order('ordem').limit(1).maybeSingle();
   if (!proxima) { if (winRef && !winRef.closed) winRef.close(); return []; }
 
   let dest = [];
@@ -975,6 +978,28 @@ async function avisarProximo(fichaId, ordemAtual, ficha, winRef) {
   }
   if (winRef && !winRef.closed) winRef.close();
   return dest.map(d => ({ ...d, _msg: msg }));
+}
+
+// Recusa do Supervisor, do Coordenador ou do Financeiro: a ficha volta para o vendedor.
+// "ajuste" = ele pode editar a ficha inteira e reenviar; senão, é uma reprovação comum.
+async function avisarVendedorFicha(ficha, etapaLabel, motivo, ajuste, winRef) {
+  const fechar = () => { if (winRef && !winRef.closed) winRef.close(); };
+  const { data: vend } = await sb.from('usuarios').select('id,nome,telefone').eq('id', ficha.vendedor_id).maybeSingle();
+  if (!vend || !vend.telefone) { fechar(); return false; }
+  const msg = (ajuste ? '↩️ Ficha devolvida para ajuste' : '✗ Ficha reprovada')
+    + `\n*${ficha.razao_social}* (${ficha.cnpj_cpf})\nEtapa: ${etapaLabel}\nMotivo: ${motivo || 'não informado'}\n\n`
+    + (ajuste ? 'Acesse o sistema, abra a ficha, faça o ajuste e reenvie para aprovação:' : 'Acesse o sistema para ver os detalhes:')
+    + `\n${linkSistema()}`;
+  if (ehCelularWhats()) { agendarAvisoWhats([vend], msg); fechar(); return true; }
+  return abrirWhats(vend.telefone, msg, winRef);
+}
+// Uma recusa permite ajuste (editar a ficha inteira) quando veio do Supervisor ou do
+// Coordenador, ou quando o Financeiro usou "Solicitar ajuste".
+function recusaPermiteAjuste(ap) {
+  if (!ap || ap.status !== 'reprovado') return false;
+  if (ap.etapa === 'supervisor' || ap.etapa === 'coordenador') return true;
+  return ap.etapa === 'financeiro' && !!ap.ajuste_solicitado_em
+    && new Date(ap.ajuste_solicitado_em).getTime() === new Date(ap.decidido_em).getTime();
 }
 
 // =====================================================================
@@ -1229,17 +1254,164 @@ const FORM_VAZIO = {
   esteiras_quantidade: '', assadeiras_quantidade: '', equipamentos_quantidades: {}, bonificacao_percentual: '', bonificacao_periodicidade: '', bonificacao_modalidade: 'Produto', tecnico_periodicidade: '', observacoes: ''
 };
 
-function PaginaEmissao({ profile, onSaved }) {
+// Rascunho da ficha em preenchimento. No celular, o navegador pode encerrar a página
+// enquanto o vendedor está na câmera/galeria escolhendo um anexo; ao voltar, a página
+// recarrega do zero. O rascunho fica só no aparelho do usuário e é apagado ao enviar a ficha.
+const RASCUNHO_FICHA_DIAS = 7;
+function chaveRascunhoFicha(usuarioId) { return 'mc_ficha_rascunho_v1_' + usuarioId; }
+function lerRascunhoFicha(usuarioId) {
+  try {
+    const r = JSON.parse(localStorage.getItem(chaveRascunhoFicha(usuarioId)) || 'null');
+    if (!r || !r.f || typeof r.f !== 'object') return null;
+    if (Date.now() - Number(r.salvoEm || 0) > RASCUNHO_FICHA_DIAS * 86400000) { localStorage.removeItem(chaveRascunhoFicha(usuarioId)); return null; }
+    return r;
+  } catch (e) { return null; }
+}
+function gravarRascunhoFicha(usuarioId, f, mesmoEndereco) {
+  try {
+    const vazio = JSON.stringify(f) === JSON.stringify(FORM_VAZIO) && !mesmoEndereco;
+    if (vazio) localStorage.removeItem(chaveRascunhoFicha(usuarioId));
+    else localStorage.setItem(chaveRascunhoFicha(usuarioId), JSON.stringify({ f, mesmoEndereco: !!mesmoEndereco, salvoEm: Date.now() }));
+  } catch (e) {}
+}
+function apagarRascunhoFicha(usuarioId) {
+  try { localStorage.removeItem(chaveRascunhoFicha(usuarioId)); } catch (e) {}
+  gravarAnexosRascunhoFicha(usuarioId, []);
+}
+// Os anexos já escolhidos não cabem no localStorage; ficam no IndexedDB do navegador.
+function abrirBancoRascunhoFicha() {
+  return new Promise((ok, falha) => {
+    try {
+      const req = indexedDB.open('mc_ficha_rascunho', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('anexos');
+      req.onsuccess = () => ok(req.result);
+      req.onerror = () => falha(req.error);
+    } catch (e) { falha(e); }
+  });
+}
+async function gravarAnexosRascunhoFicha(usuarioId, arquivos) {
+  try {
+    const db = await abrirBancoRascunhoFicha();
+    const tx = db.transaction('anexos', 'readwrite');
+    if (arquivos && arquivos.length) tx.objectStore('anexos').put(arquivos, usuarioId);
+    else tx.objectStore('anexos').delete(usuarioId);
+    tx.oncomplete = () => db.close();
+    tx.onabort = tx.onerror = () => db.close();
+  } catch (e) {}
+}
+async function lerAnexosRascunhoFicha(usuarioId) {
+  try {
+    const db = await abrirBancoRascunhoFicha();
+    return await new Promise(ok => {
+      const req = db.transaction('anexos', 'readonly').objectStore('anexos').get(usuarioId);
+      req.onsuccess = () => { db.close(); ok(Array.isArray(req.result) ? req.result.filter(a => a instanceof Blob && a.name) : []); };
+      req.onerror = () => { db.close(); ok([]); };
+    });
+  } catch (e) { return []; }
+}
+
+// Pré-visualização de um arquivo ainda não enviado (escolhido no aparelho).
+function PreviaArquivoLocal({ arquivo, onClose }) {
+  const url = useMemo(() => URL.createObjectURL(arquivo), [arquivo]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const ehImagem = /^image\//.test(arquivo.type || '') || /\.(png|jpe?g|webp)$/i.test(arquivo.name || '');
+  return h(Modal, { titulo: arquivo.name, sub: (arquivo.size / 1024 / 1024).toFixed(2) + ' MB', largo: true, onClose,
+    acoes: [
+      h('a', { key: 'abrir', className: 'btn btn-secondary', href: url, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir em outra aba'),
+      h('button', { key: 'fechar', className: 'btn btn-primary', onClick: onClose }, 'Fechar')] },
+    ehImagem
+      ? h('img', { src: url, alt: arquivo.name, style: { maxWidth: '100%', maxHeight: '70vh', display: 'block', margin: '0 auto' } })
+      : h('div', null,
+          h('iframe', { src: url, title: arquivo.name, style: { width: '100%', height: '65vh', border: '1px solid var(--border)', borderRadius: 6 } }),
+          h('div', { className: 'page-sub', style: { marginTop: 8 } }, 'Se o PDF não aparecer acima (comum no celular), toque em "Abrir em outra aba".')));
+}
+
+// Converte uma ficha gravada no banco para os campos do formulário (modo de ajuste).
+function formDaFicha(x) {
+  const txt = v => v == null ? '' : String(v);
+  const moeda = v => v == null || Number(v) === 0 ? '' : mascaraMoeda(String(Math.round(Number(v) * 100)));
+  const simNao = v => v === true ? 'Sim' : v === false ? 'Não' : '';
+  return { ...FORM_VAZIO,
+    razao_social: txt(x.razao_social), nome_fantasia: txt(x.nome_fantasia), cnpj_cpf: txt(x.cnpj_cpf),
+    representante_nome: txt(x.representante_nome), representante_cpf: txt(x.representante_cpf),
+    rua: txt(x.rua), numero: txt(x.numero), bairro: txt(x.bairro), cidade: txt(x.cidade), estado: txt(x.estado), cep: txt(x.cep),
+    entrega_rua: txt(x.entrega_rua), entrega_numero: txt(x.entrega_numero), entrega_bairro: txt(x.entrega_bairro),
+    entrega_cidade: txt(x.entrega_cidade), entrega_estado: txt(x.entrega_estado), entrega_cep: txt(x.entrega_cep),
+    telefone: txt(x.telefone), email: txt(x.email),
+    numero_checkouts: txt(x.numero_checkouts), numero_lojas: txt(x.numero_lojas),
+    preco_kg: moeda(x.preco_kg), prazo_pagamento: txt(x.prazo_pagamento),
+    // Consumo gravado com casas decimais (ex.: 1,3) fica em branco para o vendedor informar o número certo.
+    consumo_previsto: x.consumo_previsto != null && Number.isInteger(Number(x.consumo_previsto)) ? String(Number(x.consumo_previsto)) : '',
+    contrato: simNao(x.contrato), contrato_prazo_meses: txt(x.contrato_prazo_meses),
+    verba_introducao: moeda(x.verba_introducao), duracao_verba: txt(x.duracao_verba),
+    tecnico_panificacao: simNao(x.tecnico_panificacao), senioridade_tecnico: txt(x.senioridade_tecnico), tecnico_periodicidade: txt(x.tecnico_periodicidade),
+    precisa_equipamento: simNao(x.precisa_equipamento), equipamento_condicao: txt(x.equipamento_condicao),
+    forno_tipo: txt(x.forno_tipo), forno_quantidade: txt(x.forno_quantidade), forno_esteiras: txt(x.forno_esteiras),
+    freezer_tipos: Array.isArray(x.freezer_tipos) ? [...x.freezer_tipos] : [],
+    armario_tipo: txt(x.armario_tipo), camara_climatica: txt(x.camara_climatica),
+    esteiras_quantidade: txt(x.esteiras_quantidade), assadeiras_quantidade: txt(x.assadeiras_quantidade),
+    equipamentos_quantidades: { ...(x.equipamentos_quantidades || {}) },
+    bonificacao_percentual: Number(x.bonificacao_percentual) > 0 ? String(Number(x.bonificacao_percentual)) : '',
+    bonificacao_periodicidade: txt(x.bonificacao_periodicidade), bonificacao_modalidade: x.bonificacao_modalidade || 'Produto',
+    observacoes: txt(x.observacoes) };
+}
+
+// fichaAjuste = { ficha, recusa }: edição de uma ficha devolvida para ajuste (reenvia em vez de criar).
+function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
   const toast = useToast();
-  const [f, setF] = useState(FORM_VAZIO);
+  const rascunhoInicial = useMemo(() => fichaAjuste ? null : lerRascunhoFicha(profile.id), [profile.id]);
+  const [f, setF] = useState(() => fichaAjuste ? formDaFicha(fichaAjuste.ficha)
+    : rascunhoInicial ? { ...FORM_VAZIO, ...rascunhoInicial.f } : FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
   const [acompanhamentoMap, setAcompanhamentoMap] = useState({});
   const [destinatarios, setDestinatarios] = useState([]);
-  const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(false);
+  const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState(() => !!(rascunhoInicial && rascunhoInicial.mesmoEndereco));
   const [documentosFicha,setDocumentosFicha]=useState([]);
   const [tabelaSugeridaFicha,setTabelaSugeridaFicha]=useState({estado:'vazio',texto:''});
+  const [rascunhoRecuperado, setRascunhoRecuperado] = useState(() => rascunhoInicial ? rascunhoInicial.salvoEm : null);
+  const [previaArquivo, setPreviaArquivo] = useState(null);
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
+
+  // Grava o rascunho pouco depois de cada alteração e, sem esperar, quando a tela é minimizada.
+  const rascunhoAtual = useRef({ f, mesmoEnderecoEntrega });
+  rascunhoAtual.current = { f, mesmoEnderecoEntrega };
+  const rascunhoLiberado = useRef(!fichaAjuste); // no ajuste de uma ficha existente não há rascunho
+  useEffect(() => {
+    if (!rascunhoLiberado.current) return;
+    const t = setTimeout(() => gravarRascunhoFicha(profile.id, f, mesmoEnderecoEntrega), 400);
+    return () => clearTimeout(t);
+  }, [f, mesmoEnderecoEntrega]);
+  useEffect(() => {
+    const gravarJa = () => {
+      if (document.visibilityState === 'hidden' && rascunhoLiberado.current)
+        gravarRascunhoFicha(profile.id, rascunhoAtual.current.f, rascunhoAtual.current.mesmoEnderecoEntrega);
+    };
+    document.addEventListener('visibilitychange', gravarJa);
+    window.addEventListener('pagehide', gravarJa);
+    return () => { document.removeEventListener('visibilitychange', gravarJa); window.removeEventListener('pagehide', gravarJa); };
+  }, [profile.id]);
+  // Anexos escolhidos antes de a página ser encerrada.
+  const anexosCarregados = useRef(false);
+  useEffect(() => {
+    let ativo = true;
+    if (fichaAjuste) return;
+    lerAnexosRascunhoFicha(profile.id).then(salvos => {
+      if (!ativo) return;
+      anexosCarregados.current = true;
+      if (salvos.length) setDocumentosFicha(atuais => atuais.length ? atuais : salvos);
+    });
+    return () => { ativo = false; };
+  }, [profile.id]);
+  useEffect(() => {
+    if (anexosCarregados.current && rascunhoLiberado.current) gravarAnexosRascunhoFicha(profile.id, documentosFicha);
+  }, [documentosFicha]);
+  function limparFormulario() {
+    if (!window.confirm('Limpar todos os campos e anexos desta ficha?')) return;
+    setF(FORM_VAZIO); setMesmoEnderecoEntrega(false); setDocumentosFicha([]);
+    cnpjPedido.current = ''; setCnpjConsulta({ status: 'vazio', cnpj: '' });
+    setRascunhoRecuperado(null); apagarRascunhoFicha(profile.id);
+  }
 
   // Consulta pública do CNPJ: disparada só quando o usuário completa ou altera o campo.
   const [cnpjConsulta, setCnpjConsulta] = useState({ status: 'vazio', cnpj: '' });
@@ -1364,6 +1536,7 @@ function PaginaEmissao({ profile, onSaved }) {
       return toast('Informe o prazo do contrato em meses inteiros positivos.','error');
     if (temVerba && (!/^\d+$/.test(f.duracao_verba)||Number(f.duracao_verba)<1)) return toast('Informe o prazo da Verba de Introdução em meses inteiros positivos.', 'error');
     if(!/^\d+$/.test(f.prazo_pagamento)||Number(f.prazo_pagamento)<1)return toast('Informe o prazo de pagamento em dias inteiros positivos.','error');
+    if(!/^\d+$/.test(String(f.consumo_previsto))||Number(f.consumo_previsto)<1)return toast('Informe o Consumo Previsto em pães por dia, número inteiro sem ponto nem vírgula (ex.: 1300).','error');
     if (temTecnico && !f.senioridade_tecnico) return toast('Informe a Senioridade do Técnico.', 'error');
     if(temTecnico&&!f.tecnico_periodicidade)return toast('Informe a periodicidade do Técnico.', 'error');
     if(moedaParaNumero(f.preco_kg)>9.99)return toast('Preço do Kg: máximo de 1 dígito inteiro e 2 decimais (ex.: 7,50).', 'error');
@@ -1390,8 +1563,7 @@ function PaginaEmissao({ profile, onSaved }) {
     const winRef = preAbrirJanelaWhats(); // abre ja no gesto do usuario
     const num = v => v === '' || v === null ? null : Number(v);
 
-    const { data: nova, error } = await sb.from('fichas_clientes').insert({
-      vendedor_id: profile.id,
+    const dados = {
       razao_social: f.razao_social.trim(), nome_fantasia: f.nome_fantasia.trim(), cnpj_cpf: f.cnpj_cpf, representante_nome: f.representante_nome.trim(), representante_cpf: f.representante_cpf,
       rua: f.rua.trim(), numero: f.numero.trim(), bairro: f.bairro.trim(),
       cidade: f.cidade.trim(), estado: f.estado.toUpperCase(), cep: f.cep,
@@ -1425,7 +1597,25 @@ function PaginaEmissao({ profile, onSaved }) {
       bonificacao_periodicidade: Number(f.bonificacao_percentual)>0 ? f.bonificacao_periodicidade : null,
       bonificacao_modalidade: Number(f.bonificacao_percentual)>0 ? f.bonificacao_modalidade : null,
       observacoes: f.observacoes.trim() || null,
-    }).select().single();
+    };
+    let nova, error;
+    if (fichaAjuste) {
+      const original = fichaAjuste.ficha;
+      // Forno gravado no formato antigo (sem quantidade por modelo): mantém se o vendedor não informou os modelos.
+      if (precisaEquip && !dados.forno_tipo && original.forno_tipo
+          && !TIPOS_FORNO.some(([tipo]) => MODELOS_FORNO.some(modelo => Object.hasOwn(f.equipamentos_quantidades, chaveModeloForno(tipo, modelo))))) {
+        dados.forno_tipo = original.forno_tipo; dados.forno_quantidade = original.forno_quantidade; dados.forno_esteiras = original.forno_esteiras;
+      }
+      const r = await sb.rpc('mc_reenviar_ficha_ajustada', {
+        p_ficha: original.id, p_aprovacao: fichaAjuste.recusa.id,
+        p_recusado_em: fichaAjuste.recusa.decidido_em ?? null, p_dados: dados });
+      error = r.error && /mc_reenviar_ficha_ajustada|schema cache/i.test(r.error.message || '')
+        ? { message: 'O reenvio de ficha ajustada ainda não está disponível no banco (migração 20261125_fluxo_ajuste_ficha.sql).' } : r.error;
+      nova = { ...original, ...dados };
+    } else {
+      const r = await sb.from('fichas_clientes').insert({ vendedor_id: profile.id, ...dados }).select().single();
+      error = r.error; nova = r.data;
+    }
 
     if (error) {setSalvando(false); if (winRef && !winRef.closed) winRef.close(); return toast(error.message, 'error'); }
     // Documentos ficam em bucket privado, com metadados vinculados à ficha.
@@ -1442,20 +1632,36 @@ function PaginaEmissao({ profile, onSaved }) {
     if(falhasDocs)toast(falhasDocs+' documento(s) não foram anexados. A ficha foi salva; verifique o console e as políticas do Storage.','error');
 
     const varios = await avisarProximo(nova.id, 0, nova, winRef);
+    if (fichaAjuste) {
+      // A tela de ajuste fecha em seguida; avisos com mais de um destinatário ficam no painel de WhatsApp pendentes.
+      if (varios.length) agendarAvisoWhats(varios, varios[0]._msg);
+      toast('Ficha ajustada e reenviada. A aprovação recomeça do início da fila.', 'success');
+      onSaved();
+      return;
+    }
     setDestinatarios(varios);
     toast('Ficha enviada para aprovação!', 'success');
     setF(FORM_VAZIO);
     cnpjPedido.current = ''; setCnpjConsulta({ status: 'vazio', cnpj: '' });
     setDocumentosFicha([]);
     setMesmoEnderecoEntrega(false);
+    setRascunhoRecuperado(null); apagarRascunhoFicha(profile.id);
     if (!varios.length) onSaved();
   }
 
   return h('div', null,
     h('div', { className: 'page-head' },
       h('div', null,
-        h('div', { className: 'page-title' }, 'Emissão de Fichas'),
-        h('div', { className: 'page-sub' }, 'Cadastro de novo cliente para aprovação'))),
+        h('div', { className: 'page-title' }, fichaAjuste ? 'Ajustar ficha' : 'Emissão de Fichas'),
+        h('div', { className: 'page-sub' }, fichaAjuste
+          ? codigoAuditoria(fichaAjuste.ficha, 'FIC') + ' · ' + identificacaoFichaCliente(fichaAjuste.ficha)
+          : 'Cadastro de novo cliente para aprovação')),
+      fichaAjuste && h('button', { type: 'button', className: 'btn btn-secondary', disabled: salvando, onClick: onCancel }, '← Voltar sem alterar')),
+
+    fichaAjuste && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
+      h('strong', null, 'Ficha devolvida para ajuste · ' + (ROLE_LABELS[fichaAjuste.recusa.etapa] || fichaAjuste.recusa.etapa)),
+      linhaInfo('Motivo', fichaAjuste.recusa.observacao || 'Sem observação registrada'),
+      h('div', { className: 'page-sub' }, 'Corrija o que for preciso e reenvie. A aprovação recomeça do início da fila.')),
 
     destinatarios.length > 0 && h('div', { className: 'card', style: { borderColor: 'var(--accent)' } },
       h('div', { className: 'card-title' }, 'Avisar no WhatsApp'),
@@ -1463,6 +1669,14 @@ function PaginaEmissao({ profile, onSaved }) {
         destinatarios.map(d => h('button', { key: d.id, className: 'btn btn-secondary btn-sm',
           onClick: () => abrirWhats(d.telefone, d._msg) }, 'Enviar para ' + d.nome)),
         h('button', { className: 'btn btn-primary btn-sm', onClick: () => { setDestinatarios([]); onSaved(); } }, 'Concluir'))),
+
+    previaArquivo && h(PreviaArquivoLocal, { arquivo: previaArquivo, onClose: () => setPreviaArquivo(null) }),
+
+    rascunhoRecuperado && h('div', { className: 'card', style: { borderColor: 'var(--accent)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 } },
+      h('div', { style: { fontSize: 13 } },
+        h('strong', null, 'Rascunho recuperado. '),
+        'Os dados que você já tinha preenchido em ' + new Date(rascunhoRecuperado).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' foram mantidos. Confira os anexos antes de enviar.'),
+      h('button', { type: 'button', className: 'btn btn-secondary btn-sm', onClick: limparFormulario }, 'Limpar formulário')),
 
     h('div', { className: 'card' },
       h('div', { className: 'section-title' }, 'Dados Básicos'),
@@ -1507,6 +1721,7 @@ function PaginaEmissao({ profile, onSaved }) {
     h('div',{className:'card'},
       h('div',{className:'section-title'},'Documentos da Ficha'),
       h('div',{className:'page-sub',style:{marginBottom:10}},'Adicione quantos documentos forem necessários, de uma vez ou em seleções separadas (PDF ou imagem, até 10 MB por arquivo).'),
+      fichaAjuste && h('div',{className:'page-sub',style:{marginBottom:10}},'Os documentos já anexados continuam na ficha. Aqui você pode acrescentar novos.'),
       h('input',{type:'file',multiple:true,accept:'.pdf,.png,.jpg,.jpeg,.webp',onChange:e=>{
         const arquivos=Array.from(e.target.files||[]);
         const validos=arquivos.filter(a=>a.size<=10*1024*1024);
@@ -1524,7 +1739,9 @@ function PaginaEmissao({ profile, onSaved }) {
       documentosFicha.length>0 && h('div',{style:{display:'flex',flexDirection:'column',gap:6,marginTop:10}},
         documentosFicha.map((arquivo,i)=>h('div',{key:arquivo.name+'-'+arquivo.lastModified+'-'+i,style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'8px 10px',border:'1px solid var(--border)',borderRadius:6}},
           h('span',{style:{overflowWrap:'anywhere',minWidth:0}},arquivo.name+' ('+(arquivo.size/1024/1024).toFixed(2)+' MB)'),
-          h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setDocumentosFicha(anteriores=>anteriores.filter((_,idx)=>idx!==i))},'Remover')
+          h('div',{style:{display:'flex',gap:6,flexShrink:0}},
+            h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setPreviaArquivo(arquivo)},'Visualizar'),
+            h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setDocumentosFicha(anteriores=>anteriores.filter((_,idx)=>idx!==i))},'Remover'))
         ))
       )),
     h('div', { className: 'card' },
@@ -1540,7 +1757,11 @@ function PaginaEmissao({ profile, onSaved }) {
         h(Campo, { label: 'Preço Kg (Francês)', obrigatorio: true }, h(Input, { value: f.preco_kg, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('preco_kg', mascaraMoeda(String(e.target.value).replace(/\D/g,'').replace(/^0+(?=\d)/,'').slice(0,3))) })),
         tabelaSugeridaFicha.texto && h('div',{style:{gridColumn:'1 / -1',fontSize:12,padding:'8px 12px',borderRadius:6,background:tabelaSugeridaFicha.estado==='encontrada'?'#ecfdf5':'#fff7ed',color:tabelaSugeridaFicha.estado==='encontrada'?'#047857':'#9a3412'}},tabelaSugeridaFicha.texto),
         h(Campo, { label: 'Prazo de Pagamento (dias)', obrigatorio: true }, h(Input, { type:'number',min:1,step:1,value: f.prazo_pagamento, placeholder: 'Ex.: 28', onChange: e => set('prazo_pagamento', e.target.value.replace(/\D/g,'')) })),
-        h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true }, h(Input, { type: 'number', min: 0, step: 1, value: f.consumo_previsto, placeholder: 'ex: 500', onChange: e => set('consumo_previsto', e.target.value) })),
+        h(Campo, { label: 'Consumo Previsto (pães/dia)', obrigatorio: true },
+          // Campo de texto só com dígitos: no campo numérico, "1,3" era aceito como 1,3 pão (o usuário queria 1300).
+          h(Input, { type: 'text', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 7, value: f.consumo_previsto, placeholder: 'ex: 1300', onChange: e => set('consumo_previsto', e.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')) }),
+          h('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 } },
+            f.consumo_previsto ? fmtNum(Number(f.consumo_previsto)) + ' pães por dia' : 'Quantidade inteira de pães, sem ponto nem vírgula. Ex.: 1300')),
         h(Campo, { label: 'Verba de Introdução — Quantia (R$)' }, h(Input, { value: f.verba_introducao, inputMode: 'numeric', placeholder: '0,00', onChange: e => set('verba_introducao', mascaraMoeda(e.target.value)) })),
         h(Campo, { label: 'Prazo da Introdução (meses)', obrigatorio: temVerba }, h(Input, { type:'number',min:1,step:1,value:f.duracao_verba,disabled:!temVerba,placeholder:'Ex.: 12',onChange:e=>set('duracao_verba',e.target.value.replace(/\D/g,'')) })),
         h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'Verba de Introdução: dívida de valor fixo firmada na aprovação da ficha. O valor será baixado ao ser apropriado nos pedidos.'),
@@ -1609,9 +1830,12 @@ function PaginaEmissao({ profile, onSaved }) {
     h('div', { className: 'card' },
       h(Campo, { label: 'Observações' },
         h('textarea', { className: 'form-textarea', rows: 3, value: f.observacoes, onChange: e => set('observacoes', e.target.value) })),
-      h('div', { style: { marginTop: 16 } },
+      h('div', { style: { marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' } },
         h('button', { className: 'btn btn-primary', onClick: salvar, disabled: salvando },
-          salvando ? 'Enviando...' : 'Enviar para aprovação'))));
+          salvando ? 'Enviando...' : fichaAjuste ? 'Reenviar para aprovação' : 'Enviar para aprovação'),
+        fichaAjuste
+          ? h('button', { type: 'button', className: 'btn btn-secondary', onClick: onCancel, disabled: salvando }, 'Cancelar')
+          : h('button', { type: 'button', className: 'btn btn-secondary', onClick: limparFormulario, disabled: salvando }, 'Limpar formulário'))));
 }
 
 // =====================================================================
@@ -2453,12 +2677,14 @@ function EditorQuantidadesFicha({ficha,onClose,onSalvar}){
     h('div',{className:'form-grid'},[...quantidadesCampos,['esteiras_quantidade','Esteiras'],['assadeiras_quantidade','Assadeiras']].map(([k,n])=>campo(k,n))));
 }
 
-function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSalvo, usuarioId, onReenviada }) {
+function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSalvo, usuarioId, onReenviada, onAjustar }) {
   const toast = useToast();
   const f = ficha;
   const endereco = [f.rua, f.numero, f.bairro, f.cidade, f.estado].filter(Boolean).join(', ');
   const podeAnexar=!!usuarioId&&usuarioId===f.vendedor_id;
   const recusa=(f.ficha_aprovacoes||[]).find(a=>a.status==='reprovado');
+  // Recusa com ajuste: o vendedor edita a ficha inteira e a aprovação recomeça do início.
+  const podeAjustar=podeAnexar&&!!onAjustar&&recusaPermiteAjuste(recusa);
   const rotuloEtapa=etapa=>ETAPAS.find(e=>e.key===etapa)?.label||etapa;
   const [reenvios,setReenvios]=useState([]);
   const [erroDocs,setErroDocs]=useState(false);
@@ -2467,6 +2693,7 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
   const [enviandoDocs, setEnviandoDocs] = useState(false);
   const [arquivosDocs, setArquivosDocs] = useState([]);
   const [tipoDoc, setTipoDoc] = useState('outro');
+  const [previaLocal,setPreviaLocal]=useState(null);
   const [prazoEditado,setPrazoEditado]=useState(null);
   const [salvandoPrazo,setSalvandoPrazo]=useState(false);
   async function salvarPrazoContrato(e){
@@ -2627,7 +2854,12 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
           h('div', { style: { fontSize: 13 } }, f.observacoes)))),
     h('div',{style:{marginTop:20}},
       h('div',{className:'section-title'},'Documentos Anexados'),
-      recusa&&podeAnexar&&onReenviada&&h('div',{className:'card',style:{marginBottom:12}},
+      recusa&&podeAjustar&&h('div',{className:'card',style:{marginBottom:12,borderColor:'var(--accent)'}},
+        h('strong',null,'Ficha devolvida para ajuste · '+rotuloEtapa(recusa.etapa)),
+        linhaInfo('Motivo',recusa.observacao||'Sem observação registrada'),
+        h('div',{className:'page-sub',style:{marginBottom:10}},'Você pode corrigir qualquer campo da ficha e reenviar. No reenvio, a aprovação recomeça do início da fila.'),
+        h('button',{type:'button',className:'btn btn-primary',disabled:enviandoDocs,onClick:()=>onAjustar(f,recusa)},'✎ Editar ficha e reenviar')),
+      recusa&&!podeAjustar&&podeAnexar&&onReenviada&&h('div',{className:'card',style:{marginBottom:12}},
         h('strong',null,'Ficha recusada · '+rotuloEtapa(recusa.etapa)),
         linhaInfo('Motivo',recusa.observacao||'Sem observação registrada'),
         h('div',{className:'page-sub'},'Adicione o documento solicitado e reenvie a ficha para esta etapa.')),
@@ -2657,11 +2889,14 @@ function DetalheFicha({ ficha, onClose, onCorrigirQuantidades, onPrazoContratoSa
       arquivosDocs.length>0 && h('div',{style:{marginTop:8,display:'flex',flexDirection:'column',gap:5}},
         arquivosDocs.map((a,i)=>h('div',{key:i,style:{display:'flex',justifyContent:'space-between',gap:8}},
           h('span',{style:{overflowWrap:'anywhere'}},a.name),
-          h('button',{type:'button',className:'btn btn-secondary btn-sm',disabled:enviandoDocs,onClick:()=>setArquivosDocs(v=>v.filter((_,j)=>j!==i))},'Remover')))),
+          h('div',{style:{display:'flex',gap:6,flexShrink:0}},
+            h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setPreviaLocal(a)},'Visualizar'),
+            h('button',{type:'button',className:'btn btn-secondary btn-sm',disabled:enviandoDocs,onClick:()=>setArquivosDocs(v=>v.filter((_,j)=>j!==i))},'Remover'))))),
+      previaLocal&&h(PreviaArquivoLocal,{arquivo:previaLocal,onClose:()=>setPreviaLocal(null)}),
       podeAnexar&&h('div',{style:{marginTop:12,display:'flex',gap:8,flexWrap:'wrap'}},
         h('button',{type:'button',className:'btn btn-secondary',disabled:enviandoDocs||!arquivosDocs.length,
           onClick:()=>enviarDocumentosFicha()},enviandoDocs?'Enviando...':'Salvar novos anexos'),
-        recusa?.id&&onReenviada&&h('button',{type:'button',className:'btn btn-primary',
+        recusa?.id&&!podeAjustar&&onReenviada&&h('button',{type:'button',className:'btn btn-primary',
           disabled:enviandoDocs||(!arquivosDocs.length&&!documentos.length),onClick:()=>enviarDocumentosFicha(true)},
           arquivosDocs.length?'Anexar e reenviar para aprovação':'Reenviar para aprovação'))
     ),
@@ -2699,6 +2934,7 @@ function PaginaFichas({ profile, ehPreview, onChanged }) {
   const [fichas, setFichas] = useState(null);
   const [busca, setBusca] = useState('');
   const [detalhe, setDetalhe] = useState(null);
+  const [ajustando,setAjustando]=useState(null);
   const [corrigindo,setCorrigindo]=useState(false);
   const [erroFichas,setErroFichas]=useState('');
   const leituraAdmVendas=['adm_vendas','gestao_adm_vendas'].includes(profile.papel);
@@ -2709,7 +2945,7 @@ function PaginaFichas({ profile, ehPreview, onChanged }) {
     const resultado=leituraAdmVendas
       ? await sb.rpc('mc_listar_fichas_adm_vendas')
       : await sb.from('fichas_clientes')
-          .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
+          .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao, ajuste_solicitado_em)')
           .order('created_at', { ascending: false });
     if(resultado.error){
       console.error('Histórico de fichas:',resultado.error);
@@ -2752,11 +2988,17 @@ function PaginaFichas({ profile, ehPreview, onChanged }) {
 
   if (fichas === null) return h('div', { className: 'empty-state' }, 'Carregando...');
 
+  // Ficha devolvida para ajuste: o vendedor edita no mesmo formulário do cadastro.
+  if (ajustando) return h(PaginaEmissao,{profile,fichaAjuste:ajustando,
+    onCancel:()=>setAjustando(null),
+    onSaved:()=>{setAjustando(null);carregar();onChanged?.();}});
+
   return h('div', null,
     detalhe&&(corrigindo?h(EditorQuantidadesFicha,{ficha:detalhe,onClose:()=>setCorrigindo(false),
       onSalvar:f=>{setDetalhe(f);setCorrigindo(false);carregar();}}):
       h(DetalheFicha,{ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
         onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();},
+        onAjustar:ehPreview?undefined:(ficha,recusa)=>{setDetalhe(null);setAjustando({ficha,recusa});},
         onCorrigirQuantidades:profile.papel==='admin'?()=>setCorrigindo(true):undefined,
         onPrazoContratoSalvo:profile.papel==='admin'?prazo=>{
           const atualizar=f=>f?.id===detalhe.id?{...f,contrato_prazo_meses:prazo}:f;
@@ -3528,7 +3770,22 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   async function confirmar() {
     const {ap,status}=decidindo;
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento&&!condicaoDiretoria) return toast('Confirme Novo ou Usado.','error');
+    // Recusas que devolvem a ficha ao vendedor para ajuste precisam dizer o que ajustar.
+    const devolveParaAjuste=status==='ajuste'||(status==='reprovado'&&['supervisor','coordenador'].includes(ap.etapa));
+    if(devolveParaAjuste&&!obs.trim()) return toast('Informe na observação o que o vendedor precisa ajustar.','error');
     const winRef=preAbrirJanelaWhats();
+    if(status==='ajuste'){
+      const {error:erroAjuste}=await sb.rpc('mc_solicitar_ajuste_ficha',{p_aprovacao:ap.id,p_observacao:obs.trim()});
+      if(erroAjuste){
+        if(winRef&&!winRef.closed)winRef.close();
+        return toast(/mc_solicitar_ajuste_ficha|schema cache/i.test(erroAjuste.message||'')
+          ?'O pedido de ajuste ainda não está disponível no banco (migração 20261125_fluxo_ajuste_ficha.sql).':erroAjuste.message,'error');
+      }
+      await avisarVendedorFicha(ap.fichas_clientes,ROLE_LABELS[ap.etapa],obs.trim(),true,winRef);
+      setDecidindo(null);setObs('');setCondicaoDiretoria('');
+      toast('Ficha devolvida ao vendedor para ajuste.','info');carregar();onChanged&&onChanged();
+      return;
+    }
     if(ap.etapa==='diretoria'&&status==='aprovado'&&ap.fichas_clientes.precisa_equipamento){
       const {error:x}=await sb.from('fichas_clientes').update({equipamento_condicao_manutencao:condicaoDiretoria}).eq('id',ap.ficha_id); if(x){if(winRef)winRef.close();return toast(x.message,'error');}
     }
@@ -3564,8 +3821,15 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         toast('Demanda de entrega enviada para a Manutenção.','success');
       }
       if(winRef)winRef.close();
-    } else { const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios); }
-    setDecidindo(null);setObs('');setCondicaoDiretoria('');toast(`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
+    } else if(status==='aprovado'){
+      // Aprovou: avisa o próximo da fila.
+      const varios=await avisarProximo(ap.ficha_id,ap.ordem,ap.fichas_clientes,winRef);setDestinatarios(varios);
+    } else if(['supervisor','coordenador','financeiro'].includes(ap.etapa)){
+      // Reprovou: a ficha volta para o vendedor (antes o aviso ia, por engano, para a etapa seguinte).
+      await avisarVendedorFicha(ap.fichas_clientes,ROLE_LABELS[ap.etapa],obs.trim(),devolveParaAjuste,winRef);
+    } else if(winRef&&!winRef.closed)winRef.close();
+    setDecidindo(null);setObs('');setCondicaoDiretoria('');
+    toast(devolveParaAjuste?'Ficha reprovada e devolvida ao vendedor para ajuste.':`Ficha ${status} com sucesso.`,status==='aprovado'?'success':'info');carregar();onChanged&&onChanged();
   }
 
   function tipoOperacional(d){return d.tipo_demanda==='entrega'?'envio':(d.tipo_demanda||'envio');}
@@ -3900,7 +4164,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
     }),
 
     decidindo && !decidindo.anCredito && h(Modal, {
-      titulo: (decidindo.status === 'aprovado' ? 'Aprovar' : 'Reprovar')
+      titulo: decidindo.status === 'ajuste' ? 'Solicitar ajuste da ficha'
+        : (decidindo.status === 'aprovado' ? 'Aprovar' : 'Reprovar')
         + (decidindo.solAp ? ' solicitação' : ' ficha'),
       sub: decidindo.solAp
         ? identificacaoCliente(decidindo.solAp.solicitacoes.clientes || {}) + ' · ' +
@@ -3919,17 +4184,28 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               decidirSolicitacao(ap, st, ob);
             } else confirmar();
           } },
-          decidindo.status === 'aprovado' ? 'Confirmar aprovação' : 'Confirmar reprovação')
+          decidindo.status === 'ajuste' ? 'Devolver para ajuste'
+            : decidindo.status === 'aprovado' ? 'Confirmar aprovação' : 'Confirmar reprovação')
       ]
     },
       decidindo.ap && decidindo.ap.etapa==='diretoria' && decidindo.status==='aprovado' && decidindo.ap.fichas_clientes.precisa_equipamento && h('div',{className:'card',style:{marginBottom:12}},
         h('div',{className:'section-title'},'Confirmação do equipamento'),
         h('div',{className:'page-sub',style:{marginBottom:10}},'A Diretoria confirma apenas se o equipamento será Novo ou Usado. O agendamento da entrega será feito posteriormente pela Manutenção.'),
         h(Campo,{label:'Estado final do equipamento',obrigatorio:true},h(Select,{opcoes:['Novo','Usado'],value:condicaoDiretoria,onChange:e=>setCondicaoDiretoria(e.target.value)}))),
-      h(Campo, { label: 'Observação (opcional)' },
-        h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
-      h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
-        'Ao confirmar, o próximo responsável será avisado no WhatsApp.')),
+      (() => {
+        // Fichas: recusa do Supervisor/Coordenador e "Solicitar ajuste" do Financeiro devolvem ao vendedor.
+        const apFicha = decidindo.ap;
+        const paraAjuste = !!apFicha && (decidindo.status === 'ajuste' ||
+          (decidindo.status === 'reprovado' && ['supervisor','coordenador'].includes(apFicha.etapa)));
+        const voltaAoVendedor = !!apFicha && decidindo.status !== 'aprovado' && ['supervisor','coordenador','financeiro'].includes(apFicha.etapa);
+        return h(React.Fragment, null,
+          h(Campo, { label: paraAjuste ? 'O que o vendedor precisa ajustar' : 'Observação (opcional)', obrigatorio: paraAjuste },
+            h('textarea', { className: 'form-textarea', rows: 3, value: obs, onChange: e => setObs(e.target.value), autoFocus: true })),
+          h('div', { style: { marginTop: 12, fontSize: 12, color: 'var(--text-muted)' } },
+            paraAjuste ? 'A ficha volta para o vendedor, que poderá editar todos os campos e reenviar. No reenvio, a aprovação recomeça do início da fila. O vendedor será avisado no WhatsApp.'
+              : voltaAoVendedor ? 'Ao confirmar, o vendedor será avisado da reprovação no WhatsApp.'
+              : (!apFicha || decidindo.status === 'aprovado') ? 'Ao confirmar, o próximo responsável será avisado no WhatsApp.' : ''));
+      })()),
 
     h('div', { className: 'page-head' },
       h('div', null,
@@ -4031,6 +4307,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                 ? h('button', { className: 'btn btn-primary', disabled:ehPreview, onClick: () => setDecidindo({ anCredito: ap }) }, '📋 Preencher análise de crédito')
                 : h(React.Fragment, null,
                     h('button',{className:'btn btn-success',onClick:()=>{if(ap.etapa==='diretoria'&&ap.fichas_clientes.precisa_equipamento){setCondicaoDiretoria(ap.fichas_clientes.equipamento_condicao||'');}setDecidindo({ap,status:'aprovado'});}},'✓ Aprovar'),
+                    ap.etapa==='financeiro'&&h('button',{className:'btn btn-secondary',disabled:ehPreview,title:'Devolve a ficha ao vendedor para corrigir e reenviar',onClick:()=>setDecidindo({ap,status:'ajuste'})},'↩ Solicitar ajuste'),
                     h('button', { className: 'btn btn-danger', onClick: () => setDecidindo({ ap, status: 'reprovado' }) }, '✗ Reprovar')),
               h('button', { className: 'btn btn-secondary', onClick: () => setDetalhe(f) }, 'Ver ficha completa')));
         })));
@@ -4044,6 +4321,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const [solicitacoes, setSolicitacoes] = useState(null);
   const [erroConsultaSolicitacoes,setErroConsultaSolicitacoes] = useState('');
   const [detalhe, setDetalhe] = useState(null);
+  const [ajustando,setAjustando]=useState(null);
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
   const [subStatus,setSubStatus] = useState('aprovacao');
@@ -4241,7 +4519,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
     const [rf,rs]=await Promise.all([
       ehVendedor
         ? sb.from('fichas_clientes')
-            .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao)')
+            .select('*, usuarios:vendedor_id(nome), ficha_aprovacoes(id, etapa, status, decidido_em, observacao, ajuste_solicitado_em)')
             .eq('vendedor_id',profile.id).order('created_at',{ascending:false})
         : Promise.resolve({data:[]}),
       sb.from('solicitacoes')
@@ -4259,6 +4537,11 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   }
 
   if (solicitacoes === null) return h('div', { className: 'empty-state' }, 'Carregando...');
+
+  // Ficha devolvida para ajuste: o vendedor edita no mesmo formulário do cadastro.
+  if (ajustando) return h(PaginaEmissao,{profile,fichaAjuste:ajustando,
+    onCancel:()=>setAjustando(null),
+    onSaved:()=>{setAjustando(null);carregar();onChanged?.();}});
 
   const normalizarBusca=valor=>String(valor??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
   const buscaNormalizada=normalizarBusca(buscaSolicitacao);
@@ -4300,7 +4583,8 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
               fmtNum(v.quantidade)+' '+v.unidade,v.kg===null?'—':fmtNum(v.kg),fmtMoeda(v.valor_rs)]
               .map(c=>h('td',{style:{padding:7,borderTop:'1px solid var(--border)'}},c)))))))),
     detalhe && h(DetalheFicha, { ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
-      onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();} }),
+      onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();},
+      onAjustar:ehPreview?undefined:(ficha,recusa)=>{setDetalhe(null);setAjustando({ficha,recusa});} }),
     modalNova && h(ModalNovaSolicitacao, {
       profile, visao, modulo, onClose: () => setModalNova(false),
       onCriada: (categoria) => { setModalNova(false); setSub(categoria || 'equipamento'); setSubStatus('aprovacao'); carregar(); }
@@ -12426,11 +12710,31 @@ function App() {
     // Perfis autorizados ao módulo técnico mantêm acesso mesmo com liberações legadas já gravadas.
     const obrigatorios=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(perfil.papel)?['visita_tecnica']:[];
     const base=perfil.papel==='admin'?Object.keys(MODULOS):(ms.length?ms:modulosPadrao(perfil.papel));
-    setModulosUsuario(perfil.papel==='motorista_manutencao'?['motorista_manutencao']:
-      [...new Set([...base,...obrigatorios])].filter(m=>m!=='motorista_manutencao'||perfil.papel==='admin'));
+    const modulosLiberados=perfil.papel==='motorista_manutencao'?['motorista_manutencao']:
+      [...new Set([...base,...obrigatorios])].filter(m=>m!=='motorista_manutencao'||perfil.papel==='admin');
+    setModulosUsuario(modulosLiberados);
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
-    setPagina(perfil.exigir_troca_senha?'perfil':'modulos');setSessionReady(true);
+    setPagina(perfil.exigir_troca_senha?'perfil':'modulos');
+    // Se a página foi recarregada no meio do preenchimento de uma ficha (comum no celular ao
+    // anexar um arquivo), volta direto para a Emissão, onde o rascunho é recuperado.
+    try{
+      const tela=JSON.parse(sessionStorage.getItem('mc_retomar_emissao')||'null');
+      if(tela&&tela.usuario===perfil.id&&!perfil.exigir_troca_senha&&lerRascunhoFicha(perfil.id)
+         &&modulosLiberados.includes(tela.modulo)&&menuForModulo(tela.modulo,perfil.papel,perfil.papel).some(m=>m.id==='emissao')){
+        setModulo(tela.modulo);setPagina('emissao');
+      }
+    }catch(e){}
+    setSessionReady(true);
   }
+
+  // Marca que o usuário está na Emissão de Fichas, para retomar a tela após um recarregamento.
+  useEffect(()=>{
+    if(!profile?.id)return;
+    try{
+      if(pagina==='emissao'&&modulo)sessionStorage.setItem('mc_retomar_emissao',JSON.stringify({usuario:profile.id,modulo}));
+      else sessionStorage.removeItem('mc_retomar_emissao');
+    }catch(e){}
+  },[profile?.id,modulo,pagina]);
 
   useEffect(()=>{
     if(!profile?.id)return;
