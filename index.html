@@ -8713,7 +8713,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const assinaturaMarcada=React.useRef(false);
   const [assinaturaValida,setAssinaturaValida]=useState(false);
   const novoFechamento=v=>({visita_id:v.id,servico_prestado:v.objetivo||'',orientacao:'',relato_execucao:'',vendedor_responsavel:'',equipamentos:'',logistica:'',sugestao_melhoria:'',observacoes:'',tipo_producao:'',responsavel_nome:''});
-  const abrirFechamento=v=>{if(v.tipo_atendimento==='treinamento')return toast('Check-out de Treinamento ainda será desenvolvido. O formulário de Produção não se aplica.','error');setVisitaAberta(null);setFechamento(novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
+  // Check-out de Treinamento técnico (equipe técnica): itens 1 a 8 do modelo; fotos (9) e responsável (10) são comuns aos dois formulários.
+  const CAMPOS_TREINAMENTO=[['objetivo_treinamento','1) Objetivo do treinamento *','texto','Objetivo do treinamento'],['colaborador_treinamento','2) Colaborador em treinamento *','texto','Colaborador em treinamento'],['treinou_mais_de_um','3) Treinou mais de um colaborador? *','simnao','Treinou mais de um colaborador?'],['avaliacao_equipe','4) Avaliação da equipe','texto','Avaliação da equipe'],['resultado_treinamento','5) Resultado do treinamento *','texto','Resultado do treinamento'],['sugestao_melhoria','6) Sugestão de melhoria','texto','Sugestão de melhoria'],['apto_equipamentos','7) Cliente está apto a usar os equipamentos — realizou treinamento de forno e climática? *','simnao','Cliente apto a usar os equipamentos (treinamento de forno e climática)'],['logistica','8) Logística','texto','Logística']];
+  const novoFechamentoTreinamento=v=>({visita_id:v.id,tipo_formulario:'treinamento',servico_prestado:v.objetivo||'Treinamento técnico - equipe técnica',orientacao:'',objetivo_treinamento:'',colaborador_treinamento:'',treinou_mais_de_um:'',avaliacao_equipe:'',resultado_treinamento:'',sugestao_melhoria:'',apto_equipamentos:'',logistica:'',responsavel_nome:''});
+  const abrirFechamento=v=>{setVisitaAberta(null);setFechamento(v.tipo_atendimento==='treinamento'?novoFechamentoTreinamento(v):novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
   const alterarFechamento=(campo,valor)=>setFechamento(x=>({...x,[campo]:valor}));
   const limparAssinatura=()=>{const c=assinaturaCanvas.current;if(c)c.getContext('2d').clearRect(0,0,c.width,c.height);assinaturaMarcada.current=false;setAssinaturaValida(false);};
   const posicaoAssinatura=e=>{const c=assinaturaCanvas.current,r=c.getBoundingClientRect();return {x:(e.clientX-r.left)*c.width/r.width,y:(e.clientY-r.top)*c.height/r.height};};
@@ -9048,7 +9051,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   async function registrar(v,acao){
     if(emPreview||v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return toast('Somente o participante pode registrar seu atendimento.','error');
     if(acao==='checkin'&&v.status!=='agendada')return;
-    if(acao==='checkin'&&v.tipo_atendimento==='treinamento')return toast('O formulário de treinamento ainda não foi implantado. Check-in de treinamento não liberado.','error');
     if(acao==='checkout'&&v.status!=='em_andamento')return;
     const payload=acao==='checkin'?{checkin_em:new Date().toISOString(),status:'em_andamento'}:{checkout_em:new Date().toISOString(),status:'concluida',relatorio_qualidade:relato[v.id]||''};
     if(acao==='checkout'&&!String(payload.relatorio_qualidade).trim())return toast('Preencha o relatório de qualidade antes do checkout.','error');
@@ -9110,7 +9112,17 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const v=visitas.find(x=>x.id===fechamento?.visita_id);
     if(!v||v.status!=='em_andamento')return toast('Visita não está em andamento.','error');
     if(emPreview||v.tecnico_id!==profile.id)return toast('Somente o participante pode concluir a visita.','error');
-    if(!fechamento.relato_execucao.trim()||!fechamento.servico_prestado.trim()||!fechamento.responsavel_nome.trim())return toast('Informe serviço, relato da execução e nome de quem assina.','error');
+    const treino=fechamento.tipo_formulario==='treinamento';
+    if(treino!==(v.tipo_atendimento==='treinamento'))return toast('O formulário aberto não corresponde ao tipo deste atendimento. Feche e abra o check-out novamente.','error');
+    if(treino){
+      const falta=CAMPOS_TREINAMENTO.filter(([campo,label])=>label.endsWith('*')&&!String(fechamento[campo]||'').trim()).map(c=>c[3]);
+      if(!fechamento.servico_prestado.trim())falta.unshift('Serviço prestado');
+      if(!fechamento.responsavel_nome.trim())falta.push('Nome de quem assina');
+      if(falta.length)return toast('Preencha: '+falta.join('; ')+'.','error');
+    }else if(!fechamento.relato_execucao.trim()||!fechamento.servico_prestado.trim()||!fechamento.responsavel_nome.trim())return toast('Informe serviço, relato da execução e nome de quem assina.','error');
+    // No Treinamento, o resultado ocupa o lugar do relato de execução (exigido pelo banco) e o histórico recebe um resumo.
+    const relatoExecucao=treino?fechamento.resultado_treinamento.trim():fechamento.relato_execucao;
+    const resumoCheckout=treino?('Treinamento — Objetivo: '+fechamento.objetivo_treinamento.trim()+'\nColaborador: '+fechamento.colaborador_treinamento.trim()+'\nResultado: '+relatoExecucao):fechamento.relato_execucao;
     if(!assinaturaValida||!assinaturaMarcada.current)return toast('A assinatura do cliente é obrigatória.','error');
     const assinatura=assinaturaCanvas.current?.toDataURL('image/png');
     if(!assinatura)return toast('Não foi possível capturar a assinatura.','error');
@@ -9118,10 +9130,10 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     try{
       const gps=await localizacaoAtual();
       const imagens=await prepararFotosCheckout(fotosFechamento);
-      const relatorio={...fechamento,assinatura,imagens,concluido_em:new Date().toISOString()};
+      const relatorio={...fechamento,relato_execucao:relatoExecucao,assinatura,imagens,concluido_em:new Date().toISOString()};
       const {error:salvarErro}=await sb.from('vt_relatorios').upsert({visita_id:v.id,tecnico_id:profile.id,conteudo:relatorio},{onConflict:'visita_id'});
       if(salvarErro)throw Error('Falha ao gravar o relatório: '+salvarErro.message);
-      const {error:checkoutErro}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:'checkout',p_relatorio:fechamento.relato_execucao,p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
+      const {error:checkoutErro}=await sb.rpc('registrar_visita_tecnica',{p_id:v.id,p_acao:'checkout',p_relatorio:resumoCheckout,p_latitude:gps.lat,p_longitude:gps.lng,p_precisao_m:gps.precisao});
       if(checkoutErro){
         // A resposta pode falhar depois do commit. Confira antes de orientar nova tentativa.
         const {data:atual}=await sb.from('visitas_tecnicas').select('status,checkout_em').eq('id',v.id).maybeSingle();
@@ -9318,7 +9330,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const verificar=h=>{if(y+h>277)novaPagina();};
     doc.setFillColor(190,30,38);doc.rect(0,0,W,12,'F');
     doc.setTextColor(30,36,44);doc.setFont('helvetica','bold');doc.setFontSize(19);doc.text('GRESPAN',14,27);
-    doc.setFontSize(11);doc.text('RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
+    doc.setFontSize(11);doc.text(r.tipo_formulario==='treinamento'?'RELATÓRIO DE TREINAMENTO TÉCNICO':'RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
     const secao=t=>{verificar(16);doc.setFillColor(242,243,245);doc.rect(14,y-5,182,10,'F');doc.setTextColor(150,25,32);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(t,18,y+1);y+=13;};
     const linha=(label,val)=>{
       const texto=String(val??'—');verificar(12);
@@ -9335,8 +9347,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     };
     secao('CLIENTE');linha('Razão social',c.razao_social||c.nome_fantasia);linha('Código TOTVS',c.codigo_totvs);linha('Endereço',enderecoVisita(v));
     secao('ATENDIMENTO');linha('Técnico responsável',usuariosPorId[v.tecnico_id]?.nome);linha('Data',v.data_visita);linha('Check-in',v.checkin_em?new Date(v.checkin_em).toLocaleString('pt-BR'):'');linha('Check-out',v.checkout_em?new Date(v.checkout_em).toLocaleString('pt-BR'):'');
-    const campos=[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
-    secao('RELATÓRIO DE EXECUÇÃO');campos.forEach(([l,k])=>linha(l,r[k]));
+    const campos=r.tipo_formulario==='treinamento'?[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],...CAMPOS_TREINAMENTO.map((c,i)=>[(i+1)+') '+c[3],c[0]])]:[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
+    secao(r.tipo_formulario==='treinamento'?'TREINAMENTO TÉCNICO (EQUIPE TÉCNICA)':'RELATÓRIO DE EXECUÇÃO');campos.forEach(([l,k])=>linha(l,r[k]));
     if(r.imagens?.length){secao('REGISTRO FOTOGRÁFICO');for(const foto of r.imagens){try{const tipo=foto.dados.startsWith('data:image/png')?'PNG':'JPEG';verificar(77);doc.addImage(foto.dados,tipo,18,y,90,65,undefined,'FAST');y+=73;}catch(e){linha('Foto',foto.nome+' (não foi possível incluir no PDF)');}}}
     secao('ASSINATURA DO RESPONSÁVEL');linha('Nome',r.responsavel_nome);
     if(r.assinatura){verificar(38);doc.addImage(r.assinatura,'PNG',18,y,145,32);y+=36;}
@@ -9617,17 +9629,21 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           podeRegistrarAdministrativo(visitaAberta)&&visitaAberta.status==='em_andamento'&&h('button',{
             className:'btn btn-secondary',disabled:salvando,onClick:()=>registrarAdministrativo(visitaAberta,'checkout')},'Checkout administrativo'),
           podeEditarVisita(visitaAberta)&&h('button',{className:'btn btn-primary',onClick:()=>abrirEdicaoVisita(visitaAberta)},'Editar visita'),
-          visitaAberta.status==='agendada'&&visitaAberta.tipo_atendimento!=='treinamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
+          visitaAberta.status==='agendada'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',disabled:salvando,onClick:async()=>{await registrar(visitaAberta,'checkin');setVisitaAberta(null);}},'Fazer check-in'),
           visitaAberta.status==='em_andamento'&&visitaAberta.tecnico_id===profile.id&&!emPreview&&h('button',{className:'btn btn-primary',onClick:()=>abrirFechamento(visitaAberta)},'Check-out e fechar chamado'),
           visitaAberta.status==='concluida'&&h('button',{className:'btn btn-secondary',onClick:()=>pdfVisita(visitaAberta)},'PDF da visita')))),
     fechamento&&h(Modal,{titulo:'Fechamento do atendimento · GRESPAN',largo:true,onClose:()=>{if(!salvando)setFechamento(null);},acoes:[
       h('button',{className:'btn btn-secondary',disabled:salvando,onClick:()=>setFechamento(null)},'Cancelar'),
       h('button',{className:'btn btn-primary',disabled:salvando||!assinaturaValida,onClick:salvarFechamento},salvando?'Salvando...':'Salvar relatório e registrar check-out')]},
       h('div',{style:{display:'grid',gap:14}},
-        h('div',{style:{borderLeft:'5px solid #c82027',padding:'10px 14px',background:'#f7f7f7'}},h('b',null,'Relatório de visita técnica'),h('div',null,'Preencha as informações e solicite a assinatura do cliente para concluir.')),
-        [['servico_prestado','Serviço prestado *'],['orientacao','Orientação / finalidade'],['relato_execucao','Relato da execução *'],['vendedor_responsavel','Vendedor responsável'],['equipamentos','Equipamentos'],['logistica','Logística'],['sugestao_melhoria','Sugestões de melhoria'],['observacoes','Observações'],['tipo_producao','Tipos de produção']].map(([campo,label])=>h(Campo,{key:campo,label},h('textarea',{className:'form-input',rows:campo==='relato_execucao'?4:2,value:fechamento[campo]||'',onChange:e=>alterarFechamento(campo,e.target.value)}))),
-        h('div',null,h('b',null,'Fotografias do atendimento (até 8)'),h('input',{type:'file',accept:'image/*',multiple:true,className:'form-input',onChange:adicionarFotos}),h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}},fotosFechamento.map((foto,i)=>h('div',{key:i,style:{position:'relative'}},h('img',{src:foto.dados,alt:foto.nome,style:{width:110,height:90,objectFit:'cover',borderRadius:6}}),h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setFotosFechamento(x=>x.filter((_,j)=>j!==i))},'Remover'))))),
-        h(Campo,{label:'Nome do responsável que assina *'},h('input',{className:'form-input',value:fechamento.responsavel_nome||'',onChange:e=>alterarFechamento('responsavel_nome',e.target.value)})),
+        h('div',{style:{borderLeft:'5px solid #c82027',padding:'10px 14px',background:'#f7f7f7'}},h('b',null,fechamento.tipo_formulario==='treinamento'?'Treinamento técnico (equipe técnica)':'Relatório de visita técnica'),h('div',null,'Preencha as informações e solicite a assinatura do cliente para concluir.')),
+        fechamento.tipo_formulario==='treinamento'
+          ? [['servico_prestado','Serviço prestado *','texto'],['orientacao','Orientação','texto'],...CAMPOS_TREINAMENTO].map(([campo,label,tipo])=>h(Campo,{key:campo,label},tipo==='simnao'
+              ? h('select',{className:'form-select',value:fechamento[campo]||'',onChange:e=>alterarFechamento(campo,e.target.value)},h('option',{value:''},'Selecione...'),h('option',{value:'Sim'},'Sim'),h('option',{value:'Não'},'Não'))
+              : h('textarea',{className:'form-input',rows:campo==='resultado_treinamento'?4:2,value:fechamento[campo]||'',onChange:e=>alterarFechamento(campo,e.target.value)})))
+          : [['servico_prestado','Serviço prestado *'],['orientacao','Orientação / finalidade'],['relato_execucao','Relato da execução *'],['vendedor_responsavel','Vendedor responsável'],['equipamentos','Equipamentos'],['logistica','Logística'],['sugestao_melhoria','Sugestões de melhoria'],['observacoes','Observações'],['tipo_producao','Tipos de produção']].map(([campo,label])=>h(Campo,{key:campo,label},h('textarea',{className:'form-input',rows:campo==='relato_execucao'?4:2,value:fechamento[campo]||'',onChange:e=>alterarFechamento(campo,e.target.value)}))),
+        h('div',null,h('b',null,(fechamento.tipo_formulario==='treinamento'?'9) Fotos':'Fotografias do atendimento')+' (até 8)'),h('input',{type:'file',accept:'image/*',multiple:true,className:'form-input',onChange:adicionarFotos}),h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}},fotosFechamento.map((foto,i)=>h('div',{key:i,style:{position:'relative'}},h('img',{src:foto.dados,alt:foto.nome,style:{width:110,height:90,objectFit:'cover',borderRadius:6}}),h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>setFotosFechamento(x=>x.filter((_,j)=>j!==i))},'Remover'))))),
+        h(Campo,{label:(fechamento.tipo_formulario==='treinamento'?'10) Responsável — nome de quem assina *':'Nome do responsável que assina *')},h('input',{className:'form-input',value:fechamento.responsavel_nome||'',onChange:e=>alterarFechamento('responsavel_nome',e.target.value)})),
         h('div',null,h('b',null,'Assinatura do cliente *'),h('div',{style:{fontSize:12,marginBottom:6}},'Assine no quadro usando o dedo, mouse ou caneta.'),h('canvas',{ref:assinaturaCanvas,width:720,height:180,onPointerDown:iniciarAssinatura,onPointerMove:moverAssinatura,onPointerUp:terminarAssinatura,onPointerCancel:terminarAssinatura,style:{display:'block',width:'100%',height:180,border:'1px solid #aaa',borderRadius:8,background:'#fff',touchAction:'none'}}),h('button',{className:'btn btn-secondary btn-sm',style:{marginTop:8},onClick:limparAssinatura},'Limpar assinatura'),!assinaturaValida&&h('div',{style:{color:'#b91c1c',fontSize:12,marginTop:5}},'Obrigatório assinar para salvar.')))),
 
     checkinRapido&&h(Modal,{
@@ -9674,7 +9690,6 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h(Campo,{label:'Horário início'},h('input',{type:'time',className:'form-input',value:form.hora_inicio,onChange:e=>setForm(x=>({...x,hora_inicio:e.target.value}))})),
         h(Campo,{label:'Horário fim'},h('input',{className:'form-input',type:'time',value:form.hora_fim||'10:00',onChange:e=>{setForm(x=>({...x,hora_fim:e.target.value}));setDuracao(paraMin(e.target.value)-paraMin(form.hora_inicio));}})),
         h(Campo,{label:'Tipo de atendimento'},h('select',{className:'form-select',value:tipoAtendimento,onChange:e=>setTipoAtendimento(e.target.value)},h('option',{value:'producao'},'Produção'),h('option',{value:'treinamento'},'Treinamento'))),
-        tipoAtendimento==='treinamento'&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#a15c00'}},'Check-out de Treinamento ainda não configurado; não é permitido concluir com o formulário de Produção.'),
         !editandoVisita&&(lider||supervisor||adminReal)&&h('div',{style:{gridColumn:'1/-1',padding:10,border:'1px solid var(--border)',borderRadius:8}},
           h('label',null,h('input',{type:'checkbox',checked:repetirVisitas,onChange:e=>setRepetirVisitas(e.target.checked)}),' Replicar a tarefa por período'),
           repetirVisitas&&h('div',{style:{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}},
