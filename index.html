@@ -733,6 +733,63 @@ function mascaraCnpj(v) {
   if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`;
   return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
 }
+// Confere os dois dígitos verificadores do CNPJ (módulo 11 da Receita Federal).
+// Não consulta a Receita: detecta número digitado errado ou inventado, não situação cadastral.
+function cnpjValido(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+  const dv = base => {
+    let soma = 0, peso = base.length - 7;
+    for (const c of base) { soma += Number(c) * peso; peso = peso === 2 ? 9 : peso - 1; }
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  const d1 = dv(d.slice(0, 12));
+  return d1 === Number(d[12]) && dv(d.slice(0, 12) + d1) === Number(d[13]);
+}
+// Consulta gratuita do CNPJ em serviços públicos (CNPJ.ws; BrasilAPI como reserva).
+// Retorna {status:'ok',dados} | {status:'nao_encontrado'} | {status:'indisponivel'}.
+// Nunca lança erro: serviço de terceiros fora do ar não pode travar o cadastro.
+async function consultarCnpjPublico(cnpj) {
+  const d = String(cnpj || '').replace(/\D/g, '');
+  const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const buscar = async url => {
+    const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
+      if (r.status === 404) return { status: 'nao_encontrado' };
+      if (!r.ok) return { status: 'indisponivel' };
+      return { status: 'ok', json: await r.json() };
+    } catch (e) { return { status: 'indisponivel' }; }
+    finally { clearTimeout(t); }
+  };
+  const rua = (tipo, logradouro) => {
+    const t = txt(tipo), l = txt(logradouro);
+    return t && !l.toUpperCase().startsWith(t.toUpperCase()) ? t + ' ' + l : l;
+  };
+  let r = await buscar('https://publica.cnpj.ws/cnpj/' + d);
+  if (r.status === 'ok') {
+    const j = r.json || {}, e = j.estabelecimento || {};
+    if (!txt(j.razao_social)) return { status: 'indisponivel' };
+    return { status: 'ok', dados: {
+      razao_social: txt(j.razao_social), nome_fantasia: txt(e.nome_fantasia), situacao: txt(e.situacao_cadastral),
+      rua: rua(e.tipo_logradouro, e.logradouro), numero: txt(e.numero), bairro: txt(e.bairro),
+      cidade: txt(e.cidade && e.cidade.nome), estado: txt(e.estado && e.estado.sigla).toUpperCase().slice(0, 2),
+      cep: txt(e.cep), telefone: txt(e.ddd1) + txt(e.telefone1), email: txt(e.email).toLowerCase() } };
+  }
+  if (r.status === 'nao_encontrado') return r;
+  r = await buscar('https://brasilapi.com.br/api/cnpj/v1/' + d);
+  if (r.status === 'ok') {
+    const j = r.json || {};
+    if (!txt(j.razao_social)) return { status: 'indisponivel' };
+    return { status: 'ok', dados: {
+      razao_social: txt(j.razao_social), nome_fantasia: txt(j.nome_fantasia), situacao: txt(j.descricao_situacao_cadastral),
+      rua: rua(j.descricao_tipo_de_logradouro, j.logradouro), numero: txt(j.numero), bairro: txt(j.bairro),
+      cidade: txt(j.municipio), estado: txt(j.uf).toUpperCase().slice(0, 2),
+      cep: txt(j.cep), telefone: txt(j.ddd_telefone_1), email: txt(j.email).toLowerCase() } };
+  }
+  return r.status === 'nao_encontrado' ? r : { status: 'indisponivel' };
+}
 function mascaraCep(v) {
   const d = (v || '').replace(/\D/g, '').slice(0, 8);
   return d.length <= 5 ? d : `${d.slice(0,5)}-${d.slice(5)}`;
@@ -1184,6 +1241,32 @@ function PaginaEmissao({ profile, onSaved }) {
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
 
+  // Consulta pública do CNPJ: disparada só quando o usuário completa ou altera o campo.
+  const [cnpjConsulta, setCnpjConsulta] = useState({ status: 'vazio', cnpj: '' });
+  const cnpjPedido = useRef('');
+  async function aoMudarCnpj(valor) {
+    const masc = mascaraCnpj(valor), d = masc.replace(/\D/g, '');
+    set('cnpj_cpf', masc);
+    if (d.length !== 14 || !cnpjValido(d)) { cnpjPedido.current = ''; setCnpjConsulta({ status: 'vazio', cnpj: '' }); return; }
+    if (cnpjPedido.current === d) return;
+    cnpjPedido.current = d;
+    setCnpjConsulta({ status: 'consultando', cnpj: d });
+    const r = await consultarCnpjPublico(d);
+    if (cnpjPedido.current !== d) return; // o usuário já digitou outro CNPJ
+    setCnpjConsulta({ status: r.status, cnpj: d, razao_social: r.dados && r.dados.razao_social, situacao: r.dados && r.dados.situacao });
+    if (r.status !== 'ok') return;
+    const x = r.dados;
+    // Preenche com os dados da Receita; campos sem informação ficam como estavam. Tudo segue editável.
+    setF(prev => ({ ...prev,
+      razao_social: x.razao_social || prev.razao_social,
+      nome_fantasia: x.nome_fantasia || prev.nome_fantasia,
+      rua: x.rua || prev.rua, numero: x.numero || prev.numero, bairro: x.bairro || prev.bairro,
+      cidade: x.cidade || prev.cidade, estado: x.estado || prev.estado,
+      cep: x.cep ? mascaraCep(x.cep) : prev.cep,
+      telefone: x.telefone ? mascaraTelefone(x.telefone) : prev.telefone,
+      email: x.email || prev.email }));
+  }
+
   const totalVerbas = (moedaParaNumero(f.verba_introducao) || 0);
   const temVerba = totalVerbas > 0;
   const temTecnico = f.tecnico_panificacao === 'Sim';
@@ -1273,6 +1356,9 @@ function PaginaEmissao({ profile, onSaved }) {
     if(f.contrato==='Sim')obrig.push(['contrato_prazo_meses','Prazo do contrato']);
     const faltando = obrig.filter(([k]) => !String(f[k] || '').trim()).map(([, l]) => l);
     if (faltando.length) return toast('Preencha: ' + faltando.join(', '), 'error');
+    if (!cnpjValido(f.cnpj_cpf)) return toast('CNPJ inválido. Confira os números digitados.', 'error');
+    if (cnpjConsulta.status === 'nao_encontrado' && cnpjConsulta.cnpj === String(f.cnpj_cpf).replace(/\D/g, '')
+      && !window.confirm('Este CNPJ não foi encontrado na consulta pública da Receita.\n\nEmpresas abertas há poucos dias podem ainda não aparecer. Deseja salvar a ficha mesmo assim?')) return;
     const prazoContrato=Number(f.contrato_prazo_meses);
     if(f.contrato==='Sim'&&(!/^\d+$/.test(f.contrato_prazo_meses)||!Number.isInteger(prazoContrato)||prazoContrato<1||prazoContrato>2147483647))
       return toast('Informe o prazo do contrato em meses inteiros positivos.','error');
@@ -1359,6 +1445,7 @@ function PaginaEmissao({ profile, onSaved }) {
     setDestinatarios(varios);
     toast('Ficha enviada para aprovação!', 'success');
     setF(FORM_VAZIO);
+    cnpjPedido.current = ''; setCnpjConsulta({ status: 'vazio', cnpj: '' });
     setDocumentosFicha([]);
     setMesmoEnderecoEntrega(false);
     if (!varios.length) onSaved();
@@ -1382,7 +1469,13 @@ function PaginaEmissao({ profile, onSaved }) {
       h('div', { className: 'form-grid' },
         h(Campo, { label: 'Razão Social', obrigatorio: true }, h(Input, { value: f.razao_social, onChange: e => set('razao_social', e.target.value) })),
         h(Campo, { label: 'Nome Fantasia', obrigatorio: true }, h(Input, { value: f.nome_fantasia, onChange: e => set('nome_fantasia', e.target.value) })),
-        h(Campo, { label: 'CNPJ', obrigatorio: true }, h(Input, { value: f.cnpj_cpf, inputMode: 'numeric', placeholder: '00.000.000/0000-00', onChange: e => set('cnpj_cpf', mascaraCnpj(e.target.value)) })),
+        h(Campo, { label: 'CNPJ', obrigatorio: true }, h(Input, { value: f.cnpj_cpf, inputMode: 'numeric', placeholder: '00.000.000/0000-00', onChange: e => aoMudarCnpj(e.target.value) }),
+          String(f.cnpj_cpf || '').replace(/\D/g, '').length === 14 && !cnpjValido(f.cnpj_cpf) && h('div', { style: { fontSize: 12, color: 'var(--danger, #dc2626)', marginTop: 4 } }, 'CNPJ inválido. Confira os números digitados.'),
+          cnpjConsulta.status === 'consultando' && h('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 } }, 'Consultando CNPJ na Receita...'),
+          cnpjConsulta.status === 'ok' && h('div', { style: { fontSize: 12, marginTop: 4, color: /^ativa$/i.test(cnpjConsulta.situacao || '') ? 'var(--text-muted)' : 'var(--danger, #dc2626)' } },
+            'Receita: ' + cnpjConsulta.razao_social + (cnpjConsulta.situacao ? ' — situação ' + cnpjConsulta.situacao : '') + '. Dados preenchidos; confira e altere se precisar.'),
+          cnpjConsulta.status === 'nao_encontrado' && h('div', { style: { fontSize: 12, color: 'var(--danger, #dc2626)', marginTop: 4 } }, 'CNPJ não encontrado na consulta pública da Receita. Confira o número.'),
+          cnpjConsulta.status === 'indisponivel' && h('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 } }, 'Não foi possível consultar o CNPJ agora. Preencha os dados manualmente.')),
         h(Campo,{label:'Representante Legal',obrigatorio:true},h(Input,{value:f.representante_nome,onChange:e=>set('representante_nome',e.target.value)})),
         h(Campo,{label:'CPF do Representante',obrigatorio:true},h(Input,{value:f.representante_cpf,inputMode:'numeric',placeholder:'000.000.000-00',onChange:e=>set('representante_cpf',mascaraCpf(e.target.value))})),
         h(Campo, { label: 'Rua', obrigatorio: true }, h(Input, { value: f.rua, onChange: e => set('rua', e.target.value) })),
