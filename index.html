@@ -3064,6 +3064,19 @@ function PopupOrigemAprovacao({ origem, onClose }) {
   const titulo = tipo==='solicitacao' ? 'Solicitação original' : 'Programação original';
   const numero = ref.codigo_totvs || '';
   const nome = ref.nome_fantasia || ref.razao_social || 'Cliente';
+  const itensEquip = tipo==='solicitacao' ? itensDaSolicitacao(sol) : [];
+  const detalhado = Array.isArray(sol.solicitacao_equipamentos) && sol.solicitacao_equipamentos.length>0;
+  const ehTroca = tipo==='solicitacao' && sol.tipo==='troca';
+  const blocoItens = (rotulo, lista) => h('div',{style:{marginTop:14}},
+    h('div',{className:'section-title'},rotulo),
+    lista.length
+      ? h('div',{className:'table-wrap'},h('table',null,
+          h('thead',null,h('tr',null,['Equipamento','Qtd.','Patrimônio'].map(c=>h('th',{key:c},c)))),
+          h('tbody',null,lista.map((item,i)=>h('tr',{key:i},
+            h('td',{className:'strong'},item.equipamento),
+            h('td',{className:'mono'},fmtNum(item.quantidade)),
+            h('td',{className:'mono'},item.patrimonio||'—'))))))
+      : h('div',{className:'page-sub'},'Nenhum item informado.'));
   return h(Modal, {
     titulo:titulo, sub:(numero ? numero+' — ' : '')+nome,
     largo:true, onClose:onClose,
@@ -3076,13 +3089,13 @@ function PopupOrigemAprovacao({ origem, onClose }) {
       tipo==='solicitacao' && linhaInfo('Tipo',sol.tipo),
       tipo==='solicitacao' && linhaInfo('Solicitante',sol.usuarios && sol.usuarios.nome),
       tipo==='solicitacao' && linhaInfo('Data',sol.created_at ? fmtData(sol.created_at) : null),
-      tipo==='solicitacao' && (sol.solicitacao_equipamentos?.length
+      tipo==='solicitacao' && !(ehTroca&&detalhado) && (detalhado
         ? sol.solicitacao_equipamentos.map((item,i)=>h(React.Fragment,{key:i},
             linhaInfo(rotuloMovimentoEquipamento(item,sol.tipo),
               item.equipamento+' × '+fmtNum(item.quantidade)+(item.patrimonio?' · Patrimônio '+item.patrimonio:''))))
         : h(React.Fragment,null,linhaInfo('Equipamento',sol.equipamento),linhaInfo('Patrimônio',sol.patrimonio))),
       tipo==='solicitacao' && linhaInfo('Produto',sol.produtos ? [sol.produtos.codigo,sol.produtos.descricao].filter(Boolean).join(' — ') : null),
-      tipo==='solicitacao' && linhaInfo('Quantidade',sol.quantidade),
+      tipo==='solicitacao' && !detalhado && linhaInfo('Quantidade',sol.quantidade),
       tipo==='solicitacao' && linhaInfo('Bonificação',sol.modalidade_bonificacao),
       tipo==='solicitacao' && linhaInfo('Amostra',sol.tipo_amostra),
       tipo==='solicitacao' && linhaInfo('Justificativa',sol.justificativa),
@@ -3098,6 +3111,12 @@ function PopupOrigemAprovacao({ origem, onClose }) {
       tipo==='programacao' && linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')),
       tipo==='programacao' && linhaInfo('Data prevista',d.data_prevista ? fmtData(d.data_prevista) : null)
     ),
+    ehTroca && detalhado && blocoItens('Itens a retirar',itensEquip.filter(i=>i.movimento==='coletar')),
+    ehTroca && detalhado && blocoItens('Itens a entregar',itensEquip.filter(i=>i.movimento==='entregar')),
+    ehTroca && !detalhado && h('div',{style:{marginTop:12,padding:'9px 11px',borderRadius:8,background:'#fef3c7',color:'#92400e',fontSize:12}},
+      sol.erroCarregamentoEquipamentos
+        ? 'Não foi possível carregar os itens a retirar e a entregar desta troca. Atualize a tela antes de aprovar.'
+        : 'Esta troca não tem a relação de itens a retirar e a entregar registrada.'),
     tipo==='solicitacao' && (sol.solicitacao_aprovacoes || []).length>0 &&
       h('div',{style:{marginTop:15}},h('div',{className:'section-title'},'Histórico de aprovações'),
         h(StepperGenerico,{aprovacoes:sol.solicitacao_aprovacoes})),
@@ -3669,6 +3688,20 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
           sols.forEach(sol=>{sol.solicitacao_aprovacoes=hm[sol.id]||sol.solicitacao_aprovacoes||[];});
           sm.forEach((sol,id)=>{sol.solicitacao_aprovacoes=hm[id]||sol.solicitacao_aprovacoes||[];});
         }else console.warn('Histórico completo de solicitações indisponível:',hist.error);
+        // Relação de equipamentos (itens a retirar / a entregar) para conferência antes de aprovar.
+        const idsEquip=[...sm.values()].filter(sol=>sol&&sol.id&&(!sol.categoria||sol.categoria==='equipamento')).map(sol=>sol.id);
+        try{
+          for(let i=0;i<idsEquip.length;i+=100){
+            const {data,error}=await sb.from('solicitacao_equipamentos')
+              .select('solicitacao_id,movimento,equipamento,quantidade,patrimonio').in('solicitacao_id',idsEquip.slice(i,i+100));
+            if(error)throw error;
+            const porSol={};(data||[]).forEach(item=>(porSol[item.solicitacao_id]??=[]).push(item));
+            idsEquip.slice(i,i+100).forEach(id=>{const sol=sm.get(String(id));if(sol&&porSol[id])sol.solicitacao_equipamentos=porSol[id];});
+          }
+        }catch(e){
+          console.error('Pendências - itens de equipamentos:',e);
+          sm.forEach(sol=>{if(sol&&idsEquip.includes(sol.id)&&!sol.solicitacao_equipamentos?.length)sol.erroCarregamentoEquipamentos=true;});
+        }
         aprovsSolic=aprovsSolic.map(ap=>({...ap,solicitacoes:sm.get(String(ap.solicitacao_id))||null}));
       }
       // A fila não deve oferecer aprovação de solicitações já reprovadas/encerradas.
