@@ -4945,6 +4945,8 @@ function PaginaClientes({ profile, modulo }) {
           : '*, usuarios:vendedor_id(nome, codigo_vendedor)', { count: 'exact' })
         .order('created_at', { ascending: false }).order('id')
         .range(paginaClientes * TAM_PAGINA_CLIENTES, (paginaClientes + 1) * TAM_PAGINA_CLIENTES - 1);
+      // Cliente nascido de ficha só aparece depois de aprovado em todas as etapas (campo calculado no banco).
+      q = q.is('mc_cliente_liberado', true);
       if (Array.isArray(idsVisiveis)) q = q.in('vendedor_id', idsVisiveis);
       if (somenteSemCodigo) q = q.or('codigo_totvs.is.null,codigo_totvs.eq.');
       if (filtro) q = q.or(['razao_social','nome_fantasia','cnpj_cpf','codigo_totvs','cidade'].map(k => k + '.ilike.%' + filtro + '%').join(','));
@@ -4959,7 +4961,9 @@ function PaginaClientes({ profile, modulo }) {
       setClientes(resultado.data || []);
       setTotalClientes(resultado.count || 0);
     } catch (error) {
-      toast('Erro ao carregar clientes: ' + error.message, 'error');
+      toast(/mc_cliente_liberado/.test(error.message || '')
+        ? 'A lista de clientes depende da migração 20261126_cliente_liberado_apos_aprovacao.sql, ainda não aplicada no banco.'
+        : 'Erro ao carregar clientes: ' + error.message, 'error');
       setClientes([]); setTotalClientes(0);
     }
     setEditandoTotvs({}); setEditandoAcordo({});
@@ -4986,6 +4990,7 @@ function PaginaClientes({ profile, modulo }) {
         let q=sb.from('clientes')
           .select('id,codigo_totvs,razao_social,nome_fantasia,cnpj_cpf,cidade,estado,vendedor_id,acordo_comercial,usuarios:vendedor_id(nome,codigo_vendedor)')
           .not('acordo_comercial','is',null)
+          .is('mc_cliente_liberado',true)
           .order('id',{ascending:true})
           .range(inicio,inicio+499);
         if(Array.isArray(idsVisiveis))q=q.in('vendedor_id',idsVisiveis);
