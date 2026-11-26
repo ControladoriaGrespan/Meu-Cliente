@@ -559,10 +559,10 @@ const ROLE_LABELS = {
   vendedor: 'Vendedor', supervisor: 'Supervisor', coordenador: 'Coordenador',
   analise_credito: 'Análise de Crédito', financeiro: 'Financeiro',
   manutencao: 'Manutenção', motorista_manutencao: 'Motorista (Manutenção)', adm_vendas: 'Adm. de Vendas',
-  gestao_adm_vendas: 'Gestão de Adm. de Vendas', tecnico: 'Técnico de Manutenção', supervisor_tec_panificacao: 'Supervisor Tec Panificação', lider_tec_panificacao: 'Líder Tec Panificação', tec_panificacao: 'Tec Panificação',
+  gestao_adm_vendas: 'Gestão de Adm. de Vendas', tecnico: 'Técnico de Manutenção', coordenador_tec_panificacao: 'Coordenador Tec Panificação', supervisor_tec_panificacao: 'Supervisor Tec Panificação', lider_tec_panificacao: 'Líder Tec Panificação', tec_panificacao: 'Tec Panificação',
   diretoria: 'Diretoria', admin: 'Administrador'
 };
-const PAPEIS = ['vendedor','supervisor','coordenador','analise_credito','financeiro','manutencao','motorista_manutencao','adm_vendas','gestao_adm_vendas','tecnico','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao','diretoria','admin'];
+const PAPEIS = ['vendedor','supervisor','coordenador','analise_credito','financeiro','manutencao','motorista_manutencao','adm_vendas','gestao_adm_vendas','tecnico','coordenador_tec_panificacao','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao','diretoria','admin'];
 const ETAPAS = [
   { key: 'supervisor', label: 'Supervisor', ordem: 1 },
   { key: 'coordenador', label: 'Coordenador', ordem: 2 },
@@ -679,8 +679,8 @@ function menuForModulo(modulo, papel, papelReal=papel) {
 }
 function modulosPadrao(papel){
   if(papel==='admin') return Object.keys(MODULOS);
-  if(['supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel)) return ['visita_tecnica'];
-  if(['vendedor','supervisor','coordenador','diretoria'].includes(papel)) return papel==='coordenador'?['vendas','visita_tecnica']:['vendas'];
+  if(['coordenador_tec_panificacao','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel)) return ['visita_tecnica'];
+  if(['vendedor','supervisor','coordenador','diretoria'].includes(papel)) return ['vendas'];
   if(['adm_vendas','gestao_adm_vendas'].includes(papel)) return papel==='gestao_adm_vendas'?['administracao_vendas','visita_tecnica']:['administracao_vendas'];
   if(['analise_credito','financeiro'].includes(papel)) return ['financeiro'];
   if(papel==='manutencao') return ['manutencao'];
@@ -6734,7 +6734,7 @@ function PaginaRelatoriosVisitas({profile,visao}){
   const [status,setStatus]=useState('');
   const [cliente,setCliente]=useState('');
   const papel=profile.papel==='admin'&&visao?visao:profile.papel;
-  const autorizado=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel);
+  const autorizado=['admin','coordenador_tec_panificacao','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel);
   useEffect(()=>{(async()=>{const {data,error}=await sb.from('usuarios').select('id,nome,papel,supervisor_id').limit(10000);if(error)toast(error.message,'error');setUsuarios(data||[]);})();},[]);
   const porId=Object.fromEntries(usuarios.map(u=>[u.id,u]));
   async function exportar(){
@@ -6810,6 +6810,9 @@ function PaginaAdmin({ profile }) {
 
   const supervisores = (usuarios || []).filter(u => ['supervisor','supervisor_tec_panificacao','lider_tec_panificacao'].includes(u.papel) && u.ativo === true);
   const coordenadores = (usuarios || []).filter(u => u.papel === 'coordenador' && u.ativo === true);
+  // Hierarquia técnica separada: Supervisor Técnico responde ao Coordenador Técnico; os demais, ao Coordenador Comercial.
+  const coordenadoresTecnicos = (usuarios || []).filter(u => u.papel === 'coordenador_tec_panificacao' && u.ativo === true);
+  const coordenadoresDoPapel = papel => ['supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papel) ? coordenadoresTecnicos : coordenadores;
 
   function editar(id, campo, valor) {
     setEdicoes(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [campo]: valor } }));
@@ -6842,8 +6845,8 @@ function PaginaAdmin({ profile }) {
     }
     if(supEscolhido && (!supervisores.some(x=>x.id===supEscolhido) || (papelSuperiorEsperado && !supervisores.some(x=>x.id===supEscolhido&&x.papel===papelSuperiorEsperado))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
-    if(coordEscolhido && !coordenadores.some(x=>x.id===coordEscolhido))
-      return toast('O coordenador selecionado está inativo ou não está disponível.','error');
+    if(coordEscolhido && coordEscolhido!==(u.coordenador_id||'') && !coordenadoresDoPapel(papelEscolhido).some(x=>x.id===coordEscolhido))
+      return toast('O coordenador selecionado está inativo ou não pertence à hierarquia deste perfil.','error');
     const nomeEditado=String(valorDe(u,'nome')||'').trim();
     if(!nomeEditado) return toast('O nome do usuário é obrigatório.','error');
     const { error } = await sb.from('usuarios').update({
@@ -6901,7 +6904,7 @@ function PaginaAdmin({ profile }) {
     }
     if(novo.supervisor_id && !supervisores.some(x=>x.id===novo.supervisor_id&&(!['vendedor','lider_tec_panificacao','tec_panificacao'].includes(novo.papel)||x.papel===(novo.papel==='vendedor'?'supervisor':novo.papel==='lider_tec_panificacao'?'supervisor_tec_panificacao':'lider_tec_panificacao'))))
       return toast('O supervisor selecionado está inativo ou não está disponível.','error');
-    if(novo.coordenador_id && !coordenadores.some(x=>x.id===novo.coordenador_id))
+    if(novo.coordenador_id && !coordenadoresDoPapel(novo.papel).some(x=>x.id===novo.coordenador_id))
       return toast('O coordenador selecionado está inativo ou não está disponível.','error');
     setCriando(true);
     const { data: auth, error: errAuth } = await sbSignup.auth.signUp({ email: novo.email.trim(), password: novo.senha });
@@ -6954,10 +6957,10 @@ function PaginaAdmin({ profile }) {
           h('select', { className: 'form-select', value: novo.supervisor_id, onChange: e => setNovo({ ...novo, supervisor_id: e.target.value }) },
             h('option', { value: '' }, 'Selecione...'),
             supervisores.filter(s=>novo.papel==='tec_panificacao'?s.papel==='lider_tec_panificacao':novo.papel==='lider_tec_panificacao'?s.papel==='supervisor_tec_panificacao':s.papel==='supervisor').map(s => h('option', { key: s.id, value: s.id }, s.nome)))),
-        ['supervisor','supervisor_tec_panificacao'].includes(novo.papel) && h(Campo, { label: 'Coordenador responsável' },
+        ['supervisor','supervisor_tec_panificacao'].includes(novo.papel) && h(Campo, { label: novo.papel==='supervisor_tec_panificacao'?'Coordenador Tec Panificação':'Coordenador responsável' },
           h('select', { className: 'form-select', value: novo.coordenador_id, onChange: e => setNovo({ ...novo, coordenador_id: e.target.value }) },
             h('option', { value: '' }, 'Selecione...'),
-            coordenadores.map(c => h('option', { key: c.id, value: c.id }, c.nome)))))),
+            coordenadoresDoPapel(novo.papel).map(c => h('option', { key: c.id, value: c.id }, c.nome)))))),
 
     h('div', { className: 'page-head' },
       h('div', null,
@@ -7023,7 +7026,8 @@ function PaginaAdmin({ profile }) {
                 h('td', null,
                   h('select', { className: 'form-select sm', style: { minWidth: 120 }, value: valorDe(u, 'coordenador_id'), onChange: e => editar(u.id, 'coordenador_id', e.target.value) },
                     h('option', { value: '' }, '—'),
-                    coordenadores.map(c => h('option', { key: c.id, value: c.id }, c.nome)))),
+                    coordenadoresDoPapel(valorDe(u,'papel')).map(c => h('option', { key: c.id, value: c.id }, c.nome)),
+                    valorDe(u,'coordenador_id')&&!coordenadoresDoPapel(valorDe(u,'papel')).some(c=>c.id===valorDe(u,'coordenador_id'))&&h('option',{value:valorDe(u,'coordenador_id')},(usuarios.find(c=>c.id===valorDe(u,'coordenador_id'))?.nome||'Vínculo legado')+' (revisar vínculo)'))),
                 h('td', { style: { textAlign: 'center' } },
                   h('input', { type: 'checkbox', style: { width: 16, height: 16, accentColor: 'var(--accent)' },
                     checked: !!valorDe(u, 'exigir_troca_senha'), onChange: e => editar(u.id, 'exigir_troca_senha', e.target.checked) })),
@@ -8674,8 +8678,8 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const toast=useToast();
   const papelVisao=profile.papel==='admin'&&visao&&visao!=='admin'?visao:profile.papel;
   const emPreview=profile.papel==='admin'&&papelVisao!=='admin';
-  const gestores=['admin','coordenador','gestao_adm_vendas'];
-  const autorizado=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papelVisao);
+  const gestores=['admin','coordenador_tec_panificacao','gestao_adm_vendas'];
+  const autorizado=['admin','coordenador_tec_panificacao','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(papelVisao);
   const gestor=gestores.includes(papelVisao);
   const supervisor=papelVisao==='supervisor_tec_panificacao';
   const tecnico=papelVisao==='tec_panificacao';
@@ -9017,7 +9021,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const minutos=paraMin(form.hora_fim)-paraMin(form.hora_inicio);
     if(minutos<15||minutos>600)return toast('O horário final deve ser posterior ao início (15 minutos a 10 horas).','error');
     if(repetirVisitas&&(!(lider||supervisor||adminReal)||!dataFimVisitas||dataFimVisitas<form.data_visita))return toast('Selecione um período válido para replicar.','error');
-    // O Supervisor pode planejar visitas normais, mas a sua semana exige aprovação do Coordenador.
+    // O Supervisor pode planejar visitas normais, mas a sua semana exige aprovação do Coordenador Técnico.
     if(participantes.some(id=>!equipeParticipantes.some(u=>u.id===id)))return toast('Participante fora da equipe autorizada.','error');
     if(excecao&&(!(supervisor||adminReal)||!justificativaExcecao.trim()))return toast('Exceção exige Supervisor Técnico ou Administrador e justificativa.','error');
     const clienteSelecionado=clientes.find(c=>c.id===form.cliente_id);
@@ -9061,7 +9065,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     setSalvando(false);
     if(error)return toast('Erro ao agendar: '+error.message,'error');
     if(cancelada)toast('Novo atendimento enviado para aprovação do Supervisor Técnico.','success');
-    else toast('Visita(s) planejadas. Envie a agenda ao '+(supervisor||adminReal?'Coordenador':'Supervisor Técnico')+' para aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);setRepetirVisitas(false);carregar();
+    else toast('Visita(s) planejadas. Envie a agenda ao '+(supervisor||adminReal?'Coordenador Técnico':'Supervisor Técnico')+' para aprovação.','success');setForm(null);setBuscaCliente('');setClientes([]);setRepetirVisitas(false);carregar();
   }
   async function registrar(v,acao){
     if(emPreview||v.tecnico_id!==profile.id||!['tec_panificacao','lider_tec_panificacao','supervisor_tec_panificacao'].includes(papelVisao))return toast('Somente o participante pode registrar seu atendimento.','error');
@@ -9236,7 +9240,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const agendasDevolvidas=lider?agendasParaAprovar.filter(a=>a.status==='devolvida'&&a.origem_papel==='lider_tec_panificacao'&&a.lider_id===profile.id):[];
   const minhaFilaAgendas=agendasParaAprovar.filter(a=>a.status==='pendente'&&(
     (supervisor&&a.origem_papel==='lider_tec_panificacao'&&a.supervisor_id===profile.id) ||
-    (papelVisao==='coordenador'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id) || adminReal));
+    (papelVisao==='coordenador_tec_panificacao'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id) || adminReal));
   function abrirAgendaParaRevisao(a){
     // O deslocamento de semana permite revisar agendas de semanas futuras
     // sem aprovar às cegas. A ação de aprovação permanece na fila.
@@ -9442,7 +9446,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         horariosAgenda(a),
         a.observacao_aprovacao&&h('p',null,a.observacao_aprovacao),
         h('button',{className:'btn btn-secondary btn-sm',onClick:()=>abrirAgendaParaRevisao(a)},'Revisar agenda')))),
-    (supervisor||papelVisao==='coordenador'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
+    (supervisor||papelVisao==='coordenador_tec_panificacao'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
       h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Agendas para aprovação ('+minhaFilaAgendas.length+')'),
       h('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10,marginTop:10}},
         h('button',{className:'btn btn-secondary btn-sm',disabled:carregando,onClick:carregar},'Atualizar pendências')),
@@ -9462,7 +9466,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
             onClick:()=>tramitarAgenda(a.id,'aprovar')},'Aprovar agenda'),
           h('button',{className:'btn btn-secondary btn-sm',disabled:salvando||emPreview,
             onClick:()=>tramitarAgenda(a.id,'devolver')},'Devolver para ajustes'))))),
-    (papelVisao==='coordenador'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
+    (papelVisao==='coordenador_tec_panificacao'||adminReal)&&h('details',{className:'card',style:{marginBottom:14}},
       h('summary',{style:{cursor:'pointer',fontWeight:700,fontSize:15,listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'3px 0'}},'▸ Exceções aguardando aprovação ('+excecoes.length+')'),
       excecoes.length===0?h('p',null,'Nenhuma exceção pendente.'):excecoes.map(e=>h('div',{key:e.atendimento_id,style:{padding:10,borderBottom:'1px solid var(--border)'}},
         h('b',null,'Supervisor: '+(usuariosPorId[e.supervisor_tecnico_id]?.nome||'—')),
@@ -9570,14 +9574,14 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               h('b',{style:{marginLeft:12}},usuario?.nome||'Técnico')),
             h('div',{style:{fontSize:12}},'Status da agenda: '+rotuloAgenda(agendaAtual?.status)+
               (agendaAtual?.origem_papel==='supervisor_tec_panificacao'
-                ? ' · Origem: Supervisor · Aprovação: Coordenador'
+                ? ' · Origem: Supervisor · Aprovação: Coordenador Técnico'
                 :agendaAtual?.lider_id?' · Origem: Líder · Aprovação: Supervisor':'') ),
             horariosAgenda(agendaAtual),
             (lider||supervisor||adminReal)&&agendaAtual&&['rascunho','devolvida'].includes(agendaAtual.status)&&
               ((lider&&agendaAtual.origem_papel==='lider_tec_panificacao'&&agendaAtual.lider_id===profile.id)||
                (supervisor&&agendaAtual.origem_papel==='supervisor_tec_panificacao'&&agendaAtual.supervisor_id===profile.id)||adminReal)&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
             ((supervisor&&agendaAtual?.origem_papel==='lider_tec_panificacao'&&agendaAtual?.supervisor_id===profile.id)||
-              (papelVisao==='coordenador'&&agendaAtual?.origem_papel==='supervisor_tec_panificacao'&&agendaAtual?.coordenador_id===profile.id)||adminReal)&&
+              (papelVisao==='coordenador_tec_panificacao'&&agendaAtual?.origem_papel==='supervisor_tec_panificacao'&&agendaAtual?.coordenador_id===profile.id)||adminReal)&&
               agendaAtual?.status==='pendente'&&h('div',{style:{display:'flex',gap:6}},
               h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'aprovar')},'Aprovar semana'),
               h('button',{className:'btn btn-secondary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'devolver')},'Devolver para ajustes')),
@@ -9698,7 +9702,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
           equipeParticipantes.filter(u=>!editandoVisita||u.id===editandoVisita.tecnico_id).map(u=>h('label',{key:u.id,style:{display:'inline-flex',gap:6,alignItems:'center',margin:8}},
             h('input',{type:'checkbox',disabled:!!editandoVisita,checked:participantes.includes(u.id),onChange:e=>setParticipantes(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}),u.nome+' ('+(ROLE_LABELS[u.papel]||u.papel)+')'))),
         editandoVisita&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'#9a3412'}},'Alterações em agenda já enviada serão submetidas novamente ao Supervisor.'),
-        supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O Supervisor agenda sua equipe; a agenda normal será enviada ao Coordenador para aprovação. Exceções territoriais exigem justificativa.'),
+        supervisor&&h('div',{style:{gridColumn:'1/-1',fontSize:12,color:'var(--text-muted)'}},'O Supervisor agenda sua equipe; a agenda normal será enviada ao Coordenador Técnico para aprovação. Exceções territoriais exigem justificativa.'),
         !editandoVisita&&(supervisor||adminReal)&&h(Campo,{label:'Tipo de agendamento'},h('label',null,h('input',{type:'checkbox',checked:excecao,onChange:e=>{setExcecao(e.target.checked);setClientes([]);setBuscaCliente('');setForm(f=>({...f,cliente_id:''}));}}),' Exceção — fora da carteira comercial')),
         excecao&&h(Campo,{label:'Justificativa da exceção'},h('textarea',{className:'form-input',value:justificativaExcecao,onChange:e=>setJustificativaExcecao(e.target.value)})),
         h(Campo,{label:'Data'},h('input',{type:'date',className:'form-input',value:form.data_visita,onChange:e=>setForm(x=>({...x,data_visita:e.target.value}))})),
@@ -12738,10 +12742,12 @@ function App() {
     const {data:acessos}=await sb.from('usuario_modulos').select('modulo,ativo').eq('usuario_id',perfil.id).eq('ativo',true);
     const ms=(acessos||[]).map(x=>x.modulo);
     // Perfis autorizados ao módulo técnico mantêm acesso mesmo com liberações legadas já gravadas.
-    const obrigatorios=['admin','coordenador','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(perfil.papel)?['visita_tecnica']:[];
+    const obrigatorios=['admin','coordenador_tec_panificacao','gestao_adm_vendas','supervisor_tec_panificacao','lider_tec_panificacao','tec_panificacao'].includes(perfil.papel)?['visita_tecnica']:[];
     const base=perfil.papel==='admin'?Object.keys(MODULOS):(ms.length?ms:modulosPadrao(perfil.papel));
     const modulosLiberados=perfil.papel==='motorista_manutencao'?['motorista_manutencao']:
-      [...new Set([...base,...obrigatorios])].filter(m=>m!=='motorista_manutencao'||perfil.papel==='admin');
+      [...new Set([...base,...obrigatorios])].filter(m=>m!=='motorista_manutencao'||perfil.papel==='admin')
+        // A hierarquia técnica é separada da comercial: o Coordenador Comercial não acessa a Visita Técnica.
+        .filter(m=>m!=='visita_tecnica'||perfil.papel!=='coordenador');
     setModulosUsuario(modulosLiberados);
     setProfile(perfil);setVisao(perfil.papel);setModulo(null);
     setPagina(perfil.exigir_troca_senha?'perfil':'modulos');
