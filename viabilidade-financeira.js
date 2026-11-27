@@ -11,13 +11,25 @@ const MC_PREMISSAS_TABARATO={
 };
 
 /* Meu Cliente v111 - Análise Financeira. Requer React, h, sb, Campo, fmtMoeda do index.html. */
+// A Ficha grava 'Mensal' para a opção "1 pedido do mês" e 'Bonificação única' para "1 parcela".
+function mcPeriodicidadeBonificacao(f){
+ const t=String(f.bonificacao_periodicidade||'todos os pedidos').toLowerCase();
+ if(t.includes('1 pedido')||t.includes('mensal'))return 'um_pedido';
+ if(t.includes('1 parcela')||t.includes('única')||t.includes('unica'))return 'parcela_unica';
+ return 'todos';
+}
+function mcRotuloPeriodicidade(f){
+ if(!(Number(f.bonificacao_percentual)>0))return '—';
+ const k=mcPeriodicidadeBonificacao(f);
+ return k==='um_pedido'?'1 pedido do mês':k==='parcela_unica'?'1 parcela (só no primeiro mês)':'Todos os pedidos';
+}
 function mcCalculoViabilidade(f,p,eq){
  const n=x=>Number(x)||0;
  const kg=n(f.consumo_previsto)*0.080*26,receita=kg*n(f.preco_kg);
  const custo=p.custo_pct===''?null:n(p.custo_pct)/100;
  const trib=p.tributos_pct===''?null:n(p.tributos_pct)/100;
  const bon=n(f.bonificacao_percentual)/100;
- const periodicidade=String(f.bonificacao_periodicidade||'todos os pedidos').toLowerCase();
+ const periodicidade=mcPeriodicidadeBonificacao(f);
  const desconto=String(f.bonificacao_modalidade||'Produto').toLowerCase().includes('desconto');
  const introducao=n(f.verba_introducao),prazo=parseInt(f.duracao_verba,10)||0;
  const faltas=[];
@@ -26,14 +38,14 @@ function mcCalculoViabilidade(f,p,eq){
  if(trib===null)faltas.push('Tributos');
  if(introducao&&prazo<1)faltas.push('Prazo da introdução');
  if(eq.some(x=>x.valor===''))faltas.push('Custo de equipamentos');
- if(bon&&periodicidade.includes('1 pedido')&&p.pedido_ref==='')faltas.push('Valor de um pedido');
+ if(bon&&periodicidade==='um_pedido'&&(p.pedido_ref===''||p.pedido_ref==null))faltas.push('Valor de um pedido');
  const investimento=eq.reduce((s,x)=>s+n(x.qtd)*n(x.valor),0)*
   (String(f.equipamento_condicao||'').toLowerCase().includes('usado')?n(p.fator_usado)/100:1);
  let acumulado=-investimento,payback=null,primeiro=null;const anos=[];
  for(let mes=1;mes<=60;mes++){
   const fat=receita*Math.pow(1+n(p.reajuste)/100,Math.floor((mes-1)/12));
-  const bonBase=periodicidade.includes('1 pedido')?n(p.pedido_ref)*fat/(receita||1):fat;
-  const bonificacao=periodicidade.includes('1 parcela')&&mes>1?0:bonBase*bon;
+  const bonBase=periodicidade==='um_pedido'?n(p.pedido_ref)*fat/(receita||1):fat;
+  const bonificacao=periodicidade==='parcela_unica'&&mes>1?0:bonBase*bon;
   const custoBonus=bonificacao*(desconto?1:n(p.custo_bonif_pct)/100);
   const intMes=mes<=prazo&&prazo?introducao/prazo:0;
   const prod=fat*(custo||0),impostos=fat*(trib||0);
@@ -132,7 +144,21 @@ function PaginaViabilidadeFinanceira({profile}){
   h('div',{className:'page-title'},'Análise de Viabilidade Financeira'),
   h('div',{className:'page-sub'},'Ficha · custos e bonificações · investimento · cinco anos · parecer')));
 
- const condicaoDe=f=>situacoes[f.id]?.situacao||'rascunho';
+ // Parecer registrado prevalece; sem parecer, vale a decisão do Financeiro na Ficha.
+ const parecerDe=f=>situacoes[f.id]?.situacao||'rascunho';
+ const semParecer=f=>!['favoravel','desfavoravel'].includes(parecerDe(f));
+ const condicaoDe=f=>{
+  const st=parecerDe(f);
+  if(!semParecer(f))return st;
+  return f.decisao_financeiro==='aprovado'?'favoravel':
+   ['reprovado','ajuste'].includes(f.decisao_financeiro)?'desfavoravel':st;
+ };
+ const rotuloDe=f=>{
+  if(!semParecer(f))return parecerDe(f)==='favoravel'?'Aprovado':'Parecer desfavorável';
+  return f.decisao_financeiro==='aprovado'?'Ficha aprovada pelo Financeiro (sem parecer)':
+   f.decisao_financeiro==='reprovado'?'Ficha reprovada pelo Financeiro (sem parecer)':
+   f.decisao_financeiro==='ajuste'?'Ficha devolvida para ajuste (sem parecer)':'Pendente de decisão';
+ };
  const naFila=f=>{
   const st=condicaoDe(f);
   return fila==='aprovados'?st==='favoravel':
@@ -148,7 +174,7 @@ function PaginaViabilidadeFinanceira({profile}){
  const pesquisa=h('div',{className:'card',style:{marginBottom:14}},
   h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}},
    ...[['pendentes','Pendentes de Aprovação'],['aprovados','Aprovados'],
-    ['desfavoraveis','Parecer Desfavorável']].map(([k,l])=>
+    ['desfavoraveis','Reprovados / Desfavoráveis']].map(([k,l])=>
      h('button',{key:k,className:'btn '+(fila===k?'btn-primary':'btn-secondary')+' btn-sm',
       onClick:()=>{setFila(k);setFicha(null);}},l+' ('+totais[k]+')'))),
   h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
@@ -164,8 +190,7 @@ function PaginaViabilidadeFinanceira({profile}){
    h('div',null,
     h('div',{style:{fontWeight:700}},f.razao_social||f.nome_fantasia||'Cliente'),
     h('div',{className:'page-sub'},(f.cnpj_cpf||'')+' · '+dinheiro(f.faturamento_previsto)+'/mês'),
-    h('div',{className:'page-sub'},'Análise: '+(condicaoDe(f)==='favoravel'?'Aprovado':
-      condicaoDe(f)==='desfavoravel'?'Parecer desfavorável':'Pendente de decisão'))),
+    h('div',{className:'page-sub'},'Análise: '+rotuloDe(f))),
    h('button',{className:'btn btn-primary btn-sm',onClick:()=>escolher(f)},'Analisar cliente'))));
  if(!ficha||!calc)return h('div',null,titulo,pesquisa);
  const resumo=h('div',{className:'card'},h('h3',null,ficha.razao_social),
@@ -190,8 +215,13 @@ function PaginaViabilidadeFinanceira({profile}){
  const premissas=h('div',{className:'card'},h('h3',null,'Premissas financeiras'),
   h('p',{className:'page-sub'},'Referência TABARATO: MP + embalagem 54,45% (aba % Lucro); bonificação produto 67% (60% produção + 7% ICMS); ICMS 7%, PIS/COFINS 0% e IR/CSLL 34%. Premissas históricas revisáveis. Consumo Meu Cliente: 80g e 26 dias/mês.'),
   h('p',null,'Preço/kg '+dinheiro(ficha.preco_kg)+' · Consumo diário '+fmtNum(ficha.consumo_previsto)+' pães'),
-  h('p',null,'Introdução '+dinheiro(ficha.verba_introducao)+' · '+(ficha.duracao_verba||0)+' meses'),
-  h('p',null,'Bonificação '+(ficha.bonificacao_percentual||0)+'% · '+(ficha.bonificacao_periodicidade||'—')+' · '+(ficha.bonificacao_modalidade||'Produto')),
+  h('p',null,'Introdução '+dinheiro(ficha.verba_introducao)+' · '+(ficha.duracao_verba||0)+' meses'+
+   (Number(ficha.verba_introducao)>0&&parseInt(ficha.duracao_verba,10)>0?' · '+dinheiro(Number(ficha.verba_introducao)/parseInt(ficha.duracao_verba,10))+' por mês':'')),
+  h('p',null,'Bonificação '+(ficha.bonificacao_percentual||0)+'% · '+mcRotuloPeriodicidade(ficha)+' · '+(ficha.bonificacao_modalidade||'Produto')),
+  Number(ficha.bonificacao_percentual)>0&&h('p',{className:'page-sub'},
+   mcPeriodicidadeBonificacao(ficha)==='um_pedido'?'Base da bonificação: o valor de um pedido por mês (informe em "Valor de um pedido").':
+   mcPeriodicidadeBonificacao(ficha)==='parcela_unica'?'Base da bonificação: a receita do primeiro mês, uma única vez.':
+   'Base da bonificação: a receita de todos os meses.'),
   h('div',{className:'form-grid'},...campos.map(x=>campo(x[0],x[1]))),
   calc.faltas.length>0&&h('p',{style:{color:'#a15c00'}},'Pendências: '+calc.faltas.join(' · ')),
   h('h3',null,'Composição do primeiro mês'),
@@ -219,7 +249,7 @@ function PaginaViabilidadeFinanceira({profile}){
   h('p',null,'Payback estimado do equipamento: '+(!calc.completo?'Pendente':calc.payback?calc.payback+' meses':'Não recuperado em 60 meses')),
   h('p',{className:'page-sub'},'Simulação gerencial; receita reajusta por ano, despesas fixas não. Não equivale a fluxo de caixa contábil.'));
  const parecerTab=h('div',{className:'card'},h('h3',null,'Parecer e versões'),
-  h('p',{className:'page-sub'},'Parecer financeiro independente do workflow da Ficha. Favorável → Aprovados; Desfavorável → Parecer Desfavorável. A aprovação comercial permanece inalterada.'),
+  h('p',{className:'page-sub'},'O parecer não altera o workflow da Ficha. Favorável → Aprovados; Desfavorável → Reprovados / Desfavoráveis. Sem parecer, a análise acompanha a decisão do Financeiro na Ficha (aprovada ou reprovada) e sai de Pendentes.'),
   h(Campo,{label:'Situação'},h('select',{className:'form-select',value:status,onChange:e=>setStatus(e.target.value)},
    ...[['rascunho','Rascunho'],['em_analise','Em análise'],['favoravel','Favorável'],
     ['condicionada','Condicionada'],['desfavoravel','Desfavorável']].map(([k,l])=>h('option',{key:k,value:k},l)))),
