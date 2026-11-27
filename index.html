@@ -526,7 +526,7 @@ a {
 </head>
 <body>
 <div id="root"></div>
-<script src="./viabilidade-financeira.js?v=116"></script>
+<script src="./viabilidade-financeira.js?v=117"></script>
 <script>
 const h = React.createElement;
 window.__MEU_CLIENTE_BUILD__='v152-contrato-sim-cpf-extenso-data';
@@ -1886,6 +1886,19 @@ const CAMPOS_DETALHE_FORNO=[
   {tipo:'forno_eletrico',chave:'forno_eletrico_ligacao',rotulo:'Ligação elétrica',opcoes:['Trifásico','Monofásico']},
   {tipo:'forno_eletrico',chave:'forno_eletrico_tensao',rotulo:'Tensão',opcoes:['380V','220V']}];
 const detalheForno=(eq,tipo)=>CAMPOS_DETALHE_FORNO.filter(c=>c.tipo===tipo).map(c=>(eq||{})[c.chave]).filter(Boolean).join(' ');
+// Solicitações (aumento e troca): os mesmos dados do forno, por linha de equipamento.
+// O que for informado é gravado junto do nome: "Forno a Gás - 8 Esteiras - GLP".
+function camposFornoLinha(ln){
+  const nome=String((ln&&ln.equipamento)||'');
+  if(CAMPOS_DETALHE_FORNO.some(c=>c.opcoes.some(o=>nome.toLowerCase().includes(o.toLowerCase()))))return []; // nome já traz a informação
+  const n=nome.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const tipo=/forno\s+(a\s+)?gas/.test(n)?'forno_gas':/forno\s+eletrico/.test(n)?'forno_eletrico':null;
+  return tipo?CAMPOS_DETALHE_FORNO.filter(c=>c.tipo===tipo):[];
+}
+function nomeEquipamentoComDetalhe(ln){
+  const detalhe=camposFornoLinha(ln).map(c=>ln[c.chave]).filter(Boolean).join(' ');
+  return detalhe?ln.equipamento+' - '+detalhe:ln.equipamento;
+}
 // As quantidades por modelo complementam os totais por tipo usados pelo Financeiro.
 const chaveModeloForno=(tipo,modelo)=>tipo+'_'+modelo+'_esteiras';
 
@@ -1922,7 +1935,7 @@ function dadosFornosPorModelo(eq){
     forno_quantidade:gas+eletrico,forno_esteiras:modelos.length&&modelos.every(m=>m===modelos[0])?modelos[0]||null:null};
 }
 
-const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['freezer_vertical','Freezer Vertical'],['expositor','Expositor'],['mini_camara','Mini câmara'],['armario_completo','Armário Completo'],['armario_vazio','Armário Vazio'],['armario_esqueleto','Armário Esqueleto'],['camara_20','Câmara Climática 20 Esteiras'],['camara_40','Câmara Climática 40 Esteiras']];
+const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['freezer_vertical','Freezer Vertical'],['expositor','Expositor'],['mini_camara','Mini câmara'],['armario_completo','Armário Completo'],['armario_vazio','Armário Vazio'],['armario_esqueleto','Esqueleto'],['camara_20','Câmara Climática 20 Esteiras'],['camara_40','Câmara Climática 40 Esteiras']];
 function itensEquipamentosFicha(f,condicaoFinal){
   const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
   for(const forno of fornosDaFicha(f))a.push({quantidade:forno.quantidade,
@@ -5512,7 +5525,7 @@ const EQUIPAMENTOS_PADRAO = [
   'Mini Câmara',
   'Armário Completo',
   'Armário Vazio',
-  'Armário Esqueleto',
+  'Esqueleto',
   'Câmara Climática - 20 Esteiras',
   'Câmara Climática - 40 Esteiras',
   'Esteiras',
@@ -5544,6 +5557,15 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   function alterarLinhaEquip(setter, idx, campo, valor) { setter(prev => prev.map((x,i) => i === idx ? { ...x, [campo]: valor } : x)); }
   function adicionarLinhaEquip(setter) { setter(prev => [...prev, novaLinhaEquip()]); }
   function removerLinhaEquip(setter, idx) { setter(prev => prev.length <= 1 ? prev : prev.filter((_,i) => i !== idx)); }
+  // Forno: tipo de gás ou ligação/tensão, numa segunda linha abaixo do equipamento.
+  function detalheFornoLinha(ln, i, setter) {
+    const campos = camposFornoLinha(ln);
+    if (!campos.length) return null;
+    return h('div', { style: { gridColumn:'1 / -1', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' } },
+      campos.map(c => h('select', { key:c.chave, className:'form-select', style:{ maxWidth:230 }, 'aria-label':c.rotulo,
+        value: ln[c.chave] || '', onChange: e => alterarLinhaEquip(setter, i, c.chave, e.target.value) },
+        h('option', { value:'' }, c.rotulo + ' *'), c.opcoes.map(o => h('option', { key:o, value:o }, o)))));
+  }
 
   useEffect(() => {
     (async () => {
@@ -5614,6 +5636,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
       if (['troca','aumento'].includes(tipo) && !['Novo','Usado'].includes(condicaoEquipamento))
         return toast('Informe se o equipamento solicitado é Novo ou Usado.', 'error');
+      // Forno solicitado (aumento) ou a entregar (troca): gás ou ligação/tensão são obrigatórios.
+      for (const x of (tipo === 'troca' ? entregas : tipo === 'aumento' ? linhas : []))
+        for (const c of camposFornoLinha(x))
+          if (!c.opcoes.includes(x[c.chave])) return toast('Informe "' + c.rotulo + '" do ' + x.equipamento + ' (' + c.opcoes.join(' ou ') + ').', 'error');
       const primeiro = linhas[0], primeiraEntrega = entregas[0];
       const tipoNormalizado=String(tipo||'').trim().toLowerCase();
       const justificativaNormalizada=String(justificativa||'').trim().normalize('NFC');
@@ -5623,7 +5649,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
         return toast('Selecione um motivo válido para a retirada.','error');
       if(tipoNormalizado==='troca'&&!motivosTroca.includes(justificativaNormalizada))
         return toast('Selecione uma justificativa válida para a troca.','error');
-      payload = { ...payload, tipo:tipoNormalizado, equipamento: primeiro.equipamento,
+      payload = { ...payload, tipo:tipoNormalizado, equipamento: tipoNormalizado==='aumento' ? nomeEquipamentoComDetalhe(primeiro) : primeiro.equipamento,
         patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
         justificativa: ['troca','retirada'].includes(tipoNormalizado) ? justificativaNormalizada : null };
       if (['troca','aumento'].includes(tipoNormalizado)) payload.equipamento_condicao = condicaoEquipamento;
@@ -5681,10 +5707,10 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
     if (categoria === 'equipamento') {
       const detalhes = [];
       equipamentosSolicitados.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
-        solicitacao_id:nova.id, movimento: tipo === 'troca' ? 'coletar' : 'equipamento', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+        solicitacao_id:nova.id, movimento: tipo === 'troca' ? 'coletar' : 'equipamento', equipamento: tipo === 'aumento' ? nomeEquipamentoComDetalhe(x) : x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
       }));
       if (tipo === 'troca') equipamentosEntrega.filter(x => x.equipamento && Number(x.quantidade) > 0).forEach(x => detalhes.push({
-        solicitacao_id:nova.id, movimento:'entregar', equipamento:x.equipamento, quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
+        solicitacao_id:nova.id, movimento:'entregar', equipamento:nomeEquipamentoComDetalhe(x), quantidade:Number(x.quantidade), patrimonio:(x.patrimonio||'').trim()||null
       }));
       const { error: erroItens } = await sb.from('solicitacao_equipamentos').insert(detalhes);
       if (erroItens) return toast('Solicitação criada, mas houve erro ao gravar os equipamentos: ' + erroItens.message, 'error');
@@ -5742,7 +5768,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
               h('optgroup',{label:'Lista padrão de equipamentos'},EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'pad_'+i+'_'+eq,value:eq},eq)))),
             h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'quantidade',e.target.value)}),
             h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosSolicitados,i,'patrimonio',e.target.value)}),
-            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosSolicitados.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosSolicitados,i)},'×'))),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosSolicitados.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosSolicitados,i)},'×'),
+            tipo==='aumento'&&detalheFornoLinha(ln,i,setEquipamentosSolicitados))),
           h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosSolicitados)},'+ Equipamento')),
         tipo === 'troca' && h('div',{style:{gridColumn:'1 / -1'}},
           h('div',{style:{fontSize:13,fontWeight:700,marginBottom:8}},'Equipamentos a entregar *'),
@@ -5751,7 +5778,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
               h('option',{value:''},'Selecione o equipamento...'),EQUIPAMENTOS_PADRAO.map(eq=>h('option',{key:'entopt_'+i+'_'+eq,value:eq},eq))),
             h(Input,{type:'number',min:1,value:ln.quantidade,placeholder:'Qtd.',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'quantidade',e.target.value)}),
             h(Input,{value:ln.patrimonio,placeholder:'Patrimônio, se houver',onChange:e=>alterarLinhaEquip(setEquipamentosEntrega,i,'patrimonio',e.target.value)}),
-            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosEntrega.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosEntrega,i)},'×'))),
+            h('button',{type:'button',className:'btn btn-danger btn-sm',disabled:equipamentosEntrega.length<=1,onClick:()=>removerLinhaEquip(setEquipamentosEntrega,i)},'×'),
+            detalheFornoLinha(ln,i,setEquipamentosEntrega))),
           h('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:()=>adicionarLinhaEquip(setEquipamentosEntrega)},'+ Equipamento a entregar')),
         h(Campo, { label: tipo === 'retirada' ? 'Motivo da retirada' : 'Justificativa', obrigatorio: ['troca','retirada'].includes(tipo) },
           h('select', { className: 'form-select', value: justificativa, disabled: !['troca','retirada'].includes(tipo), onChange: e => setJustificativa(e.target.value) },

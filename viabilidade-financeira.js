@@ -233,7 +233,7 @@ function PaginaViabilidadeFinanceira({profile}){
  const equipamentos=h('div',{className:'card'},h('h3',null,'Equipamentos quantificados na Ficha'),
   !equip.length&&h('p',null,'Nenhum equipamento quantificado na Ficha.'),
   ...equip.map((x,i)=>h('div',{key:x.chave,style:{display:'flex',gap:10,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
-   h('span',{style:{flex:1}},x.chave.replace(/_/g,' ')+' · '+x.qtd+' un.'),
+   h('span',{style:{flex:1}},(x.chave==='armario_esqueleto'?'esqueleto':x.chave.replace(/_/g,' '))+' · '+x.qtd+' un.'),
    h('input',{className:'form-input',type:'number',min:0,step:'0.01',value:x.valor,placeholder:'Custo unitário R$',
     onChange:e=>setEquip(a=>a.map((z,j)=>i===j?{...z,valor:e.target.value}:z))}),
    h('b',null,x.valor===''?'A precificar':dinheiro(x.qtd*Number(x.valor))))),
