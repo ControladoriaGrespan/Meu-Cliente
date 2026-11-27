@@ -3866,7 +3866,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         // só esse usuário a enxerga (exceto consulta no Modo Admin).
         (etapa==='admin'||ehPreview||!ap.responsavel_id||String(ap.responsavel_id)===String(profile.id)) &&
         (!ap.solicitacoes ||
-        (!['concluida','vinculada','aprovada'].includes(ap.solicitacoes.status_fluxo) &&
+        (!['concluida','vinculada','aprovada','cancelada'].includes(ap.solicitacoes.status_fluxo) &&
          !(ap.solicitacoes.status_fluxo==='reprovada' &&
            (ap.solicitacoes.categoria!=='bonificacao' ||
             (ap.solicitacoes.solicitacao_aprovacoes||[]).some(x=>x.etapa==='diretoria'&&x.status==='reprovado')))))
@@ -4034,7 +4034,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   function tipoOperacional(d){return d.tipo_demanda==='entrega'?'envio':(d.tipo_demanda||'envio');}
   function labelTipoProgramacao(d){return {envio:'Entrega de equipamento',troca:'Troca de equipamento',retirada:'Retirada de equipamento'}[tipoOperacional(d)]||'Equipamento';}
   function labelStatusOp(st){
-    return st==='ag_rota'?'Ag. Rota':st==='roteirizada'?'Roteirizado':st==='programada'?'Agendada':st==='concluida'?'Concluído':'Pendente';
+    return st==='ag_rota'?'Ag. Rota':st==='roteirizada'?'Roteirizado':st==='programada'?'Agendada':st==='concluida'?'Concluído':st==='cancelada'?'Cancelada':'Pendente';
   }
   function abrirDemandaFila(d){setDemandaAberta(d);setDataLiberacao(d.data_prevista||'');}
   async function liberarParaRota(){
@@ -4569,6 +4569,23 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
   const [modalNova, setModalNova] = useState(false);
   const [sub, setSub] = useState('equipamento');
   const [subStatus,setSubStatus] = useState('aprovacao');
+  // Cancelamento pelo Administrador: { s, motivo, salvando }
+  const [cancelando,setCancelando] = useState(null);
+  const adminReal = profile.papel==='admin' && !ehPreview;
+  async function confirmarCancelamento(){
+    const x=cancelando;if(!x||x.salvando)return;
+    const motivo=String(x.motivo||'').trim();
+    if(motivo.length<6)return toast('Informe a observação do cancelamento (mínimo de 6 caracteres).','error');
+    setCancelando({...x,salvando:true});
+    const {error}=await sb.rpc('mc_cancelar_solicitacao',{p_solicitacao_id:x.s.id,p_motivo:motivo});
+    if(error){
+      setCancelando({...x,salvando:false});
+      return toast(/mc_cancelar_solicitacao|schema cache/i.test(error.message)
+        ?'Cancelamento ainda não instalado no banco (migração 20261127_cancelar_solicitacao).':error.message,'error');
+    }
+    toast('Solicitação cancelada.','success');
+    setCancelando(null);carregar();onChanged&&onChanged();
+  }
   const [buscaSolicitacao,setBuscaSolicitacao]=useState('');
   const [indicadoresClientes,setIndicadoresClientes]=useState({});
   const [erroIndicadores,setErroIndicadores]=useState('');
@@ -4700,6 +4717,7 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
 
   function situacaoSolicitacao(s){
     const st=String(s.status_fluxo||'aberta').toLowerCase();
+    if(st==='cancelada')return 'cancelada';
     if(st==='concluida')return 'concluido';
     if(st==='vinculada')return 'realizacao';
     // Reprovação definitiva não é realização nem conclusão.
@@ -4826,6 +4844,18 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
             ...[String(v.mes||'').slice(0,7).split('-').reverse().join('/'),v.codigo,v.descricao,
               fmtNum(v.quantidade)+' '+v.unidade,v.kg===null?'—':fmtNum(v.kg),fmtMoeda(v.valor_rs)]
               .map(c=>h('td',{style:{padding:7,borderTop:'1px solid var(--border)'}},c)))))))),
+    cancelando && h(Modal,{
+      titulo:'Cancelar solicitação',
+      sub:(cancelando.s.codigo?cancelando.s.codigo+' · ':'')+identificacaoCliente(cancelando.s.clientes),
+      onClose:()=>!cancelando.salvando&&setCancelando(null),
+      acoes:h(React.Fragment,null,
+        h('button',{className:'btn btn-secondary',disabled:cancelando.salvando,onClick:()=>setCancelando(null)},'Voltar'),
+        h('button',{className:'btn btn-danger',disabled:cancelando.salvando,onClick:confirmarCancelamento},cancelando.salvando?'Cancelando...':'Confirmar cancelamento'))
+    },
+      h('div',{className:'page-sub',style:{marginBottom:10}},'A solicitação sai das filas de aprovação e da Manutenção e passa para a aba Canceladas. Nada é apagado. Não é possível cancelar solicitação concluída, vinculada a pedido ou com entrega em rota.'),
+      h(Campo,{label:'Observação do cancelamento',obrigatorio:true},
+        h('textarea',{className:'form-textarea',rows:3,maxLength:1000,value:cancelando.motivo,autoFocus:true,
+          onChange:e=>setCancelando(a=>a?{...a,motivo:e.target.value}:a)}))),
     detalhe && h(DetalheFicha, { ficha:detalhe,usuarioId:ehPreview?null:profile.id,onClose:()=>setDetalhe(null),
       onReenviada:()=>{setDetalhe(null);carregar();onChanged?.();},
       onAjustar:ehPreview?undefined:(ficha,recusa)=>{setDetalhe(null);setAjustando({ficha,recusa});} }),
@@ -4867,7 +4897,8 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
         ['aprovacao','Pendente Aprovação'],
         ['realizacao','Pendente Realização'],
         ['concluido','Concluído'],
-        ['reprovada','Reprovadas']
+        ['reprovada','Reprovadas'],
+        ['cancelada','Canceladas']
       ].map(([id,nome])=>h('button',{
         key:id,onClick:()=>setSubStatus(id),
         style:{padding:'9px 12px',border:'none',background:'none',cursor:'pointer',
@@ -4896,6 +4927,13 @@ function PaginaSolicitacoes({ profile, visao, modulo, ehPreview, onChanged }) {
           ? h('div', { className: 'card' }, h(Empty, { icon: '\u2692', texto: termosBusca.length?'Nenhuma solicitação encontrada nesta situação.':'Nenhuma solicitação nesta situação.' }))
           : lista.map(x => h('div',{key:x.id},
               h(CardSolicitacao,{s:x,rotas:rotasPorCliente[x.cliente_id]||[],erroRotas:erroRotasSolicitacoes,indicadores:indicadoresClientes[x.cliente_id],onAbrirBonificacoes:()=>abrirBonificacoesCliente({id:x.cliente_id,nome:x.clientes?.razao_social||'Cliente'})}),
+              x.status_fluxo==='cancelada' &&
+                h('div',{className:'card',style:{marginTop:-5,marginBottom:12,padding:12,borderColor:'#fca5a5',background:'#fef2f2',fontSize:12}},
+                  h('strong',null,'Cancelada pelo Administrador'+(x.cancelada_em?' em '+fmtData(x.cancelada_em):'')),
+                  x.cancelamento_motivo&&h('div',{style:{marginTop:4}},'Observação: '+x.cancelamento_motivo)),
+              adminReal && !['cancelada','concluida','vinculada'].includes(String(x.status_fluxo||'')) && subStatus!=='concluido' &&
+                h('div',{style:{display:'flex',justifyContent:'flex-end',marginTop:-5,marginBottom:12}},
+                  h('button',{className:'btn btn-danger btn-sm',onClick:()=>setCancelando({s:x,motivo:'',salvando:false})},'Cancelar solicitação')),
               podeConcluirAdm && subStatus==='realizacao' &&
                 ['bonificacao','amostra'].includes(x.categoria) &&
                 x.status_fluxo==='vinculada' &&
@@ -7835,7 +7873,7 @@ function PaginaEntregasEquipamentos({profile}) {
     setErro('');
     try{
       const [re,rr,ri,caminhoesResp,comerciaisResp]=await Promise.all([
-        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','entrega','troca','retirada']).order('created_at',{ascending:false}),
+        sb.from('entregas_equipamentos').select('id,ficha_id,solicitacao_id,cliente_id,origem_tipo,tipo_demanda,status,data_prevista,endereco_rua,endereco_numero,endereco_bairro,endereco_cidade,endereco_estado,endereco_cep,latitude,longitude,equipamento_resumo,equipamento_condicao,equipamento_coleta,patrimonio_coleta,equipamento_entrega,patrimonio_entrega,created_at').in('tipo_demanda',['envio','entrega','troca','retirada']).neq('status','cancelada').order('created_at',{ascending:false}),
         sb.from('rotas_equipamentos').select('*').order('data_rota',{ascending:false}),
         sb.from('rota_equipamento_itens').select('id,rota_id,entrega_id,ordem').order('ordem'),
         sb.from('caminhoes_equipamentos').select('*').order('nome'),
