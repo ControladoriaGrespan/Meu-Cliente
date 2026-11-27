@@ -1901,6 +1901,34 @@ function itensEquipamentosFicha(f,condicaoFinal){
   return a;
 }
 
+// Converte o resumo de equipamentos gravado na demanda (texto em linha) em itens
+// {quantidade, equipamento}. Formatos tratados: "Forno a Gás x1 (8 esteiras)", "20 esteiras",
+// "COLETAR: Armário Vazio (Qtd. 3) | Patrimônio X" e a condição "Novo"/"Usado" no início.
+function itensDoResumoEquipamentos(texto) {
+  const saida={condicao:'',motivo:'',itens:[]};
+  String(texto||'').split(/\s*[·•]\s*/).map(x=>x.trim()).filter(x=>x&&x!=='—').forEach(parte=>{
+    let m;
+    if(/^(novo|usado)$/i.test(parte)){saida.condicao=parte;return;}
+    if((m=parte.match(/^motivo:\s*(.*)$/i))){saida.motivo=m[1];return;}
+    if((m=parte.match(/^(.*?)\s+x(\d+(?:[.,]\d+)?)(\s*\(.*\))?$/i))){saida.itens.push({quantidade:m[2],equipamento:m[1]+(m[3]||'')});return;}
+    if((m=parte.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/))){saida.itens.push({quantidade:m[1],equipamento:m[2].charAt(0).toUpperCase()+m[2].slice(1)});return;}
+    if((m=parte.match(/^(.*?)\s*\(Qtd\.\s*(\d+(?:[.,]\d+)?)\)(.*)$/i))){
+      saida.itens.push({quantidade:m[2],equipamento:(m[1]+m[3].replace(/^\s*\|\s*/,' · ')).trim()});return;}
+    saida.itens.push({quantidade:'—',equipamento:parte});
+  });
+  return saida;
+}
+function TabelaEquipamentosResumo({texto}) {
+  const r=itensDoResumoEquipamentos(texto);
+  if(!r.itens.length)return linhaInfo('Equipamentos',String(texto||'').trim()||'Não informado');
+  return h('div',{style:{margin:'4px 0 8px'}},
+    h('div',{className:'table-wrap',style:{maxWidth:560}},h('table',null,
+      h('thead',null,h('tr',null,h('th',{style:{width:110}},'Quantidade'),h('th',null,'Equipamento'))),
+      h('tbody',null,r.itens.map((item,i)=>h('tr',{key:i},
+        h('td',{className:'mono strong'},item.quantidade),h('td',null,item.equipamento)))))),
+    linhaInfo('Condição',r.condicao),linhaInfo('Motivo',r.motivo));
+}
+
 function resumoEquipamentos(f) {
   if (!f.precisa_equipamento) return 'Não';
   const partes = [f.equipamento_condicao];
@@ -4195,8 +4223,8 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                         h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):''),
                         d.status==='pendente'&&d.ultima_intercorrencia_motorista&&h('span',{className:'badge badge-yellow'},'Reprogramar · Intercorrência do motorista')),
                       h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='roteirizada'?'badge-blue':d.status==='ag_rota'||d.status==='programada'?'badge-yellow':'badge-gray')},labelStatusOp(d.status))),
-                    h('div',{className:'info-grid',style:{marginTop:10}},
-                      linhaInfo('Equipamentos',d.equipamento_resumo||d.equipamento_entrega||'—'),
+                    h('div',{style:{marginTop:10}},h(TabelaEquipamentosResumo,{texto:d.equipamento_resumo||d.equipamento_entrega||''})),
+                    h('div',{className:'info-grid'},
                       subManut==='troca'&&linhaInfo('Retirar',(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:'')),
                       subManut==='troca'&&linhaInfo('Entregar',(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')),
                       linhaInfo('Endereço',[d.endereco_rua,d.endereco_numero,d.endereco_bairro,d.endereco_cidade,d.endereco_estado,d.endereco_cep].filter(Boolean).join(', ')||'—'),
