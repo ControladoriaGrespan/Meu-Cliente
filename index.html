@@ -151,6 +151,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg-deep); color: va
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 .form-label .req { color: var(--danger); }
+/* Ficha de cliente: toda a escrita em maiúsculas (e-mail e campos numéricos ficam de fora). */
+.ficha-caps input:not([type]), .ficha-caps input[type=text], .ficha-caps textarea { text-transform: uppercase; }
+.ficha-caps ::placeholder { text-transform: none; }
 .form-input, .form-select, .form-textarea {
   padding: 9px 12px; background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary); font-family: inherit;
@@ -1358,6 +1361,15 @@ function formDaFicha(x) {
     observacoes: txt(x.observacoes) };
 }
 
+// Padronização: os textos digitados na ficha são gravados em maiúsculas (o e-mail não entra).
+const CAMPOS_FICHA_MAIUSCULAS=['razao_social','nome_fantasia','representante_nome','rua','numero','bairro','cidade','estado',
+  'entrega_rua','entrega_numero','entrega_bairro','entrega_cidade','entrega_estado','observacoes'];
+function maiusculasFicha(x){
+  const o={...x};
+  CAMPOS_FICHA_MAIUSCULAS.forEach(k=>{if(typeof o[k]==='string')o[k]=o[k].toLocaleUpperCase('pt-BR');});
+  return o;
+}
+
 // fichaAjuste = { ficha, recusa }: edição de uma ficha devolvida para ajuste (reenvia em vez de criar).
 function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
   const toast = useToast();
@@ -1374,6 +1386,16 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
   const [previaArquivo, setPreviaArquivo] = useState(null);
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }));
+  // Ao sair de um campo, o texto digitado passa a maiúsculas (na tela já aparece assim por estilo).
+  const normalizarMaiusculas = () => setF(prev => {
+    const n = maiusculasFicha(prev);
+    return CAMPOS_FICHA_MAIUSCULAS.some(k => n[k] !== prev[k]) ? n : prev;
+  });
+  const qtdFornoTipo = tipo => MODELOS_FORNO.reduce((t, m) => t + (Number(f.equipamentos_quantidades[chaveModeloForno(tipo, m)]) || 0), 0);
+  const camposDetalheForno = tipo => CAMPOS_DETALHE_FORNO.filter(c => c.tipo === tipo).map(c =>
+    h(Campo, { key: c.chave, label: c.rotulo, obrigatorio: qtdFornoTipo(tipo) > 0 },
+      h(Select, { opcoes: c.opcoes, value: f.equipamentos_quantidades[c.chave] || '', disabled: !(qtdFornoTipo(tipo) > 0),
+        onChange: e => set('equipamentos_quantidades', { ...f.equipamentos_quantidades, [c.chave]: e.target.value }) })));
 
   // Grava o rascunho pouco depois de cada alteração e, sem esperar, quando a tela é minimizada.
   const rascunhoAtual = useRef({ f, mesmoEnderecoEntrega });
@@ -1519,6 +1541,7 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
   }
 
   async function salvar() {
+    const f = maiusculasFicha(rascunhoAtual.current.f); // grava sempre em maiúsculas
     const obrig = [
       ['razao_social','Razão Social'], ['nome_fantasia','Nome Fantasia'], ['cnpj_cpf','CNPJ'], ['rua','Rua'], ['numero','Número'],
       ['bairro','Bairro'], ['cidade','Cidade'], ['estado','Estado'], ['cep','CEP'],
@@ -1557,6 +1580,10 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
           if(!Number.isSafeInteger(quantidade)||quantidade<0||quantidade>9999)
             return toast('Informe uma quantidade inteira de 0 a 9.999 para '+nome+' de '+modelo+' esteiras.','error');
         }
+        const totalTipo=MODELOS_FORNO.reduce((t,m)=>t+(Number(f.equipamentos_quantidades[chaveModeloForno(tipo,m)])||0),0);
+        for(const c of CAMPOS_DETALHE_FORNO.filter(c=>c.tipo===tipo))
+          if(totalTipo>0&&!c.opcoes.includes(f.equipamentos_quantidades[c.chave]))
+            return toast('Informe "'+c.rotulo+'" do '+nome+' ('+c.opcoes.join(' ou ')+').','error');
       }
     }
 
@@ -1651,7 +1678,7 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
     if (!varios.length) onSaved();
   }
 
-  return h('div', null,
+  return h('div', { className: 'ficha-caps', onBlur: normalizarMaiusculas },
     h('div', { className: 'page-head' },
       h('div', null,
         h('div', { className: 'page-title' }, fichaAjuste ? 'Ajustar ficha' : 'Emissão de Fichas'),
@@ -1796,7 +1823,7 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
               h(Input,{type:'number',min:0,max:9999,step:1,inputMode:'numeric',placeholder:'0',
                 'aria-label':nome+' · '+modelo+' esteiras',value:f.equipamentos_quantidades[chave]??'',
                 onChange:e=>set('equipamentos_quantidades',{...f.equipamentos_quantidades,[chave]:e.target.value})}));
-          })))),
+          }),...camposDetalheForno(tipo)))),
         h('div',{className:'sub-title'},'Freezers, Expositores, Armários e Câmaras'),
         h('div',{className:'form-grid'},
           ...EQUIPAMENTOS_VARIANTES.map(([ch,nome])=>
@@ -1853,6 +1880,12 @@ function linhaInfo(label, valor) {
 
 const TIPOS_FORNO=[['forno_gas','Forno a Gás','GÁS'],['forno_eletrico','Forno Elétrico','ELÉTRICO']];
 const MODELOS_FORNO=['5','8'];
+// Informações complementares do forno, gravadas junto das quantidades (equipamentos_quantidades).
+const CAMPOS_DETALHE_FORNO=[
+  {tipo:'forno_gas',chave:'forno_gas_combustivel',rotulo:'Tipo de gás',opcoes:['GLP','Gás Natural']},
+  {tipo:'forno_eletrico',chave:'forno_eletrico_ligacao',rotulo:'Ligação elétrica',opcoes:['Trifásico','Monofásico']},
+  {tipo:'forno_eletrico',chave:'forno_eletrico_tensao',rotulo:'Tensão',opcoes:['380V','220V']}];
+const detalheForno=(eq,tipo)=>CAMPOS_DETALHE_FORNO.filter(c=>c.tipo===tipo).map(c=>(eq||{})[c.chave]).filter(Boolean).join(' ');
 // As quantidades por modelo complementam os totais por tipo usados pelo Financeiro.
 const chaveModeloForno=(tipo,modelo)=>tipo+'_'+modelo+'_esteiras';
 
@@ -1861,9 +1894,9 @@ function fornosDaFicha(f){
   const fornos=TIPOS_FORNO.flatMap(([tipo,nome,descricao])=>{
     const modelos=MODELOS_FORNO.map(modelo=>({modelo,quantidade:Number(eq[chaveModeloForno(tipo,modelo)]||0)}))
       .filter(item=>item.quantidade>0);
-    if(modelos.length)return modelos.map(item=>({...item,tipo,nome,descricao}));
+    if(modelos.length)return modelos.map(item=>({...item,tipo,nome,descricao,detalhe:detalheForno(eq,tipo)}));
     const quantidade=Number(eq[tipo]||0);
-    return quantidade>0?[{tipo,nome,descricao,quantidade,modelo:String(eq[tipo+'_esteiras']||f.forno_esteiras||'')}]:[];
+    return quantidade>0?[{tipo,nome,descricao,quantidade,modelo:String(eq[tipo+'_esteiras']||f.forno_esteiras||''),detalhe:detalheForno(eq,tipo)}]:[];
   });
   return fornos.length||!f.forno_tipo?fornos:[{nome:'Forno '+f.forno_tipo,
     descricao:String(f.forno_tipo).toUpperCase(),quantidade:Number(f.forno_quantidade||1),modelo:String(f.forno_esteiras||'')}];
@@ -1881,6 +1914,8 @@ function dadosFornosPorModelo(eq){
       quantidades[chave]=Number(eq[chave]||0);
     }
   }
+  // Sem forno daquele tipo, as informações complementares dele não são gravadas.
+  for(const c of CAMPOS_DETALHE_FORNO)if(!(Number(quantidades[c.tipo])>0))delete quantidades[c.chave];
   const gas=Number(quantidades.forno_gas||0), eletrico=Number(quantidades.forno_eletrico||0);
   const modelos=fornosDaFicha({equipamentos_quantidades:quantidades}).map(forno=>forno.modelo);
   return {equipamentos_quantidades:quantidades,forno_tipo:gas&&eletrico?'Gás e Elétrico':gas?'Gás':eletrico?'Elétrico':null,
@@ -1891,7 +1926,7 @@ const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['free
 function itensEquipamentosFicha(f,condicaoFinal){
   const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
   for(const forno of fornosDaFicha(f))a.push({quantidade:forno.quantidade,
-    descricao:'FORNO '+forno.descricao+(forno.modelo?' '+forno.modelo+' ESTEIRAS':''),patrimonio:'',condicao:c});
+    descricao:'FORNO '+forno.descricao+(forno.modelo?' '+forno.modelo+' ESTEIRAS':'')+(forno.detalhe?' - '+forno.detalhe.toUpperCase():''),patrimonio:'',condicao:c});
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)a.push({quantidade:qtd,descricao:nome.toUpperCase(),patrimonio:'',condicao:c});});
   if(!Object.keys(f.equipamentos_quantidades||{}).length)(f.freezer_tipos||[]).forEach(x=>a.push({quantidade:1,descricao:'FREEZER '+String(x).toUpperCase(),patrimonio:'',condicao:c}));
   if(!Object.keys(f.equipamentos_quantidades||{}).length&&f.armario_tipo)a.push({quantidade:1,descricao:'ARMÁRIO '+String(f.armario_tipo).toUpperCase(),patrimonio:'',condicao:c});
@@ -1906,20 +1941,31 @@ function itensEquipamentosFicha(f,condicaoFinal){
 // "COLETAR: Armário Vazio (Qtd. 3) | Patrimônio X" e a condição "Novo"/"Usado" no início.
 function itensDoResumoEquipamentos(texto) {
   const saida={condicao:'',motivo:'',itens:[]};
-  String(texto||'').split(/\s*[·•]\s*/).map(x=>x.trim()).filter(x=>x&&x!=='—').forEach(parte=>{
+  let movimento='';
+  String(texto||'').split(/\s*[·•;]\s*/).map(x=>x.trim()).filter(x=>x&&x!=='—').forEach(parte=>{
     let m;
     if(/^(novo|usado)$/i.test(parte)){saida.condicao=parte;return;}
     if((m=parte.match(/^motivo:\s*(.*)$/i))){saida.motivo=m[1];return;}
-    if((m=parte.match(/^(.*?)\s+x(\d+(?:[.,]\d+)?)(\s*\(.*\))?$/i))){saida.itens.push({quantidade:m[2],equipamento:m[1]+(m[3]||'')});return;}
-    if((m=parte.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/))){saida.itens.push({quantidade:m[1],equipamento:m[2].charAt(0).toUpperCase()+m[2].slice(1)});return;}
-    if((m=parte.match(/^(.*?)\s*\(Qtd\.\s*(\d+(?:[.,]\d+)?)\)(.*)$/i))){
-      saida.itens.push({quantidade:m[2],equipamento:(m[1]+m[3].replace(/^\s*\|\s*/,' · ')).trim()});return;}
-    saida.itens.push({quantidade:'—',equipamento:parte});
+    // "COLETAR: A • B • ENTREGAR: C": o movimento vale até o próximo rótulo.
+    if((m=parte.match(/^(coletar|entregar|retirar)\s*:\s*(.*)$/i))){
+      movimento=m[1].toUpperCase();
+      if(!m[2]||m[2]==='—')return;
+      parte=movimento+': '+m[2];
+    } else if(movimento) parte=movimento+': '+parte;
+    // Patrimônio informado junto do item ("... | Patrimônio X") volta para o fim da descrição.
+    let patrimonio='';
+    if((m=parte.match(/^(.*?)\s*\|\s*(Patrim[oô]nio\b.*)$/i))){parte=m[1].trim();patrimonio=' · '+m[2].trim();}
+    if((m=parte.match(/^(.*?)\s+x(\d+(?:[.,]\d+)?)(\s*\(.*\))?$/))){saida.itens.push({quantidade:m[2],equipamento:m[1]+(m[3]||'')+patrimonio});return;}
+    if((m=parte.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/))){saida.itens.push({quantidade:m[1],equipamento:m[2].charAt(0).toUpperCase()+m[2].slice(1)+patrimonio});return;}
+    if((m=parte.match(/^(.*?)\s*\(Qtd\.\s*(\d+(?:[.,]\d+)?)\)\s*$/i))){saida.itens.push({quantidade:m[2],equipamento:m[1].trim()+patrimonio});return;}
+    // Nas trocas e retiradas, item sem "(Qtd. n)" é uma unidade.
+    saida.itens.push({quantidade:movimento?'1':'—',equipamento:parte+patrimonio});
   });
   return saida;
 }
-function TabelaEquipamentosResumo({texto}) {
+function TabelaEquipamentosResumo({texto,condicao}) {
   const r=itensDoResumoEquipamentos(texto);
+  if(!r.condicao&&condicao)r.condicao=condicao;
   if(!r.itens.length)return linhaInfo('Equipamentos',String(texto||'').trim()||'Não informado');
   return h('div',{style:{margin:'4px 0 8px'}},
     h('div',{className:'table-wrap',style:{maxWidth:560}},h('table',null,
@@ -1932,7 +1978,10 @@ function TabelaEquipamentosResumo({texto}) {
 function resumoEquipamentos(f) {
   if (!f.precisa_equipamento) return 'Não';
   const partes = [f.equipamento_condicao];
-  for(const forno of fornosDaFicha(f))partes.push(forno.nome+' x'+forno.quantidade+(forno.modelo?' ('+forno.modelo+' esteiras)':''));
+  for(const forno of fornosDaFicha(f)){
+    const comp=[forno.modelo?forno.modelo+' esteiras':'',forno.detalhe].filter(Boolean).join(', ');
+    partes.push(forno.nome+' x'+forno.quantidade+(comp?' ('+comp+')':''));
+  }
   EQUIPAMENTOS_VARIANTES.forEach(([k,nome])=>{const qtd=Number((f.equipamentos_quantidades||{})[k]||0);if(qtd>0)partes.push(nome+' x'+qtd);});
   if (!Object.keys(f.equipamentos_quantidades||{}).length&&f.freezer_tipos && f.freezer_tipos.length) partes.push('Freezer: ' + f.freezer_tipos.join(', '));
   if (!Object.keys(f.equipamentos_quantidades||{}).length&&f.armario_tipo) partes.push('Armário ' + f.armario_tipo);
@@ -1950,6 +1999,24 @@ function resumoEquipamentos(f) {
 function codigoAuditoria(obj, fallbackPrefixo) {
   if (!obj) return '—';
   return obj.codigo || (obj.id ? (fallbackPrefixo || 'REG') + '-' + String(obj.id).slice(0,8).toUpperCase() : '—');
+}
+// Demanda de entrega da ficha: uma original por ficha (as entregas desmembradas apontam para ela).
+async function gravarDemandaFicha(dados) {
+  const atual = await sb.from('entregas_equipamentos').select('id').eq('ficha_id', dados.ficha_id).is('demanda_origem_id', null).maybeSingle();
+  if (atual.error) return atual;
+  return atual.data
+    ? await sb.from('entregas_equipamentos').update(dados).eq('id', atual.data.id).select().single()
+    : await sb.from('entregas_equipamentos').insert(dados).select().single();
+}
+// Troca desmembrada só com coleta não gera contrato de comodato (não há equipamento a entregar).
+const temEntregaParaComodato = d => !/ENTREGAR:\s*—\s*$/.test(String((d && d.equipamento_resumo) || ''));
+const ROTULO_STATUS_ENTREGA = { pendente:'Pendente', ag_rota:'Ag. Rota', roteirizada:'Roteirizado', programada:'Agendada', concluida:'Concluído' };
+
+// Razão social acompanhada do nome fantasia (quando existe e é diferente). Usado nas telas da Manutenção.
+function nomeComFantasia(ref) {
+  const r = ref || {}, razao = String(r.razao_social || '').trim(), fantasia = String(r.nome_fantasia || '').trim();
+  if (!razao) return fantasia || 'Cliente';
+  return fantasia && fantasia.toLowerCase() !== razao.toLowerCase() ? razao + ' · Fantasia: ' + fantasia : razao;
 }
 function identificacaoCliente(c) {
   if (!c) return 'SEM CÓDIGO — Cliente não identificado';
@@ -2607,6 +2674,7 @@ function baixarSolicitacaoPDF(s) {
       {key:'patrimonio',label:'Patrimônio',w:37}
     ],itens.map(i=>({movimento:rotuloMovimentoEquipamento(i,s.tipo),
       equipamento:i.equipamento,quantidade:String(i.quantidade),patrimonio:i.patrimonio||'—'})));
+    pdfTxt(ctx,'Equipamento novo ou usado',s.equipamento_condicao);
     pdfTxt(ctx,'Justificativa',s.justificativa);
   }
   pdfTxt(ctx,'Descrição',s.descricao);
@@ -3118,6 +3186,7 @@ function PopupOrigemAprovacao({ origem, onClose }) {
       linhaInfo('Cidade',ref.cidade || d.endereco_cidade),
       tipo==='solicitacao' && linhaInfo('Categoria',sol.categoria),
       tipo==='solicitacao' && linhaInfo('Tipo',sol.tipo),
+      tipo==='solicitacao' && linhaInfo('Novo / Usado',sol.equipamento_condicao),
       tipo==='solicitacao' && linhaInfo('Solicitante',sol.usuarios && sol.usuarios.nome),
       tipo==='solicitacao' && linhaInfo('Data',sol.created_at ? fmtData(sol.created_at) : null),
       tipo==='solicitacao' && !(ehTroca&&detalhado) && (detalhado
@@ -3173,6 +3242,36 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   const [subManut,setSubManut]=useState('envio');
   const [subStatusManut,setSubStatusManut]=useState('pendente');
   const [demandaAberta,setDemandaAberta]=useState(null);
+  // Desmembramento: { d, modo:'desmembrar'|'situacao', dados (mc_situacao_entrega), qtd:{chave:n}, salvando }
+  const [desmembramento,setDesmembramento]=useState(null);
+  const gruposDemanda=useMemo(()=>{
+    const g={};(demandasManut||[]).forEach(x=>{(g[x.demanda_origem_id||x.id]??=[]).push(x);});return g;
+  },[demandasManut]);
+  const grupoDaDemanda=d=>gruposDemanda[d.demanda_origem_id||d.id]||[d];
+  async function abrirDesmembramento(d,modo){
+    setDesmembramento({d,modo,dados:null,qtd:{},salvando:false});
+    const {data,error}=await sb.rpc('mc_situacao_entrega',{p_entrega_id:d.id});
+    if(error){
+      setDesmembramento(null);
+      return toast(/mc_situacao_entrega|schema cache/i.test(error.message)
+        ?'Desmembramento ainda não instalado no banco (migração 20261127_desmembrar_entrega).':error.message,'error');
+    }
+    setDesmembramento(atual=>atual&&atual.d.id===d.id?{...atual,dados:data}:atual);
+  }
+  async function confirmarDesmembramento(){
+    const x=desmembramento;if(!x||!x.dados||x.salvando)return;
+    const parte=(x.dados.partes||[]).find(pt=>pt.id===x.d.id);
+    const itens=(parte?parte.itens:[]).map(i=>({chave:i.chave,quantidade:Number(x.qtd[i.chave]||0),max:Number(i.quantidade)})).filter(i=>i.quantidade>0);
+    if(!itens.length)return toast('Informe a quantidade de pelo menos um item para a nova entrega.','error');
+    if(itens.some(i=>!Number.isInteger(i.quantidade)||i.quantidade>i.max))return toast('Use quantidades inteiras, até o total de cada item.','error');
+    const total=(parte.itens||[]).reduce((t,i)=>t+Number(i.quantidade),0),movido=itens.reduce((t,i)=>t+i.quantidade,0);
+    if(movido>=total)return toast('Deixe ao menos um item nesta entrega: não é possível mover tudo.','error');
+    setDesmembramento({...x,salvando:true});
+    const {error}=await sb.rpc('mc_desmembrar_entrega',{p_entrega_id:x.d.id,p_itens:itens.map(i=>({chave:i.chave,quantidade:i.quantidade}))});
+    if(error){setDesmembramento({...x,salvando:false});return toast(error.message,'error');}
+    toast('Entrega desmembrada. A nova entrega está em Pendente para ser programada.','success');
+    setDesmembramento(null);carregar();
+  }
   const [dataLiberacao,setDataLiberacao]=useState('');
   const [rotasProg,setRotasProg]=useState([]);
   const [itensProg,setItensProg]=useState([]);
@@ -3313,7 +3412,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   }
   function nomeDemandaProg(d){
     const r=(d&&d._ref)||{};
-    return (r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||r.nome_fantasia||'Cliente');
+    return (r.codigo_totvs?r.codigo_totvs+' — ':'')+nomeComFantasia(r);
   }
   function tituloRota(r){
     const its=(itensProg||[]).filter(i=>i&&String(i.rota_id)===String(r.id));
@@ -3475,9 +3574,9 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                 h('span',{className:'badge '+badgeAprov(st)},labelAprov(st)),
                 modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-success btn-sm',onClick:()=>decidirProgramacao(minha,'aprovado','')},'Aprovar'),
                 modoSupervisor&&minha&&minha.status==='pendente'&&h('button',{className:'btn btn-danger btn-sm',onClick:()=>decidirProgramacao(minha,'reprovado','')},'Reprovar'),
-                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&
+                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&temEntregaParaComodato(d)&&
                   h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarComodatoFila(d);}},'Baixar PDF'),
-                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&
+                !modoSupervisor&&etapa==='manutencao'&&st==='aprovado'&&['envio','troca'].includes(tipoOperacional(d))&&temEntregaParaComodato(d)&&
                   h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarWordComodatoFila(d,d._ref||{});}},'Baixar Word')),
               aps.filter(a=>a.status==='reprovado'&&a.observacao).map(a=>h('div',{className:'rota-obs-negada',key:'obs_'+a.id},'Reprovado: '+a.observacao))
             );
@@ -3887,10 +3986,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
         setDecidindo(null);setObs('');setCondicaoDiretoria('');carregar();onChanged&&onChanged();
         return toast('Ficha aprovada, mas não foi possível carregar os equipamentos para gerar a entrega: '+erroFicha.message,'error');
       }
-      const {data:demanda,error:ee}=await sb.from('entregas_equipamentos').upsert({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'envio',status:'pendente',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id},{onConflict:'ficha_id'}).select().single();
+      const {data:demanda,error:ee}=await gravarDemandaFicha({ficha_id:ap.ficha_id,cliente_id:null,origem_tipo:'ficha_novo_cliente',tipo_demanda:'envio',status:'pendente',data_prevista:null,endereco_rua:f.entrega_rua,endereco_numero:f.entrega_numero,endereco_bairro:f.entrega_bairro,endereco_cidade:f.entrega_cidade,endereco_estado:f.entrega_estado,endereco_cep:f.entrega_cep,equipamento_resumo:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_entrega:resumoEquipamentos({...f,equipamento_condicao:condicaoDiretoria}),equipamento_condicao:condicaoDiretoria,criado_por:profile.id});
       if(ee) toast('Aprovada, mas não foi possível gerar a entrega: '+ee.message,'error');
       else if(demanda){
         const itens=itensEquipamentosFicha(f,condicaoDiretoria);
+        // Os itens podem ter sido criados pelo banco com a condição da ficha: vale a decisão da Diretoria.
+        if(condicaoDiretoria)await sb.from('comodato_equipamentos').update({condicao:String(condicaoDiretoria).toUpperCase()}).eq('entrega_id',demanda.id);
         const {data:exist}=await sb.from('comodato_equipamentos').select('id').eq('entrega_id',demanda.id).limit(1);
         if(itens.length&&(!exist||!exist.length)){
           const {error:ei}=await sb.from('comodato_equipamentos').insert(itens.map((it,i)=>({...it,entrega_id:demanda.id,ordem:i+1})));
@@ -3899,7 +4000,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
       }
       // Confirma que a demanda operacional realmente existe.
       const {data:demandaConfirmada,error:erroConfirmacao}=await sb.from('entregas_equipamentos')
-        .select('id,status').eq('ficha_id',ap.ficha_id).maybeSingle();
+        .select('id,status').eq('ficha_id',ap.ficha_id).is('demanda_origem_id',null).maybeSingle();
       if(erroConfirmacao||!demandaConfirmada){
         toast('A Diretoria aprovou a ficha, mas a demanda da Manutenção não foi confirmada. Execute a Migração 46 e tente novamente.','error');
       } else {
@@ -4150,11 +4251,49 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
   return h('div', null,
     detalhe && h(DetalheFicha, { ficha: detalhe, onClose: () => setDetalhe(null) }),
     origemAprovacao && h(PopupOrigemAprovacao,{origem:origemAprovacao,onClose:()=>setOrigemAprovacao(null)}),
+    desmembramento && (()=>{
+      const x=desmembramento,ref=x.d._ref||{},partes=(x.dados&&x.dados.partes)||[];
+      const parte=partes.find(pt=>pt.id===x.d.id);
+      const rotuloMov=i=>i.movimento==='coletar'?'Retirar':'Entregar';
+      const tabelaItens=(itens,comMover)=>h('div',{className:'table-wrap'},h('table',null,
+        h('thead',null,h('tr',null,['Movimento','Equipamento','Qtd.',...(comMover?['Vai para a nova entrega']:['Patrimônio'])].map(c=>h('th',{key:c},c)))),
+        h('tbody',null,itens.map(i=>h('tr',{key:i.chave},
+          h('td',null,rotuloMov(i)),h('td',{className:'strong'},i.descricao),h('td',{className:'mono'},i.quantidade),
+          comMover
+            ? h('td',null,h('input',{className:'form-input',type:'number',min:0,max:i.quantidade,step:1,inputMode:'numeric',style:{maxWidth:110},
+                value:x.qtd[i.chave]??'',placeholder:'0',
+                onChange:e=>setDesmembramento(a=>a?{...a,qtd:{...a.qtd,[i.chave]:e.target.value}}:a)}))
+            : h('td',{className:'mono'},i.patrimonio||'—'))))));
+      const concluidas=partes.filter(pt=>pt.status==='concluida').length;
+      const geral=!partes.length?'':concluidas===partes.length?'Concluída':concluidas>0?'Parcial':'Pendente';
+      return h(Modal,{
+        titulo:x.modo==='desmembrar'?'Desmembrar entrega':'Itens e situação das entregas',
+        sub:(ref.codigo_totvs?ref.codigo_totvs+' — ':'')+nomeComFantasia(ref),largo:true,
+        onClose:()=>!x.salvando&&setDesmembramento(null),
+        acoes:h(React.Fragment,null,
+          h('button',{className:'btn btn-secondary',disabled:x.salvando,onClick:()=>setDesmembramento(null)},'Fechar'),
+          x.modo==='desmembrar'&&h('button',{className:'btn btn-primary',disabled:x.salvando||!parte,onClick:confirmarDesmembramento},x.salvando?'Desmembrando...':'Desmembrar'))
+      },
+        !x.dados ? h('div',{className:'page-sub'},'Carregando itens...')
+        : x.modo==='desmembrar'
+          ? (!parte||!parte.itens.length
+              ? h('div',{className:'page-sub'},'Esta demanda não tem itens individualizados para desmembrar.')
+              : h('div',null,
+                  h('div',{className:'page-sub',style:{marginBottom:10}},'Informe quanto de cada item vai para uma nova entrega. O restante continua nesta. A nova entrega nasce Pendente e segue o fluxo normal: programação, aprovação do supervisor, rota e contrato próprios.'),
+                  tabelaItens(parte.itens,true)))
+          : h('div',null,
+              h('div',{style:{marginBottom:12,fontSize:13}},h('strong',null,'Situação geral: '+geral),' · '+concluidas+' de '+partes.length+' entrega(s) concluída(s)'),
+              ...partes.map(pt=>h('div',{key:pt.id,style:{marginBottom:14}},
+                h('div',{className:'section-title'},'Entrega '+pt.parte+' — '+(ROTULO_STATUS_ENTREGA[pt.status]||pt.status)+
+                  (pt.rota?' · Rota '+(pt.rota.codigo||pt.rota.nome||'')+(pt.rota.data_rota?' de '+fmtData(pt.rota.data_rota):''):pt.data_prevista?' · Previsão '+fmtData(pt.data_prevista):'')+
+                  (pt.concluida_em?' · Concluída em '+fmtData(pt.concluida_em):'')+(pt.id===x.d.id?' (esta)':'')),
+                pt.itens.length?tabelaItens(pt.itens,false):h('div',{className:'page-sub'},'Sem itens individualizados.')))));
+    })(),
 
         etapa==='manutencao' && h('div',null,
       demandaAberta && h(Modal,{
         titulo:(tipoOperacional(demandaAberta)==='troca'?'Programar troca':tipoOperacional(demandaAberta)==='retirada'?'Programar retirada':'Programar envio'),
-        sub:((demandaAberta._ref&&demandaAberta._ref.codigo_totvs)?demandaAberta._ref.codigo_totvs+' — ':'')+((demandaAberta._ref&&demandaAberta._ref.razao_social)||'Cliente'),
+        sub:((demandaAberta._ref&&demandaAberta._ref.codigo_totvs)?demandaAberta._ref.codigo_totvs+' — ':'')+nomeComFantasia(demandaAberta._ref),
         largo:true,onClose:()=>{setDemandaAberta(null);setDataLiberacao('');},
         acoes:[
           h('button',{key:'c',className:'btn btn-secondary',onClick:()=>{setDemandaAberta(null);setDataLiberacao('');}},'Cancelar'),
@@ -4198,8 +4337,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                 const sol=ap.solicitacoes,cli=sol.clientes||{};
                 return h('div',{className:'card',key:'apr_'+ap.id},
                   h('div',{style:{fontWeight:700,fontSize:15}},identificacaoCliente(cli)),
+                  cli.nome_fantasia&&h('div',{style:{fontSize:13,fontWeight:600}},'Nome fantasia: '+cli.nome_fantasia),
                   h('div',{className:'page-sub'},codigoAuditoria(sol,prefixoSolicitacao(sol))),
                   linhaInfo('Equipamento',sol.equipamento||'—'),
+                  linhaInfo('Novo / Usado',sol.equipamento_condicao),
                   linhaInfo('Justificativa',sol.justificativa),
                   linhaInfo('Detalhes',sol.descricao),
                   h('div',{style:{display:'flex',gap:8,marginTop:10,flexWrap:'wrap'}},
@@ -4212,7 +4353,7 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
               : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).length===0
               ? (subStatusManut==='pendente'&&aprovacoesManut.length?null:h('div',{className:'card'},h(Empty,{icon:'✓',texto:'Nenhuma demanda neste status.'})))
               : (demandasManut||[]).filter(d=>tipoOperacional(d)===subManut&&d.status===subStatusManut).map(d=>{
-                  const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+(r.razao_social||'Cliente');
+                  const r=d._ref||{},nome=(r.codigo_totvs?r.codigo_totvs+' — ':'')+nomeComFantasia(r);
                   return h('div',{
                     className:'card',key:'op_'+d.id,
                     style:{cursor:d.status==='pendente'&&subManut!=='manutencao'?'pointer':'default'},
@@ -4223,7 +4364,10 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                         h('div',{className:'page-sub'},d.created_at?'Criada em '+fmtData(d.created_at):''),
                         d.status==='pendente'&&d.ultima_intercorrencia_motorista&&h('span',{className:'badge badge-yellow'},'Reprogramar · Intercorrência do motorista')),
                       h('span',{className:'badge '+(d.status==='concluida'?'badge-green':d.status==='roteirizada'?'badge-blue':d.status==='ag_rota'||d.status==='programada'?'badge-yellow':'badge-gray')},labelStatusOp(d.status))),
-                    h('div',{style:{marginTop:10}},h(TabelaEquipamentosResumo,{texto:d.equipamento_resumo||d.equipamento_entrega||''})),
+                    grupoDaDemanda(d).length>1&&h('div',{style:{marginTop:8,fontSize:12}},
+                      h('span',{className:'badge badge-blue'},'Entrega parcial '+(d.parte_numero||1)+' de '+grupoDaDemanda(d).length),
+                      ' '+grupoDaDemanda(d).filter(x=>x.status==='concluida').length+' de '+grupoDaDemanda(d).length+' entrega(s) concluída(s)'),
+                    h('div',{style:{marginTop:10}},h(TabelaEquipamentosResumo,{texto:d.equipamento_resumo||d.equipamento_entrega||'',condicao:d.equipamento_condicao})),
                     h('div',{className:'info-grid'},
                       subManut==='troca'&&linhaInfo('Retirar',(d.equipamento_coleta||'—')+(d.patrimonio_coleta?' · Patrimônio '+d.patrimonio_coleta:'')),
                       subManut==='troca'&&linhaInfo('Entregar',(d.equipamento_entrega||'—')+(d.patrimonio_entrega?' · Patrimônio '+d.patrimonio_entrega:'')),
@@ -4231,10 +4375,12 @@ function PaginaPendencias({ profile, visao, ehPreview, onChanged }) {
                       d.data_prevista&&linhaInfo('Data prevista',fmtData(d.data_prevista))),
                     h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}},
                       d.status==='pendente'&&subManut!=='manutencao'&&h('button',{className:'btn btn-primary btn-sm',onClick:e=>{e.stopPropagation();abrirDemandaFila(d);}},'Programar / Liberar para rota'),
+                      subManut!=='manutencao'&&['pendente','ag_rota'].includes(d.status)&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();abrirDesmembramento(d,'desmembrar');}},'Desmembrar entrega'),
+                      subManut!=='manutencao'&&grupoDaDemanda(d).length>1&&h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();abrirDesmembramento(d,'situacao');}},'Itens e situação'),
                       subManut==='manutencao'&&d.status==='pendente'&&h('button',{className:'btn btn-primary btn-sm',onClick:e=>{e.stopPropagation();programarManutencao(d);}},'Programar no Alvo'),
-                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&statusAprovDemanda(d.id)==='aprovado'&&
+                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&temEntregaParaComodato(d)&&statusAprovDemanda(d.id)==='aprovado'&&
                         h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarComodatoFila(d);}},'Baixar PDF do Comodato'),
-                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&statusAprovDemanda(d.id)==='aprovado'&&
+                      subManut!=='manutencao'&&['ag_rota','roteirizada','concluida'].includes(d.status)&&['envio','troca'].includes(tipoOperacional(d))&&temEntregaParaComodato(d)&&statusAprovDemanda(d.id)==='aprovado'&&
                         h('button',{className:'btn btn-secondary btn-sm',onClick:e=>{e.stopPropagation();baixarWordComodatoFila(d,d._ref||{});}},'Baixar Word'),
                       ((subManut==='manutencao'&&d.status==='programada')||(subManut!=='manutencao'&&d.status==='roteirizada'))&&
                         h('button',{className:'btn btn-success btn-sm',onClick:e=>{e.stopPropagation();concluirDemanda(d);}},subManut==='manutencao'?'Concluir manutenção':subManut==='troca'?'Concluir troca':subManut==='retirada'?'Concluir retirada':'Concluir entrega')));
@@ -5303,7 +5449,7 @@ function listarEquipamentos(f) {
   if (!f || !f.precisa_equipamento) return [];
   const itens = [];
   const eq=f.equipamentos_quantidades||{};
-  for(const forno of fornosDaFicha(f))itens.push(forno.nome+(forno.modelo?' - '+forno.modelo+' esteiras':'')+' (x'+forno.quantidade+')');
+  for(const forno of fornosDaFicha(f))itens.push(forno.nome+(forno.modelo?' - '+forno.modelo+' esteiras':'')+(forno.detalhe?' - '+forno.detalhe:'')+' (x'+forno.quantidade+')');
   (f.freezer_tipos || []).forEach(t => itens.push('Freezer ' + t));
   if (f.armario_tipo) itens.push('Armário ' + f.armario_tipo);
   if (f.camara_climatica) itens.push('Câmara Climática ' + f.camara_climatica);
@@ -5384,6 +5530,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
   const [equipamentosSolicitados, setEquipamentosSolicitados] = useState([novaLinhaEquip()]);
   const [equipamentosEntrega, setEquipamentosEntrega] = useState([novaLinhaEquip()]);
   const [justificativa, setJustificativa] = useState('');
+  const [condicaoEquipamento, setCondicaoEquipamento] = useState(''); // Novo | Usado (troca e aumento)
   const [descricao, setDescricao] = useState('');
   const [produtoId, setProdutoId] = useState('');
   const [quantidade, setQuantidade] = useState('');
@@ -5465,6 +5612,8 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       if (tipo === 'troca' && !justificativa) return toast('Informe a justificativa da troca.', 'error');
       if (tipo === 'retirada' && !justificativa) return toast('Informe o motivo da retirada.', 'error');
       if (tipo === 'troca' && !entregas.length) return toast('Inclua pelo menos um equipamento a entregar e quantidade.', 'error');
+      if (['troca','aumento'].includes(tipo) && !['Novo','Usado'].includes(condicaoEquipamento))
+        return toast('Informe se o equipamento solicitado é Novo ou Usado.', 'error');
       const primeiro = linhas[0], primeiraEntrega = entregas[0];
       const tipoNormalizado=String(tipo||'').trim().toLowerCase();
       const justificativaNormalizada=String(justificativa||'').trim().normalize('NFC');
@@ -5477,6 +5626,7 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
       payload = { ...payload, tipo:tipoNormalizado, equipamento: primeiro.equipamento,
         patrimonio: (primeiro.patrimonio || '').trim() || null, quantidade: Number(primeiro.quantidade),
         justificativa: ['troca','retirada'].includes(tipoNormalizado) ? justificativaNormalizada : null };
+      if (['troca','aumento'].includes(tipoNormalizado)) payload.equipamento_condicao = condicaoEquipamento;
     } else if (categoria === 'bonificacao') {
       if(!itensBonificacao.length||itensBonificacao.length>100||
          itensBonificacao.some(it=>!it.produto_id||!Number.isFinite(Number(it.quantidade))||Number(it.quantidade)<=0||Number(it.quantidade)>1000000))
@@ -5606,7 +5756,9 @@ function ModalNovaSolicitacao({ profile, visao, modulo, onClose, onCriada }) {
         h(Campo, { label: tipo === 'retirada' ? 'Motivo da retirada' : 'Justificativa', obrigatorio: ['troca','retirada'].includes(tipo) },
           h('select', { className: 'form-select', value: justificativa, disabled: !['troca','retirada'].includes(tipo), onChange: e => setJustificativa(e.target.value) },
             h('option', { value: '' }, ['troca','retirada'].includes(tipo) ? 'Selecione...' : 'Somente para troca/retirada'),
-            (tipo === 'retirada' ? ['Baixo consumo','Encerramento do contrato'] : JUSTIFICATIVAS).map(j => h('option', { key: j, value: j }, j))))),
+            (tipo === 'retirada' ? ['Baixo consumo','Encerramento do contrato'] : JUSTIFICATIVAS).map(j => h('option', { key: j, value: j }, j)))),
+        ['troca','aumento'].includes(tipo) && h(Campo, { label: tipo === 'troca' ? 'Equipamento a entregar: novo ou usado?' : 'Equipamento solicitado: novo ou usado?', obrigatorio: true },
+          h(Select, { opcoes: ['Novo','Usado'], value: condicaoEquipamento, onChange: e => setCondicaoEquipamento(e.target.value) }))),
 
       categoria === 'bonificacao' && h(React.Fragment, null,
         h('div',{style:{gridColumn:'1 / -1'}},
@@ -7670,6 +7822,11 @@ function PaginaEntregasEquipamentos({profile}) {
   }
 
   function nomeCliente(e){return (e&&e.clientes&&e.clientes.razao_social)||(e&&e.fichas_clientes&&e.fichas_clientes.razao_social)||'—';}
+  // Nome para telas, mapa e romaneio: razão social + nome fantasia. Contratos continuam usando nomeCliente.
+  function nomeClienteTela(e){
+    const ref=(e&&e.clientes&&e.clientes.razao_social?e.clientes:null)||(e&&e.fichas_clientes&&e.fichas_clientes.razao_social?e.fichas_clientes:null);
+    return ref?nomeComFantasia(ref):'—';
+  }
   function codCliente(e){return (e&&e.clientes&&e.clientes.codigo_totvs)||(e&&e.fichas_clientes&&e.fichas_clientes.codigo_totvs)||'';}
   function endereco(e){if(!e)return '';return [e.endereco_rua,e.endereco_numero,e.endereco_bairro,e.endereco_cidade,e.endereco_estado,e.endereco_cep].filter(Boolean).join(', ');}
   function entregaPorId(id){if(!id)return null;return (entregas||[]).filter(Boolean).find(e=>e&&e.id===id)||null;}
@@ -7698,7 +7855,7 @@ function PaginaEntregasEquipamentos({profile}) {
     if(jaEmRota(e.id))return false;
     if(fCidade&&e.endereco_cidade!==fCidade)return false;
     const q=fCliente.trim().toLowerCase();
-    if(q&&!(`${codCliente(e)} ${nomeCliente(e)}`.toLowerCase().includes(q)))return false;
+    if(q&&!(`${codCliente(e)} ${nomeClienteTela(e)}`.toLowerCase().includes(q)))return false;
     if(fStatus&&e.status!==fStatus)return false;
     return true;
   });
@@ -7742,7 +7899,7 @@ function PaginaEntregasEquipamentos({profile}) {
     escolhidas.forEach((e,i)=>{
       if(e.latitude!=null&&e.longitude!=null){
         const p=[Number(e.latitude),Number(e.longitude)];pts.push(p);
-        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}<br>${e.equipamento_resumo||''}`);
+        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeClienteTela(e)}</b><br>${endereco(e)}<br>${e.equipamento_resumo||''}`);
       }
     });
     if(pts.length){if(pts.length>1)L.polyline(pts,{weight:4,opacity:.65}).addTo(m);m.fitBounds(pts,{padding:[35,35]});}
@@ -7760,7 +7917,7 @@ function PaginaEntregasEquipamentos({profile}) {
       }
       if(e&&e.latitude!=null&&e.longitude!=null){
         const p=[+e.latitude,+e.longitude];pts.push(p);
-        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeCliente(e)}</b><br>${endereco(e)}`);
+        L.marker(p).addTo(m).bindPopup(`<b>${i+1}. ${nomeClienteTela(e)}</b><br>${endereco(e)}`);
       }
     }
     if(pts.length){
@@ -8082,7 +8239,7 @@ function PaginaEntregasEquipamentos({profile}) {
       if(!linhas.length)linhas.push({movimento:'—',quantidade:1,equipamento:'Não informado',detalhe:''});
       garantir(32);
       d.setFont('helvetica','bold');d.setTextColor(30);d.setFontSize(9);
-      const cliente=`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e)}`;
+      const cliente=`${i+1}. ${(codCliente(e)?codCliente(e)+' — ':'')+nomeClienteTela(e)}`;
       const titulo=d.splitTextToSize(cliente,173);
       const ender=d.splitTextToSize('Endereço: '+(endereco(e)||'—'),173);
       const alturaTopo=5+titulo.length*4+ender.length*3.7;
@@ -8142,7 +8299,7 @@ function PaginaEntregasEquipamentos({profile}) {
 
     modalDemanda=h(Modal,{
       titulo:detalheTipo==='troca'?'Troca de Equipamentos':detalheTipo==='retirada'?'Retirada de Equipamentos':'Entrega de Equipamentos',
-      sub:(codCliente(detalhe)?codCliente(detalhe)+' — ':'')+nomeCliente(detalhe),
+      sub:(codCliente(detalhe)?codCliente(detalhe)+' — ':'')+nomeClienteTela(detalhe),
       largo:true,onClose:()=>setDetalheDemanda(null),acoes:botoesDetalhe
     },
       h('div',{className:'info-grid'},
@@ -8181,7 +8338,7 @@ function PaginaEntregasEquipamentos({profile}) {
               const ent=it&&it.entrega?it.entrega:null;
               return h('tr',{key:it.id},
                 h('td',null,it.ordem||'—'),
-                h('td',null,ent?nomeCliente(ent):'Demanda não localizada'),
+                h('td',null,ent?nomeClienteTela(ent):'Demanda não localizada'),
                 h('td',null,ent?(ent.equipamento_resumo||ent.equipamento_entrega||'—'):'—'));
             }))))
     );
@@ -8195,7 +8352,7 @@ function PaginaEntregasEquipamentos({profile}) {
           key:e.id,style:{cursor:'pointer',background:idsSelecionados.includes(e.id)?'#fff4f4':undefined},onClick:()=>toggle(e)
         },
           h('td',null,h('input',{type:'checkbox',checked:idsSelecionados.includes(e.id),onClick:ev=>ev.stopPropagation(),onChange:ev=>{ev.stopPropagation();toggle(e)}})),
-          h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeCliente(e))),
+          h('td',null,h('b',null,(codCliente(e)?codCliente(e)+' — ':'')+nomeClienteTela(e))),
           h('td',null,e.tipo_demanda==='troca'?h('span',{className:'badge badge-yellow'},'Troca'):e.tipo_demanda==='retirada'?h('span',{className:'badge badge-gray'},'Retirada'):h('span',{className:'badge badge-blue'},'Envio')),
           h('td',null,e.data_prevista?fmtData(e.data_prevista):'—'),
           h('td',null,e.endereco_cidade||'—'),
@@ -8207,7 +8364,7 @@ function PaginaEntregasEquipamentos({profile}) {
     ? h('div',{style:{maxHeight:180,overflow:'auto'}},...selecionadasValidas.map((e,i)=>h('div',{
         key:e.id,style:{display:'flex',justifyContent:'space-between',gap:8,padding:'7px 2px',borderBottom:'1px solid var(--border)'}
       },
-        h('span',null,h('b',null,(i+1)+'. '),nomeCliente(e),' — ',e.endereco_cidade||''),
+        h('span',null,h('b',null,(i+1)+'. '),nomeClienteTela(e),' — ',e.endereco_cidade||''),
         h('button',{className:'btn btn-ghost btn-sm',onClick:()=>toggle(e)},'×'))))
     : h('div',{className:'page-sub'},'Clique nas demandas da lista para adicioná-las à rota.');
 
