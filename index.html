@@ -526,7 +526,7 @@ a {
 </head>
 <body>
 <div id="root"></div>
-<script src="./viabilidade-financeira.js?v=117"></script>
+<script src="./viabilidade-financeira.js?v=118"></script>
 <script>
 const h = React.createElement;
 window.__MEU_CLIENTE_BUILD__='v152-contrato-sim-cpf-extenso-data';
@@ -660,7 +660,7 @@ function menuForModulo(modulo, papel, papelReal=papel) {
       {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
       {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'},
       {id:'visitas_tecnicas_vendas',label:'Visitas Técnicas',icon:'▦'}];
-    return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin')
+    return itens.filter(x=>x.id!=='emissao'||['vendedor','supervisor','coordenador','admin'].includes(papel))
       // Consulta das visitas técnicas da carteira: só Vendedor, Supervisor e Coordenador (e Administrador).
       .filter(x=>x.id!=='visitas_tecnicas_vendas'||['vendedor','supervisor','coordenador','admin'].includes(papel));
   }
@@ -1824,7 +1824,7 @@ function PaginaEmissao({ profile, onSaved, fichaAjuste, onCancel }) {
                 'aria-label':nome+' · '+modelo+' esteiras',value:f.equipamentos_quantidades[chave]??'',
                 onChange:e=>set('equipamentos_quantidades',{...f.equipamentos_quantidades,[chave]:e.target.value})}));
           }),...camposDetalheForno(tipo)))),
-        h('div',{className:'sub-title'},'Freezers, Expositores, Armários e Câmaras'),
+        h('div',{className:'sub-title'},'Forno Titan, Freezers, Expositores, Armários e Câmaras'),
         h('div',{className:'form-grid'},
           ...EQUIPAMENTOS_VARIANTES.map(([ch,nome])=>
             h(Campo,{key:ch,label:nome},
@@ -1935,7 +1935,7 @@ function dadosFornosPorModelo(eq){
     forno_quantidade:gas+eletrico,forno_esteiras:modelos.length&&modelos.every(m=>m===modelos[0])?modelos[0]||null:null};
 }
 
-const EQUIPAMENTOS_VARIANTES=[['freezer_horizontal','Freezer Horizontal'],['freezer_vertical','Freezer Vertical'],['expositor','Expositor'],['mini_camara','Mini câmara'],['armario_completo','Armário Completo'],['armario_vazio','Armário Vazio'],['armario_esqueleto','Esqueleto'],['camara_20','Câmara Climática 20 Esteiras'],['camara_40','Câmara Climática 40 Esteiras']];
+const EQUIPAMENTOS_VARIANTES=[['forno_queijo','Forno Titan Pão de Queijo'],['freezer_horizontal','Freezer Horizontal'],['freezer_vertical','Freezer Vertical'],['expositor','Expositor'],['mini_camara','Mini câmara'],['armario_completo','Armário Completo'],['armario_vazio','Armário Vazio'],['armario_esqueleto','Esqueleto'],['camara_20','Câmara Climática 20 Esteiras'],['camara_40','Câmara Climática 40 Esteiras']];
 function itensEquipamentosFicha(f,condicaoFinal){
   const c=(condicaoFinal||f.equipamento_condicao_manutencao||f.equipamento_condicao||'').toUpperCase(),a=[];
   for(const forno of fornosDaFicha(f))a.push({quantidade:forno.quantidade,
@@ -5519,6 +5519,7 @@ const EQUIPAMENTOS_PADRAO = [
   'Forno a Gás - 8 Esteiras',
   'Forno Elétrico - 5 Esteiras',
   'Forno Elétrico - 8 Esteiras',
+  'Forno Titan Pão de Queijo',
   'Freezer Horizontal',
   'Freezer Vertical',
   'Freezer Expositor',

@@ -97,7 +97,7 @@ function PaginaViabilidadeFinanceira({profile}){
   const itens=Object.entries(f.equipamentos_quantidades||{})
     .filter(([k,v])=>!k.endsWith('_esteiras')&&Number(v)>0)
     .map(([k,v])=>({chave:k,qtd:Number(v),valor:anteriores.find(x=>x.chave===k)?.valor??MC_CUSTOS_TABARATO[k]??''}));
-  if(!itens.some(x=>x.chave.startsWith('forno'))&&Number(f.forno_quantidade)>0)
+  if(!itens.some(x=>x.chave.startsWith('forno')&&x.chave!=='forno_queijo')&&Number(f.forno_quantidade)>0)
    itens.push({chave:'forno',qtd:Number(f.forno_quantidade),valor:anteriores.find(x=>x.chave==='forno')?.valor??MC_CUSTOS_TABARATO.forno});
   for(const [chave,coluna] of [['esteiras','esteiras_quantidade'],['assadeiras','assadeiras_quantidade']]){
    const qtd=Number(f[coluna])||0;
@@ -233,7 +233,7 @@ function PaginaViabilidadeFinanceira({profile}){
  const equipamentos=h('div',{className:'card'},h('h3',null,'Equipamentos quantificados na Ficha'),
   !equip.length&&h('p',null,'Nenhum equipamento quantificado na Ficha.'),
   ...equip.map((x,i)=>h('div',{key:x.chave,style:{display:'flex',gap:10,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
-   h('span',{style:{flex:1}},(x.chave==='armario_esqueleto'?'esqueleto':x.chave.replace(/_/g,' '))+' · '+x.qtd+' un.'),
+   h('span',{style:{flex:1}},(x.chave==='armario_esqueleto'?'esqueleto':x.chave==='forno_queijo'?'forno titan pão de queijo':x.chave.replace(/_/g,' '))+' · '+x.qtd+' un.'),
    h('input',{className:'form-input',type:'number',min:0,step:'0.01',value:x.valor,placeholder:'Custo unitário R$',
     onChange:e=>setEquip(a=>a.map((z,j)=>i===j?{...z,valor:e.target.value}:z))}),
    h('b',null,x.valor===''?'A precificar':dinheiro(x.qtd*Number(x.valor))))),
