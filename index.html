@@ -655,8 +655,11 @@ function menuForModulo(modulo, papel, papelReal=papel) {
     const itens=[
       {id:'dashboard',label:'Dashboard',icon:'◳'},{id:'emissao',label:'Cadastro de Ficha',icon:'+'},
       {id:'clientes',label:'Clientes',icon:'☺'},{id:'solicitacoes',label:'Solicitações',icon:'⚒'},
-      {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'}];
-    return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin');
+      {id:'pendencias',label:'Pendências',icon:'⚑'},{id:'fichas',label:'Fichas',icon:'≡'},
+      {id:'visitas_tecnicas_vendas',label:'Visitas Técnicas',icon:'▦'}];
+    return itens.filter(x=>x.id!=='emissao'||papel==='vendedor'||papel==='admin')
+      // Consulta das visitas técnicas da carteira: só Vendedor, Supervisor e Coordenador (e Administrador).
+      .filter(x=>x.id!=='visitas_tecnicas_vendas'||['vendedor','supervisor','coordenador','admin'].includes(papel));
   }
   if(modulo==='administracao_vendas') return [
     {id:'dashboard',label:'Dashboard',icon:'◳'},
@@ -6767,6 +6770,107 @@ function PaginaRelatoriosAdmin({profile}){
       h('div',null,filtrados.length+' usuário(s) selecionado(s).'),
       h('button',{className:'btn btn-primary',disabled:carregando,onClick:exportar},carregando?'Carregando...':'Exportar Excel (.xlsx)')));
 }
+// Módulo Vendas — consulta das visitas técnicas dos clientes da carteira. Somente leitura:
+// os dados vêm de funções de consulta do banco (mc_vendas_visitas_tecnicas / _relatorio).
+function PaginaVisitasTecnicasVendas({profile,visao}){
+  const toast=useToast();
+  const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const [inicio,setInicio]=useState(()=>iso(new Date(Date.now()-30*86400000)));
+  const [fim,setFim]=useState(()=>iso(new Date(Date.now()+14*86400000)));
+  const [visitas,setVisitas]=useState(null);
+  const [erro,setErro]=useState('');
+  const [busca,setBusca]=useState('');
+  const [status,setStatus]=useState('');
+  const [detalhe,setDetalhe]=useState(null);
+  const [relatorio,setRelatorio]=useState(undefined); // undefined = carregando; null = sem relatório
+  const papel=profile.papel==='admin'&&visao?visao:profile.papel;
+  const mostraVendedor=papel!=='vendedor';
+  async function carregar(){
+    if(!inicio||!fim)return toast('Informe a data inicial e a final.','error');
+    if(inicio>fim)return toast('A data inicial deve ser anterior à final.','error');
+    setVisitas(null);setErro('');
+    const {data,error}=await sb.rpc('mc_vendas_visitas_tecnicas',{p_inicio:inicio,p_fim:fim});
+    if(error){setVisitas([]);setErro(/mc_vendas_visitas_tecnicas|schema cache/i.test(error.message)
+      ?'Consulta de visitas técnicas ainda não instalada no banco (migração 20261127_vendas_visitas_tecnicas).':error.message);return;}
+    setVisitas(Array.isArray(data)?data:[]);
+  }
+  useEffect(()=>{carregar();},[profile.id]);
+  async function abrir(v){
+    setDetalhe(v);setRelatorio(undefined);
+    if(!v.tem_relatorio){setRelatorio(null);return;}
+    const {data,error}=await sb.rpc('mc_vendas_visita_tecnica_relatorio',{p_visita_id:v.id});
+    if(error){toast('Não foi possível carregar o relatório: '+error.message,'error');setRelatorio(null);return;}
+    setRelatorio(data||null);
+  }
+  const ROTULO_STATUS={agendada:'Agendada',em_andamento:'Em atendimento',concluida:'Concluída'};
+  const BADGE_STATUS={agendada:'badge-blue',em_andamento:'badge-yellow',concluida:'badge-green'};
+  const situacao=v=>v.checkout_em||v.status==='concluida'?'concluida':v.checkin_em||v.status==='em_andamento'?'em_andamento':'agendada';
+  const tipo=v=>v.tipo_atendimento==='treinamento'?'Treinamento':'Produção';
+  const hora=v=>String(v.hora_inicio||'').slice(0,5);
+  const dataHora=x=>x?new Date(x).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):null;
+  const dia=x=>x?String(x).slice(0,10).split('-').reverse().join('/'):'—';
+  const nomeCliente=v=>(v.codigo_totvs?v.codigo_totvs+' — ':'')+(v.razao_social||v.nome_fantasia||'Cliente');
+  const termo=busca.trim().toLowerCase();
+  const lista=(visitas||[]).filter(v=>(!status||situacao(v)===status)&&(!termo||
+    [v.razao_social,v.nome_fantasia,v.codigo_totvs,v.tecnico_nome,v.vendedor_nome,v.cidade].some(x=>String(x||'').toLowerCase().includes(termo))));
+  const total=k=>(visitas||[]).filter(v=>situacao(v)===k).length;
+  const CAMPOS_RELATORIO=[['servico_prestado','Serviço prestado'],['orientacao','Orientação'],['tipo_producao','Tipos de produção'],
+    ['relato_execucao','Relato de execução'],['objetivo_treinamento','Objetivo do treinamento'],['colaborador_treinamento','Colaborador treinado'],
+    ['treinou_mais_de_um','Treinou mais de um colaborador'],['avaliacao_equipe','Avaliação da equipe'],['resultado_treinamento','Resultado do treinamento'],
+    ['apto_equipamentos','Apto a operar os equipamentos'],['equipamentos','Equipamentos'],['logistica','Logística'],
+    ['sugestao_melhoria','Sugestões de melhoria'],['observacoes','Observações'],['responsavel_nome','Responsável no cliente']];
+  return h('div',null,
+    h('div',{className:'page-head'},h('div',null,
+      h('div',{className:'page-title'},'Visitas Técnicas'),
+      h('div',{className:'page-sub'},'Consulta das visitas técnicas aos clientes da sua carteira. Somente visualização.'))),
+    h('div',{className:'card',style:{marginBottom:14}},
+      h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}},
+        h(Campo,{label:'De'},h('input',{className:'form-input',type:'date',value:inicio,onChange:e=>setInicio(e.target.value)})),
+        h(Campo,{label:'Até'},h('input',{className:'form-input',type:'date',value:fim,onChange:e=>setFim(e.target.value)})),
+        h('button',{className:'btn btn-primary',disabled:visitas===null,style:{marginBottom:14},onClick:carregar},visitas===null?'Carregando...':'Atualizar'),
+        h(Campo,{label:'Situação'},h('select',{className:'form-select',value:status,onChange:e=>setStatus(e.target.value)},
+          h('option',{value:''},'Todas'),Object.keys(ROTULO_STATUS).map(k=>h('option',{key:k,value:k},ROTULO_STATUS[k])))),
+        h(Campo,{label:'Buscar'},h('input',{className:'form-input',placeholder:'Cliente, código TOTVS, técnico'+(mostraVendedor?', vendedor':''),value:busca,onChange:e=>setBusca(e.target.value)}))),
+      visitas!==null&&!erro&&h('div',{className:'page-sub'},
+        lista.length+' de '+visitas.length+' visita(s) no período · '+total('agendada')+' agendada(s) · '+total('em_andamento')+' em atendimento · '+total('concluida')+' concluída(s)')),
+    erro&&h('div',{className:'card',style:{borderColor:'#fca5a5',background:'#fef2f2',color:'#991b1b'}},h('strong',null,'Não foi possível carregar as visitas'),h('div',{style:{fontSize:12,marginTop:6}},erro)),
+    visitas===null?h('div',{className:'card'},'Carregando...'):
+    !erro&&(lista.length===0
+      ? h('div',{className:'card'},h(Empty,{icon:'▦',texto:visitas.length?'Nenhuma visita com esses filtros.':'Nenhuma visita técnica aos seus clientes neste período.'}))
+      : h('div',{className:'card',style:{padding:0}},h('div',{className:'table-wrap'},h('table',null,
+          h('thead',null,h('tr',null,['Data','Hora','Cliente','Cidade','Técnico',...(mostraVendedor?['Vendedor']:[]),'Tipo','Situação'].map(c=>h('th',{key:c},c)))),
+          h('tbody',null,lista.map(v=>h('tr',{key:v.id,style:{cursor:'pointer'},onClick:()=>abrir(v)},
+            h('td',{className:'mono'},dia(v.data_visita)),
+            h('td',{className:'mono'},hora(v)||'—'),
+            h('td',{className:'strong'},nomeCliente(v)),
+            h('td',null,(v.cidade||'—')+(v.estado?'/'+v.estado:'')),
+            h('td',null,v.tecnico_nome||'—'),
+            mostraVendedor&&h('td',null,v.vendedor_nome||'—'),
+            h('td',null,tipo(v)),
+            h('td',null,h('span',{className:'badge '+BADGE_STATUS[situacao(v)]},ROTULO_STATUS[situacao(v)]))))))))),
+    detalhe&&h(Modal,{titulo:'Visita técnica',sub:nomeCliente(detalhe),largo:true,onClose:()=>setDetalhe(null),
+      acoes:h('button',{className:'btn btn-secondary',onClick:()=>setDetalhe(null)},'Fechar')},
+      h('div',{className:'info-grid'},
+        linhaInfo('Nome fantasia',detalhe.nome_fantasia),
+        linhaInfo('Cidade',(detalhe.cidade||'')+(detalhe.estado?'/'+detalhe.estado:'')),
+        linhaInfo('Vendedor',detalhe.vendedor_nome),
+        linhaInfo('Técnico',detalhe.tecnico_nome),
+        linhaInfo('Tipo',tipo(detalhe)),
+        linhaInfo('Situação',ROTULO_STATUS[situacao(detalhe)]),
+        linhaInfo('Data prevista',dia(detalhe.data_visita)+(hora(detalhe)?' às '+hora(detalhe):'')),
+        linhaInfo('Duração prevista',detalhe.duracao_min?detalhe.duracao_min+' min':null),
+        linhaInfo('Check-in',dataHora(detalhe.checkin_em)),
+        linhaInfo('Check-out',dataHora(detalhe.checkout_em)),
+        linhaInfo('Objetivo',detalhe.objetivo)),
+      h('div',{style:{marginTop:15}},h('div',{className:'section-title'},'Relatório do atendimento'),
+        relatorio===undefined?h('div',{className:'page-sub'},'Carregando relatório...'):
+        relatorio===null?h('div',{className:'page-sub'},situacao(detalhe)==='concluida'?'Relatório não disponível para esta visita.':'O relatório é preenchido pelo técnico no checkout.'):
+        h('div',{className:'info-grid'},
+          ...CAMPOS_RELATORIO.map(([k,l])=>linhaInfo(l,relatorio[k])),
+          linhaInfo('Fotos registradas',relatorio.qtd_fotos?String(relatorio.qtd_fotos):null))),
+      h('div',{className:'page-sub',style:{marginTop:12}},'Consulta apenas. Agendamento, check-in e relatório são feitos pela equipe técnica.')));
+}
+
 function PaginaRelatoriosVisitas({profile,visao}){
   const toast=useToast();
   const [visitas,setVisitas]=useState([]);
@@ -12914,6 +13018,7 @@ function App() {
   else if (paginaAtual === 'logistica_equipamentos') conteudo=h(PaginaExecucaoEquipamentos,{setor:'logistica'});
   else if (paginaAtual === 'rotas') conteudo = h(PaginaRotas, { profile, visao });
   else if (paginaAtual === 'visitas_tecnicas') conteudo = h(PaginaVisitasTecnicas, { profile, visao });
+  else if (paginaAtual === 'visitas_tecnicas_vendas') conteudo = h(PaginaVisitasTecnicasVendas,{profile,visao});
   else if (paginaAtual === 'clientes_visita_tecnica') conteudo = h(ClientesVisitaTecnica,{profile,visao});
   else if (paginaAtual === 'relatorios_visitas') conteudo = h(PaginaRelatoriosVisitas,{profile,visao});
   else if (paginaAtual === 'relatorios_admin') conteudo = h(PaginaRelatoriosAdmin,{profile});
