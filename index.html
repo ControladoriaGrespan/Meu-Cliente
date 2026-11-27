@@ -6857,7 +6857,12 @@ function PaginaGestaoCarteiras({profile}){
       setLinhas([]);setArquivo('');setMotivo('');
       toast(feitos+' vínculos atualizados.','success');
       await carregarBase();
-    }catch(e){setAviso('Operação interrompida após '+feitos+' atualizações. '+(e.message||e)+'. Atualize a prévia antes de tentar novamente.');}
+    }catch(e){
+      const semFuncao=/carteira_aplicar_lote|schema cache/i.test(String(e.message||e));
+      const texto=semFuncao?'A troca de carteira ainda não está instalada no banco (migração 20261109_gestao_carteiras). Nenhum cliente foi alterado.'
+        :'Operação interrompida após '+feitos+' atualizações. '+(e.message||e)+'. Atualize a prévia antes de tentar novamente.';
+      setAviso(texto);toast(texto,'error');
+    }
     finally{setAplicando(false);}
   }
   const ativos=usuarios.filter(u=>u.papel==='vendedor'&&u.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome));
