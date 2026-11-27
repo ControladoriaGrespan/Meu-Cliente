@@ -9696,7 +9696,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const agendasDevolvidas=lider?agendasParaAprovar.filter(a=>a.status==='devolvida'&&a.origem_papel==='lider_tec_panificacao'&&a.lider_id===profile.id):[];
   const minhaFilaAgendas=agendasParaAprovar.filter(a=>a.status==='pendente'&&(
     (supervisor&&a.origem_papel==='lider_tec_panificacao'&&a.supervisor_id===profile.id) ||
-    (papelVisao==='coordenador_tec_panificacao'&&a.origem_papel==='supervisor_tec_panificacao'&&a.coordenador_id===profile.id) || adminReal));
+    papelVisao==='coordenador_tec_panificacao' || adminReal));
   function abrirAgendaParaRevisao(a){
     // O deslocamento de semana permite revisar agendas de semanas futuras
     // sem aprovar às cegas. A ação de aprovação permanece na fila.
@@ -9879,7 +9879,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
         h('button',{className:'btn btn-secondary btn-sm',disabled:carregando,onClick:carregar},'Atualizar pendências')),
       h('p',{className:'page-sub'},adminReal?'Administrador · todas as agendas aguardando aprovação.':supervisor
         ?'Agendas enviadas pelos Líderes Técnicos da sua equipe.'
-        :'Agendas enviadas pelos Supervisores Técnicos vinculados a você.'),
+        :'Coordenador Técnico · todas as agendas técnicas aguardando aprovação (de Líderes e de Supervisores).'),
       !minhaFilaAgendas.length&&h('p',{style:{fontSize:12,color:'var(--text-muted)'}},'Nenhuma agenda aguardando sua aprovação.'),
       ...minhaFilaAgendas.map(a=>h('div',{key:a.id,style:{padding:'12px 0',borderTop:'1px solid var(--border)'}},
         h('div',{style:{fontWeight:700}},'Semana '+a.semana_inicio+' · '+(usuariosPorId[a.tecnico_id]?.nome||'Participante')),
@@ -10008,7 +10008,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
               ((lider&&agendaAtual.origem_papel==='lider_tec_panificacao'&&agendaAtual.lider_id===profile.id)||
                (supervisor&&agendaAtual.origem_papel==='supervisor_tec_panificacao'&&agendaAtual.supervisor_id===profile.id)||adminReal)&&h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'enviar')},'Enviar semana para aprovação'),
             ((supervisor&&agendaAtual?.origem_papel==='lider_tec_panificacao'&&agendaAtual?.supervisor_id===profile.id)||
-              (papelVisao==='coordenador_tec_panificacao'&&agendaAtual?.origem_papel==='supervisor_tec_panificacao'&&agendaAtual?.coordenador_id===profile.id)||adminReal)&&
+              papelVisao==='coordenador_tec_panificacao'||adminReal)&&
               agendaAtual?.status==='pendente'&&h('div',{style:{display:'flex',gap:6}},
               h('button',{className:'btn btn-primary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'aprovar')},'Aprovar semana'),
               h('button',{className:'btn btn-secondary btn-sm',disabled:salvando,onClick:()=>tramitarAgenda(agendaAtual.id,'devolver')},'Devolver para ajustes')),
