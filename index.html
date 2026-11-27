@@ -6770,6 +6770,42 @@ function PaginaRelatoriosAdmin({profile}){
       h('div',null,filtrados.length+' usuário(s) selecionado(s).'),
       h('button',{className:'btn btn-primary',disabled:carregando,onClick:exportar},carregando?'Carregando...':'Exportar Excel (.xlsx)')));
 }
+const VT_CAMPOS_TREINAMENTO=[['objetivo_treinamento','1) Objetivo do treinamento *','texto','Objetivo do treinamento'],['colaborador_treinamento','2) Colaborador em treinamento *','texto','Colaborador em treinamento'],['treinou_mais_de_um','3) Treinou mais de um colaborador? *','simnao','Treinou mais de um colaborador?'],['avaliacao_equipe','4) Avaliação da equipe','texto','Avaliação da equipe'],['resultado_treinamento','5) Resultado do treinamento *','texto','Resultado do treinamento'],['sugestao_melhoria','6) Sugestão de melhoria','texto','Sugestão de melhoria'],['apto_equipamentos','7) Cliente está apto a usar os equipamentos — realizou treinamento de forno e climática? *','simnao','Cliente apto a usar os equipamentos (treinamento de forno e climática)'],['logistica','8) Logística','texto','Logística']];
+// PDF do relatório de visita técnica (texto, fotos e assinatura). Usado pela equipe técnica e,
+// em consulta, pelo módulo Vendas. r = conteúdo do relatório; v = visita com v.clientes.
+function gerarPdfRelatorioVisita(r,v,tecnicoNome){
+  const c=v.clientes||{},doc=new window.jspdf.jsPDF(),W=210;
+  const novaPagina=()=>{doc.addPage();y=22;doc.setTextColor(30,36,44);};
+  let y=22;
+  const verificar=h=>{if(y+h>277)novaPagina();};
+  doc.setFillColor(190,30,38);doc.rect(0,0,W,12,'F');
+  doc.setTextColor(30,36,44);doc.setFont('helvetica','bold');logoGrespanPDF(doc,14,16,11);
+  doc.setFontSize(11);doc.text(r.tipo_formulario==='treinamento'?'RELATÓRIO DE TREINAMENTO TÉCNICO':'RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
+  const secao=t=>{verificar(16);doc.setFillColor(242,243,245);doc.rect(14,y-5,182,10,'F');doc.setTextColor(150,25,32);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(t,18,y+1);y+=13;};
+  const linha=(label,val)=>{
+    const texto=String(val??'—');verificar(12);
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(30,36,44);
+    doc.text(label+':',16,y);y+=5;
+    doc.setFont('helvetica','normal');doc.setFontSize(9);
+    const linhas=doc.splitTextToSize(texto,176);
+    linhas.forEach(t=>{
+      verificar(7);
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(30,36,44);
+      doc.text(String(t),18,y);y+=5;
+    });
+    y+=5;
+  };
+  secao('CLIENTE');linha('Razão social',c.razao_social||c.nome_fantasia);linha('Código TOTVS',c.codigo_totvs);linha('Endereço',enderecoVisita(v));
+  secao('ATENDIMENTO');linha('Técnico responsável',tecnicoNome);linha('Data',v.data_visita);linha('Check-in',v.checkin_em?new Date(v.checkin_em).toLocaleString('pt-BR'):'');linha('Check-out',v.checkout_em?new Date(v.checkout_em).toLocaleString('pt-BR'):'');
+  const campos=r.tipo_formulario==='treinamento'?[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],...VT_CAMPOS_TREINAMENTO.map((c,i)=>[(i+1)+') '+c[3],c[0]])]:[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
+  secao(r.tipo_formulario==='treinamento'?'TREINAMENTO TÉCNICO (EQUIPE TÉCNICA)':'RELATÓRIO DE EXECUÇÃO');campos.forEach(([l,k])=>linha(l,r[k]));
+  if(r.imagens?.length){secao('REGISTRO FOTOGRÁFICO');for(const foto of r.imagens){try{const tipo=foto.dados.startsWith('data:image/png')?'PNG':'JPEG';verificar(77);doc.addImage(foto.dados,tipo,18,y,90,65,undefined,'FAST');y+=73;}catch(e){linha('Foto',foto.nome+' (não foi possível incluir no PDF)');}}}
+  secao('ASSINATURA DO RESPONSÁVEL');linha('Nome',r.responsavel_nome);
+  if(r.assinatura){verificar(38);doc.addImage(r.assinatura,'PNG',18,y,145,32);y+=36;}
+  doc.setFontSize(8);doc.setTextColor(100);doc.text('GRESPAN · Registro eletrônico de visita técnica',14,289);
+  doc.save('grespan-visita-'+(c.codigo_totvs||v.id)+'.pdf');
+}
+
 // Módulo Vendas — consulta das visitas técnicas dos clientes da carteira. Somente leitura:
 // os dados vêm de funções de consulta do banco (mc_vendas_visitas_tecnicas / _relatorio).
 function PaginaVisitasTecnicasVendas({profile,visao}){
@@ -6801,6 +6837,19 @@ function PaginaVisitasTecnicasVendas({profile,visao}){
     const {data,error}=await sb.rpc('mc_vendas_visita_tecnica_relatorio',{p_visita_id:v.id});
     if(error){toast('Não foi possível carregar o relatório: '+error.message,'error');setRelatorio(null);return;}
     setRelatorio(data||null);
+  }
+  const [gerandoPdf,setGerandoPdf]=useState(false);
+  async function baixarPdf(v){
+    if(!window.jspdf?.jsPDF)return toast('Biblioteca PDF indisponível.','error');
+    setGerandoPdf(true);
+    try{
+      const {data,error}=await sb.rpc('mc_vendas_visita_tecnica_pdf',{p_visita_id:v.id});
+      if(error)throw new Error(/mc_vendas_visita_tecnica_pdf|schema cache/i.test(error.message)
+        ?'PDF ainda não instalado no banco (migração 20261127_vendas_visita_tecnica_pdf).':error.message);
+      if(!data?.conteudo)return toast('O relatório assinado ainda não está disponível para esta visita.','error');
+      gerarPdfRelatorioVisita(data.conteudo,{...v,clientes:data.cliente||{codigo_totvs:v.codigo_totvs,razao_social:v.razao_social,nome_fantasia:v.nome_fantasia,cidade:v.cidade,estado:v.estado}},v.tecnico_nome);
+    }catch(e){toast('Não foi possível gerar o PDF: '+e.message,'error');}
+    finally{setGerandoPdf(false);}
   }
   const ROTULO_STATUS={agendada:'Agendada',em_andamento:'Em atendimento',concluida:'Concluída'};
   const BADGE_STATUS={agendada:'badge-blue',em_andamento:'badge-yellow',concluida:'badge-green'};
@@ -6849,7 +6898,9 @@ function PaginaVisitasTecnicasVendas({profile,visao}){
             h('td',null,tipo(v)),
             h('td',null,h('span',{className:'badge '+BADGE_STATUS[situacao(v)]},ROTULO_STATUS[situacao(v)]))))))))),
     detalhe&&h(Modal,{titulo:'Visita técnica',sub:nomeCliente(detalhe),largo:true,onClose:()=>setDetalhe(null),
-      acoes:h('button',{className:'btn btn-secondary',onClick:()=>setDetalhe(null)},'Fechar')},
+      acoes:h(React.Fragment,null,
+        detalhe.tem_relatorio&&h('button',{className:'btn btn-primary',disabled:gerandoPdf,onClick:()=>baixarPdf(detalhe)},gerandoPdf?'Gerando PDF...':'Baixar PDF com fotos'),
+        h('button',{className:'btn btn-secondary',onClick:()=>setDetalhe(null)},'Fechar'))},
       h('div',{className:'info-grid'},
         linhaInfo('Nome fantasia',detalhe.nome_fantasia),
         linhaInfo('Cidade',(detalhe.cidade||'')+(detalhe.estado?'/'+detalhe.estado:'')),
@@ -6867,7 +6918,7 @@ function PaginaVisitasTecnicasVendas({profile,visao}){
         relatorio===null?h('div',{className:'page-sub'},situacao(detalhe)==='concluida'?'Relatório não disponível para esta visita.':'O relatório é preenchido pelo técnico no checkout.'):
         h('div',{className:'info-grid'},
           ...CAMPOS_RELATORIO.map(([k,l])=>linhaInfo(l,relatorio[k])),
-          linhaInfo('Fotos registradas',relatorio.qtd_fotos?String(relatorio.qtd_fotos):null))),
+          linhaInfo('Fotos registradas',relatorio.qtd_fotos?relatorio.qtd_fotos+' (disponíveis no PDF)':null))),
       h('div',{className:'page-sub',style:{marginTop:12}},'Consulta apenas. Agendamento, check-in e relatório são feitos pela equipe técnica.')));
 }
 
@@ -8881,7 +8932,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
   const [assinaturaValida,setAssinaturaValida]=useState(false);
   const novoFechamento=v=>({visita_id:v.id,servico_prestado:v.objetivo||'',orientacao:'',relato_execucao:'',vendedor_responsavel:'',equipamentos:'',logistica:'',sugestao_melhoria:'',observacoes:'',tipo_producao:'',responsavel_nome:''});
   // Check-out de Treinamento técnico (equipe técnica): itens 1 a 8 do modelo; fotos (9) e responsável (10) são comuns aos dois formulários.
-  const CAMPOS_TREINAMENTO=[['objetivo_treinamento','1) Objetivo do treinamento *','texto','Objetivo do treinamento'],['colaborador_treinamento','2) Colaborador em treinamento *','texto','Colaborador em treinamento'],['treinou_mais_de_um','3) Treinou mais de um colaborador? *','simnao','Treinou mais de um colaborador?'],['avaliacao_equipe','4) Avaliação da equipe','texto','Avaliação da equipe'],['resultado_treinamento','5) Resultado do treinamento *','texto','Resultado do treinamento'],['sugestao_melhoria','6) Sugestão de melhoria','texto','Sugestão de melhoria'],['apto_equipamentos','7) Cliente está apto a usar os equipamentos — realizou treinamento de forno e climática? *','simnao','Cliente apto a usar os equipamentos (treinamento de forno e climática)'],['logistica','8) Logística','texto','Logística']];
+  const CAMPOS_TREINAMENTO=VT_CAMPOS_TREINAMENTO;
   const novoFechamentoTreinamento=v=>({visita_id:v.id,tipo_formulario:'treinamento',servico_prestado:v.objetivo||'Treinamento técnico - equipe técnica',orientacao:'',objetivo_treinamento:'',colaborador_treinamento:'',treinou_mais_de_um:'',avaliacao_equipe:'',resultado_treinamento:'',sugestao_melhoria:'',apto_equipamentos:'',logistica:'',responsavel_nome:''});
   const abrirFechamento=v=>{setVisitaAberta(null);setFechamento(v.tipo_atendimento==='treinamento'?novoFechamentoTreinamento(v):novoFechamento(v));setFotosFechamento([]);assinaturaMarcada.current=false;setAssinaturaValida(false);};
   const alterarFechamento=(campo,valor)=>setFechamento(x=>({...x,[campo]:valor}));
@@ -9491,36 +9542,7 @@ function PaginaVisitasTecnicas({ profile, visao }) {
     const {data:registro,error}=await sb.from('vt_relatorios').select('conteudo').eq('visita_id',v.id).maybeSingle();
     if(error)return toast('Erro ao carregar relatório: '+error.message,'error');
     if(!registro?.conteudo)return toast('O relatório assinado ainda não está disponível para esta visita.','error');
-    const r=registro.conteudo,c=v.clientes||{},doc=new window.jspdf.jsPDF(),W=210;
-    const novaPagina=()=>{doc.addPage();y=22;doc.setTextColor(30,36,44);};
-    let y=22;
-    const verificar=h=>{if(y+h>277)novaPagina();};
-    doc.setFillColor(190,30,38);doc.rect(0,0,W,12,'F');
-    doc.setTextColor(30,36,44);doc.setFont('helvetica','bold');logoGrespanPDF(doc,14,16,11);
-    doc.setFontSize(11);doc.text(r.tipo_formulario==='treinamento'?'RELATÓRIO DE TREINAMENTO TÉCNICO':'RELATÓRIO DE VISITA TÉCNICA',14,35);y=45;
-    const secao=t=>{verificar(16);doc.setFillColor(242,243,245);doc.rect(14,y-5,182,10,'F');doc.setTextColor(150,25,32);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(t,18,y+1);y+=13;};
-    const linha=(label,val)=>{
-      const texto=String(val??'—');verificar(12);
-      doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(30,36,44);
-      doc.text(label+':',16,y);y+=5;
-      doc.setFont('helvetica','normal');doc.setFontSize(9);
-      const linhas=doc.splitTextToSize(texto,176);
-      linhas.forEach(t=>{
-        verificar(7);
-        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(30,36,44);
-        doc.text(String(t),18,y);y+=5;
-      });
-      y+=5;
-    };
-    secao('CLIENTE');linha('Razão social',c.razao_social||c.nome_fantasia);linha('Código TOTVS',c.codigo_totvs);linha('Endereço',enderecoVisita(v));
-    secao('ATENDIMENTO');linha('Técnico responsável',usuariosPorId[v.tecnico_id]?.nome);linha('Data',v.data_visita);linha('Check-in',v.checkin_em?new Date(v.checkin_em).toLocaleString('pt-BR'):'');linha('Check-out',v.checkout_em?new Date(v.checkout_em).toLocaleString('pt-BR'):'');
-    const campos=r.tipo_formulario==='treinamento'?[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],...CAMPOS_TREINAMENTO.map((c,i)=>[(i+1)+') '+c[3],c[0]])]:[['Serviço prestado','servico_prestado'],['Orientação','orientacao'],['Relato de execução','relato_execucao'],['Vendedor responsável','vendedor_responsavel'],['Equipamentos','equipamentos'],['Logística','logistica'],['Sugestões de melhoria','sugestao_melhoria'],['Observações','observacoes'],['Tipos de produção','tipo_producao']];
-    secao(r.tipo_formulario==='treinamento'?'TREINAMENTO TÉCNICO (EQUIPE TÉCNICA)':'RELATÓRIO DE EXECUÇÃO');campos.forEach(([l,k])=>linha(l,r[k]));
-    if(r.imagens?.length){secao('REGISTRO FOTOGRÁFICO');for(const foto of r.imagens){try{const tipo=foto.dados.startsWith('data:image/png')?'PNG':'JPEG';verificar(77);doc.addImage(foto.dados,tipo,18,y,90,65,undefined,'FAST');y+=73;}catch(e){linha('Foto',foto.nome+' (não foi possível incluir no PDF)');}}}
-    secao('ASSINATURA DO RESPONSÁVEL');linha('Nome',r.responsavel_nome);
-    if(r.assinatura){verificar(38);doc.addImage(r.assinatura,'PNG',18,y,145,32);y+=36;}
-    doc.setFontSize(8);doc.setTextColor(100);doc.text('GRESPAN · Registro eletrônico de visita técnica',14,289);
-    doc.save('grespan-visita-'+(c.codigo_totvs||v.id)+'.pdf');
+    gerarPdfRelatorioVisita(registro.conteudo,v,usuariosPorId[v.tecnico_id]?.nome);
   };
   const nomes={agendada:'Agendado',atrasada:'Atrasado',checkin:'Em Atendimento',
     concluida:'Atendimento Finalizado',cancelada:'Cancelado',ultrapassada:'Ultrapassou horário'};
